@@ -1,3 +1,25 @@
+# 플라잉펜 말고 무조코 시뮬
+## 인스톨
+```bash
+cd <your workspace>/src
+git clone https://github.com/SEOSUK/mujoco_crazyflie --recursive
+git checkout dc17ebe9e43aaf840019c17780abf7dfd5e80219
+cd ..
+colcon build
+```
+
+## 실행 방법
+### 노드 실행
+```bash
+ros2 launch flyingpen_interface flyingpen.launch.py
+```
+### 위치 명령 전송
+```bash
+ros2 topic pub --once /crazyflie/in/pos_cmd std_msgs/msg/Float64MultiArray "{data:[x, y, z, yaw]}"
+```
+여기서 x, y, z, yaw에 각각 목표 위치[m] 및 yaw[rad] 입력
+
+
 # Flying Pen Simulation  
 ### From Gazebo to MuJoCo
 
@@ -24,23 +46,4 @@ such as the Flying Pen task.
 - Model and dynamics inspired by: **crazyflow**
 
 
-# 플라잉펜 말고 무조코 시뮬
-## 인스톨
 
-## 실행 방법
-```bash
-cd <your workspace>/src
-git clone https://github.com/SEOSUK/mujoco_crazyflie --recursive
-git checkout dc17ebe9e43aaf840019c17780abf7dfd5e80219
-cd ..
-colcon build
-```
-### 노드 실행
-```bash
-ros2 launch flyingpen_interface flyingpen.launch.py
-```
-### 위치 명령 전송
-```bash
-ros2 topic pub --once /crazyflie/in/pos_cmd std_msgs/msg/Float64MultiArray "{data:[x, y, z, yaw]}"
-```
-여기서 x, y, z, yaw에 각각 목표 위치[m] 및 yaw[rad] 입력
