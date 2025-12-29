@@ -5,18 +5,18 @@ low_level_controller:
     g: 9.81
 
     # limits
-    max_tilt_rad: 0.6108652382   # 35 deg
-    max_rate: 8.0                # rad/s
-    max_tau: 0.02                # N*m (or your normalized torque limit)
-    max_thrust: 1.0              # N (or your normalized thrust limit)
+    max_tilt_rad: 100. #0.6108652382   # 35 deg
+    max_rate: 100. #8.0                # rad/s
+    max_tau: 100. #0.02                # N*m (or your normalized torque limit)
+    max_thrust: 100. #rust limit)
 
     # ---------------- loop dt ----------------
     # NOTE: timer period(코드)과 dt_* 파라미터(제어식 dt)는 "동일하게" 맞추는 게 좋음
     dt:
       pos: 0.01       # 100 Hz
       vel: 0.01       # 100 Hz
-      att: 0.004      # 250 Hz
-      rate: 0.0025    # 400 Hz
+      att: 0.005      # 200 Hz
+      rate: 0.004    # 250 Hz
 
     # ---------------- gains ----------------
     # Position loop: pos error -> v_des

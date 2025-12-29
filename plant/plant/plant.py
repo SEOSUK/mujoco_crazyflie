@@ -16,11 +16,15 @@ import mujoco.viewer
 from geometry_msgs.msg import PoseStamped, Vector3Stamped
 from std_msgs.msg import Float32MultiArray
 
-PHYSICS_HZ = 400.0
+# -------------------- rates --------------------
+PHYSICS_HZ = 500.0          # MuJoCo integration rate
+PUB_HZ = 200.0              # ROS publish rate (decimated from physics)
+VIEWER_HZ = 60.0            # viewer sync rate (keep low to avoid blocking sim)
 
 
+# -------------------- math utils --------------------
 def quat_wxyz_to_xyzw(q_wxyz: np.ndarray) -> np.ndarray:
-    # MuJoCo free joint quaternion: (w, x, y, z)
+    # MuJoCo free joint quaternion: (w, x, y, z) -> ROS: (x, y, z, w)
     w, x, y, z = q_wxyz
     return np.array([x, y, z, w], dtype=float)
 
@@ -35,43 +39,41 @@ def rotmat_from_quat_wxyz(q: np.ndarray) -> np.ndarray:
     ], dtype=float)
 
 
+def quat_normalize_wxyz(q: np.ndarray) -> np.ndarray:
+    n = float(np.linalg.norm(q))
+    if n < 1e-12:
+        return np.array([1.0, 0.0, 0.0, 0.0], dtype=float)
+    return q / n
+
+
+# -------------------- Node --------------------
 class CrazyfliePlant(Node):
     """
     Sub:
       /crazyflie/in/input : Float32MultiArray [tau_x, tau_y, tau_z, Fz] (body frame)
 
     Pub:
-      /crazyflie/out/pose     : PoseStamped (world, quat)
-      /crazyflie/out/vel      : Vector3Stamped (world linear velocity)
-      /crazyflie/out/ang_vel  : Vector3Stamped (body angular velocity)
-      /crazyflie/out/acc      : Vector3Stamped (world linear acceleration)
-      /crazyflie/out/ang_acc  : Vector3Stamped (body angular acceleration)
+      /crazyflie/out/pose        : PoseStamped (world, quat)                  <-- UNFILTERED attitude (GT quat normalized)
+      /crazyflie/out/vel         : Vector3Stamped (world linear velocity)
+      /crazyflie/out/ang_vel     : Vector3Stamped (body angular velocity)     <-- RAW gyro (UNFILTERED)
+      /crazyflie/out/acc         : Vector3Stamped (world linear acceleration)
+      /crazyflie/out/ang_acc     : Vector3Stamped (body angular acceleration) <-- numerical diff of RAW gyro
+      /crazyflie/out/ang_vel_gt  : Vector3Stamped (body angular velocity)     <-- from qvel (UNFILTERED)
     """
 
     def __init__(self):
         super().__init__("mujoco_crazyflie_plant")
 
-        pkg_share = get_package_share_directory("plant")
-        xml_path = os.path.join(pkg_share, "data", "cf21B_500.xml")
-        self.get_logger().info(f"Loading MuJoCo model: {xml_path}")
+        # ---- params ----
+        self.declare_parameter("physics_hz", PHYSICS_HZ)
+        self.declare_parameter("pub_hz", PUB_HZ)
+        self.declare_parameter("viewer_hz", VIEWER_HZ)
 
-        self.model = mujoco.MjModel.from_xml_path(xml_path)
-        self.data = mujoco.MjData(self.model)
-        self.model.opt.timestep = 1.0 / PHYSICS_HZ
+        self.physics_hz = float(self.get_parameter("physics_hz").value)
+        self.pub_hz = float(self.get_parameter("pub_hz").value)
+        self.viewer_hz = float(self.get_parameter("viewer_hz").value)
 
-        # -------- IMU sensor ids --------
-        try:
-            self.imu_acc_sid = mujoco.mj_name2id(
-                self.model, mujoco.mjtObj.mjOBJ_SENSOR, "imu_acc"
-            )
-            self.get_logger().info("IMU accelerometer sensor found.")
-        except Exception:
-            self.imu_acc_sid = None
-            self.get_logger().warn("IMU accelerometer sensor NOT found.")
-
-        # Parameters for mixer (X config)
-        # Motor sites from your xml:
-        # motor0: (+a, -a), motor1: (-a, -a), motor2: (-a, +a), motor3: (+a, +a)
+        # Mixer params
         self.declare_parameter("arm_xy", 0.035355)  # meters
         self.declare_parameter("k_tau", 0.00594)    # yaw reaction torque per thrust [N·m / N]
         self.declare_parameter("motor_dir", [1.0, -1.0, 1.0, -1.0])  # +1/-1 spin direction
@@ -83,17 +85,24 @@ class CrazyfliePlant(Node):
         self.motor_dir = np.array(self.get_parameter("motor_dir").value, dtype=float)
         self.thrust_min = float(self.get_parameter("thrust_min").value)
         self.thrust_max = float(self.get_parameter("thrust_max").value)
-
         if self.motor_dir.shape[0] != 4:
             self.motor_dir = np.array([1.0, -1.0, 1.0, -1.0], dtype=float)
 
-        # Build physical allocation matrix B:
-        # [tau_x]   [ y0  y1  y2  y3 ] [f0]
-        # [tau_y] = [-x0 -x1 -x2 -x3 ] [f1]
-        # [tau_z]   [ d0k d1k d2k d3k] [f2]
-        # [ Fz  ]   [  1   1   1   1 ] [f3]
-        #
-        # with x,y = (+a,-a), (-a,-a), (-a,+a), (+a,+a)
+        # ---- MuJoCo model ----
+        pkg_share = get_package_share_directory("plant")
+        xml_path = os.path.join(pkg_share, "data", "cf21B_500.xml")
+        self.get_logger().info(f"Loading MuJoCo model: {xml_path}")
+
+        self.model = mujoco.MjModel.from_xml_path(xml_path)
+        self.data = mujoco.MjData(self.model)
+
+        self.model.opt.timestep = 1.0 / max(1e-9, self.physics_hz)
+
+        # ---- sensors ----
+        self.imu_acc_sid = self._sensor_id("imu_acc")
+        self.imu_gyro_sid = self._sensor_id("imu_gyro")
+
+        # ---- allocation matrix (X config) ----
         a = self.a
         x = np.array([+a, -a, -a, +a], dtype=float)
         y = np.array([-a, -a, +a, +a], dtype=float)
@@ -106,23 +115,19 @@ class CrazyfliePlant(Node):
             d * k,          # tau_z from reaction torque
             np.ones(4),     # Fz
         ]).astype(float)
-
-        # Precompute pseudo-inverse (4x4 invertible if k_tau != 0)
-        # Use pinv for numerical safety
         self.B_pinv = np.linalg.pinv(self.B)
 
-
-        # IO
+        # ---- input ----
         self.u = np.zeros(4, dtype=float)  # [tau_x, tau_y, tau_z, Fz]
 
+        # ---- threading ----
         self._lock = threading.Lock()
         self._stop = False
 
-        self._prev_t: Optional[float] = None
-        self._prev_linvel_W = None
-        self._prev_angvel_B = None
+        # ---- numerical diff state (RAW gyro) ----
+        self._prev_gyro_raw_B: Optional[np.ndarray] = None
 
-        # -------- actuator index lookup (by name) --------
+        # ---- actuators ----
         def _act_id(name: str) -> Optional[int]:
             try:
                 return mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, name)
@@ -131,73 +136,76 @@ class CrazyfliePlant(Node):
 
         self.act_force_ids = []
         self.act_torque_ids = []
-
         for i in range(4):
-            fid = _act_id(f"motor{i}_force")
-            tid = _act_id(f"motor{i}_torque")
-            self.act_force_ids.append(fid)
-            self.act_torque_ids.append(tid)
+            self.act_force_ids.append(_act_id(f"motor{i}_force"))
+            self.act_torque_ids.append(_act_id(f"motor{i}_torque"))
 
-        # Check availability
         if any(v is None or v < 0 for v in self.act_force_ids):
             self.get_logger().warn(
-                f"Could not find all motor*_force actuators by name. act_force_ids={self.act_force_ids}. "
-                "Will fall back to ctrl[0:4]."
+                f"Could not find all motor*_force actuators. act_force_ids={self.act_force_ids}. "
+                "Fallback to ctrl[0:4]."
             )
-
         if any(v is None or v < 0 for v in self.act_torque_ids):
             self.get_logger().warn(
-                f"Could not find all motor*_torque actuators by name. act_torque_ids={self.act_torque_ids}. "
-                "Reaction torque will NOT be applied unless torque actuators exist in XML."
+                f"Could not find all motor*_torque actuators. act_torque_ids={self.act_torque_ids}. "
+                "Reaction torque won't be applied unless torque actuators exist."
             )
         else:
             self.get_logger().info(f"Found torque actuators: {self.act_torque_ids}")
 
-
-
-        # ROS
+        # ---- ROS IO ----
         self.sub_input = self.create_subscription(
             Float32MultiArray, "/crazyflie/in/input", self.cb_input, 10
         )
 
         self.pub_pose = self.create_publisher(PoseStamped, "/crazyflie/out/pose", 10)
         self.pub_vel = self.create_publisher(Vector3Stamped, "/crazyflie/out/vel", 10)
-        self.pub_angvel = self.create_publisher(Vector3Stamped, "/crazyflie/out/ang_vel", 10)
+        self.pub_angvel = self.create_publisher(Vector3Stamped, "/crazyflie/out/ang_vel", 10)     # RAW gyro
         self.pub_acc = self.create_publisher(Vector3Stamped, "/crazyflie/out/acc", 10)
-        self.pub_angacc = self.create_publisher(Vector3Stamped, "/crazyflie/out/ang_acc", 10)
+        self.pub_angacc = self.create_publisher(Vector3Stamped, "/crazyflie/out/ang_acc", 10)    # diff of RAW gyro
+        self.pub_angvel_gt = self.create_publisher(Vector3Stamped, "/crazyflie/out/ang_vel_gt", 10)
 
-        # threads
+        # ---- threads start ----
         self.viewer_thread = threading.Thread(target=self.viewer_loop, daemon=True)
         self.sim_thread = threading.Thread(target=self.sim_loop, daemon=True)
         self.viewer_thread.start()
         self.sim_thread.start()
 
-        self.get_logger().info("Physical allocation enabled: tau_z is produced ONLY via k_tau*f_i.")
+        self.get_logger().info(
+            f"Running: physics={self.physics_hz:.1f}Hz, pub={self.pub_hz:.1f}Hz, viewer={self.viewer_hz:.1f}Hz"
+        )
+        self.get_logger().info("Fix applied: publish is STEP-BASED (no publish catch-up without mj_step).")
+        self.get_logger().info("LPF removed: publishing UNFILTERED attitude and RAW gyro.")
 
-    def read_imu_acc_world(self, quat_wxyz):
-        """
-        Returns world-frame linear acceleration from MuJoCo IMU.
-        """
-        if self.imu_acc_sid is None:
+    # ------------------------ helpers ------------------------
+    def _sensor_id(self, name: str) -> Optional[int]:
+        try:
+            sid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SENSOR, name)
+            self.get_logger().info(f"Sensor found: {name}")
+            return sid
+        except Exception:
+            self.get_logger().warn(f"Sensor NOT found: {name}")
+            return None
+
+    def _read_sensor_vec3(self, sid: Optional[int]) -> np.ndarray:
+        if sid is None:
             return np.zeros(3, dtype=float)
+        adr = int(self.model.sensor_adr[sid])
+        dim = int(self.model.sensor_dim[sid])  # expected 3
+        return np.array(self.data.sensordata[adr:adr + dim], dtype=float)
 
-        adr = self.model.sensor_adr[self.imu_acc_sid]
-        dim = self.model.sensor_dim[self.imu_acc_sid]
-
-        acc_B = np.array(
-            self.data.sensordata[adr:adr + dim], dtype=float
-        )  # body frame, includes gravity
-
-        # rotation: body -> world
+    # ------------------------ sensors ------------------------
+    def read_imu_acc_world(self, quat_wxyz: np.ndarray) -> np.ndarray:
+        # body accel includes gravity -> world accel = R*acc_B + g_W
+        acc_B = self._read_sensor_vec3(self.imu_acc_sid)
         R_BW = rotmat_from_quat_wxyz(quat_wxyz)
-
-        # world gravity (MuJoCo convention)
         g_W = np.array(self.model.opt.gravity, dtype=float)
+        return R_BW @ acc_B + g_W
 
-        # world linear acceleration
-        acc_W = R_BW @ acc_B + g_W
-        return acc_W
+    def read_imu_gyro_body(self) -> np.ndarray:
+        return self._read_sensor_vec3(self.imu_gyro_sid)
 
+    # ------------------------ ROS input ------------------------
     def cb_input(self, msg: Float32MultiArray):
         if len(msg.data) < 4:
             self.get_logger().warn("'/crazyflie/in/input' needs 4 floats: [tau_x, tau_y, tau_z, Fz]")
@@ -205,43 +213,28 @@ class CrazyfliePlant(Node):
         with self._lock:
             self.u[:] = np.array(msg.data[:4], dtype=float)
 
-    # ------------------------ Control Allocation (physical) ------------------------
+    # ------------------------ Control Allocation ------------------------
     def apply_control(self):
         tau_x, tau_y, tau_z, Fz = self.u
 
-        # Solve for motor thrusts
         w = np.array([tau_x, tau_y, tau_z, Fz], dtype=float)
-        f = self.B_pinv @ w  # (4,)
-
-        # clip thrusts to [min, max]
+        f = self.B_pinv @ w
         f_clip = np.clip(f, self.thrust_min, self.thrust_max)
 
-        if np.any(np.abs(f_clip - f) > 1e-9):
-            self.get_logger().warn(f"Thrust clipped. raw={f.tolist()} clipped={f_clip.tolist()}")
-
-        # ---------- apply thrust ----------
-        # Prefer actuator-name mapping if available
+        # apply thrust
         if all(v is not None and v >= 0 for v in self.act_force_ids):
             for i in range(4):
                 self.data.ctrl[self.act_force_ids[i]] = float(f_clip[i])
         else:
-            # fallback: assume first 4 actuators are motor forces
             self.data.ctrl[0:4] = f_clip
 
-        # ---------- apply reaction torque (per motor) ----------
-        # motor reaction torque per motor: tau_i = dir_i * k_tau * f_i
-        tau_m = self.motor_dir * self.k_tau * f_clip  # (4,)
-
+        # apply reaction torque per motor
+        tau_m = self.motor_dir * self.k_tau * f_clip
         if all(v is not None and v >= 0 for v in self.act_torque_ids):
             for i in range(4):
                 self.data.ctrl[self.act_torque_ids[i]] = float(tau_m[i])
-        else:
-            # If torque actuators do not exist, we cannot display motor*_torque nor generate yaw torque
-            # through actuator channels. (MuJoCo does not automatically add reaction torque.)
-            pass
 
-
-    # ------------------------ State publish ------------------------
+    # ------------------------ State read ------------------------
     def read_state(self):
         pos_W = np.array(self.data.qpos[0:3], dtype=float)
         quat_wxyz = np.array(self.data.qpos[3:7], dtype=float)
@@ -251,25 +244,26 @@ class CrazyfliePlant(Node):
 
         R_BW = rotmat_from_quat_wxyz(quat_wxyz)
         angvel_B = R_BW.T @ angvel_W
-
         return pos_W, quat_wxyz, linvel_W, angvel_B
 
-    def publish_outputs(self, now_wall: float):
-        pos_W, quat_wxyz, linvel_W, angvel_B = self.read_state()
+    # ------------------------ Publish (STEP-BASED) ------------------------
+    def publish_outputs(self, dt_sim: float):
+        pos_W, quat_wxyz_meas, linvel_W, angvel_B_gt = self.read_state()
 
-        # -------- linear acceleration from IMU --------
+        # use measured quat (normalized) for accel transform, and publish pose as normalized quat
+        quat_wxyz = quat_normalize_wxyz(quat_wxyz_meas)
+
         linacc_W = self.read_imu_acc_world(quat_wxyz)
+        gyro_B = self.read_imu_gyro_body()  # RAW
 
-        # -------- angular acceleration (keep numerical diff if you want) --------
-        if self._prev_t is None:
+        dt = max(1e-6, float(dt_sim))
+
+        # numerical derivative of RAW gyro (expect noisy)
+        if self._prev_gyro_raw_B is None:
             angacc_B = np.zeros(3, dtype=float)
         else:
-            dt = max(1e-6, now_wall - self._prev_t)
-            angacc_B = (angvel_B - self._prev_angvel_B) / dt
-
-        self._prev_t = now_wall
-        self._prev_linvel_W = linvel_W.copy()
-        self._prev_angvel_B = angvel_B.copy()
+            angacc_B = (gyro_B - self._prev_gyro_raw_B) / dt
+        self._prev_gyro_raw_B = gyro_B.copy()
 
         stamp = self.get_clock().now().to_msg()
 
@@ -297,10 +291,18 @@ class CrazyfliePlant(Node):
         w_msg = Vector3Stamped()
         w_msg.header.stamp = stamp
         w_msg.header.frame_id = "body"
-        w_msg.vector.x = float(angvel_B[0])
-        w_msg.vector.y = float(angvel_B[1])
-        w_msg.vector.z = float(angvel_B[2])
+        w_msg.vector.x = float(gyro_B[0])
+        w_msg.vector.y = float(gyro_B[1])
+        w_msg.vector.z = float(gyro_B[2])
         self.pub_angvel.publish(w_msg)
+
+        wgt_msg = Vector3Stamped()
+        wgt_msg.header.stamp = stamp
+        wgt_msg.header.frame_id = "body"
+        wgt_msg.vector.x = float(angvel_B_gt[0])
+        wgt_msg.vector.y = float(angvel_B_gt[1])
+        wgt_msg.vector.z = float(angvel_B_gt[2])
+        self.pub_angvel_gt.publish(wgt_msg)
 
         acc_msg = Vector3Stamped()
         acc_msg.header.stamp = stamp
@@ -320,34 +322,47 @@ class CrazyfliePlant(Node):
 
     # ------------------------ threads ------------------------
     def sim_loop(self):
-        next_step = time.perf_counter()
-        next_pub = next_step
+        dt = 1.0 / max(1e-9, self.physics_hz)
+        pub_decim = max(1, int(round(self.physics_hz / max(1e-9, self.pub_hz))))
+
+        step_count = 0
+        next_step_wall = time.perf_counter()
 
         while rclpy.ok() and not self._stop:
             now = time.perf_counter()
+            if now < next_step_wall:
+                time.sleep(next_step_wall - now)
+                continue
 
             with self._lock:
                 self.apply_control()
+                mujoco.mj_step(self.model, self.data)
+                step_count += 1
 
-                while now >= next_step:
-                    mujoco.mj_step(self.model, self.data)
-                    next_step += 1.0 / PHYSICS_HZ
+                # publish only on step boundaries (no publish catch-up)
+                if (step_count % pub_decim) == 0:
+                    self.publish_outputs(dt_sim=dt)
 
-                while now >= next_pub:
-                    self.publish_outputs(now_wall=now)
-                    next_pub += 1.0 / PHYSICS_HZ
-
-            sleep_t = next_step - time.perf_counter()
-            if sleep_t > 0:
-                time.sleep(sleep_t)
+            next_step_wall += dt
 
     def viewer_loop(self):
+        # keep viewer from stealing the sim lock too often
+        if self.viewer_hz <= 0:
+            return
+
+        viewer_dt = 1.0 / max(1e-9, self.viewer_hz)
         try:
             with mujoco.viewer.launch_passive(self.model, self.data) as viewer:
                 self.get_logger().info("MuJoCo viewer started (passive).")
                 while viewer.is_running() and rclpy.ok() and not self._stop:
+                    t0 = time.perf_counter()
                     with self._lock:
                         viewer.sync()
+                    t1 = time.perf_counter()
+                    # sleep to target viewer_hz
+                    sleep_t = viewer_dt - (t1 - t0)
+                    if sleep_t > 0:
+                        time.sleep(sleep_t)
         except Exception as e:
             self.get_logger().warn(f"viewer end: {e}")
 

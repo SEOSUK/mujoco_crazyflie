@@ -4,6 +4,7 @@
 #include <geometry_msgs/msg/vector3_stamped.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
+#include <builtin_interfaces/msg/time.hpp>
 
 #include <Eigen/Dense>
 #include <mutex>
@@ -50,17 +51,50 @@ struct PID {
   double prev{0};
   bool first{true};
 
+  // 1st-order LPF for derivative term
+  double d_filt{0.0};
+  bool d_first{true};
+
+  // Fixed cutoff frequency [Hz]
+  static constexpr double DERIV_CUTOFF_HZ = 3.0;
+
+  static inline double lpf_alpha(double dt, double fc_hz)
+  {
+    // alpha = dt / (RC + dt), RC = 1/(2*pi*fc)
+    const double rc = 1.0 / (2.0 * M_PI * fc_hz);
+    return dt / (rc + dt);
+  }
+
   double step(double err, double dt) {
     if (dt <= 0) return 0;
-    double d = first ? 0 : (err - prev) / dt;
+
+    // raw numerical derivative of error
+    double raw_d = 0.0;
+    if (!first) {
+      raw_d = (err - prev) / dt;
+    }
+
+    // update prev/first for next step
     first = false;
     prev = err;
-    return kp*err + kd*d;
+
+    // low-pass filter the derivative
+    const double a = lpf_alpha(dt, DERIV_CUTOFF_HZ);
+    if (d_first) {
+      d_filt = raw_d;   // initialize to avoid startup spike
+      d_first = false;
+    } else {
+      d_filt = d_filt + a * (raw_d - d_filt);
+    }
+
+    return kp*err + kd*d_filt;
   }
 
   void reset() {
     prev = 0;
     first = true;
+    d_filt = 0.0;
+    d_first = true;
   }
 
   void declare(rclcpp::Node* node, const std::string& prefix, double kp_default, double kd_default)
@@ -135,13 +169,26 @@ public:
     pub_out_ = create_publisher<std_msgs::msg::Float32MultiArray>(
       "/crazyflie/in/input", 10);
 
+    pub_vdes_ = create_publisher<geometry_msgs::msg::Vector3Stamped>(
+      "/crazyflie/debug/v_des", 10);
+
+    pub_rpydes_ = create_publisher<geometry_msgs::msg::Vector3Stamped>(
+      "/crazyflie/debug/rpy_des", 10);
+
+    pub_wdes_ = create_publisher<geometry_msgs::msg::Vector3Stamped>(
+      "/crazyflie/debug/w_des", 10);
+
     // ---------- timers ----------
     t_pos_  = create_wall_timer(std::chrono::milliseconds(10),    std::bind(&PIDCascade::loop_pos,  this));
     t_vel_  = create_wall_timer(std::chrono::milliseconds(10),    std::bind(&PIDCascade::loop_vel,  this));
     t_att_  = create_wall_timer(std::chrono::milliseconds(4),     std::bind(&PIDCascade::loop_att,  this));
     t_rate_ = create_wall_timer(std::chrono::microseconds(2500),  std::bind(&PIDCascade::loop_rate, this));
 
-    RCLCPP_INFO(get_logger(), "PID cascade controller ready (roll/pitch/yaw attitude feedback enabled).");
+    // initial param refresh
+    refresh_params();
+
+    RCLCPP_INFO(get_logger(), "PID cascade controller ready (debug publish enabled).");
+    RCLCPP_INFO(get_logger(), "All numerical derivatives inside PIDs are 1st-order low-pass filtered (fc=5Hz).");
   }
 
 private:
@@ -223,7 +270,6 @@ private:
   {
     if (!have_cmd_) return;
     std::lock_guard<std::mutex> lk(mtx_);
-    refresh_params();
 
     const double dt = std::max(1e-6, dt_pos_);
     v_des_.x() = pos_x_.step(cmd_pos_.x() - pos_.x(), dt);
@@ -233,8 +279,8 @@ private:
 
   void loop_vel()
   {
+    if (!have_cmd_) return;
     std::lock_guard<std::mutex> lk(mtx_);
-    refresh_params();
 
     const double dt = std::max(1e-6, dt_vel_);
     a_des_.x() = vel_x_.step(v_des_.x() - vel_.x(), dt);
@@ -244,18 +290,19 @@ private:
 
   void loop_att()
   {
+    if (!have_cmd_) return;
     std::lock_guard<std::mutex> lk(mtx_);
-    refresh_params();
 
-    // desired roll/pitch from a_des (small-angle approx)
-    // roll_d  ~ -a_y/g, pitch_d ~  a_x/g
     const double roll_d  = clamp(-a_des_.y() / std::max(1e-9, g_), -max_tilt_, max_tilt_);
     const double pitch_d = clamp( a_des_.x() / std::max(1e-9, g_), -max_tilt_, max_tilt_);
     const double yaw_d   = cmd_yaw_;
 
+    roll_d_  = roll_d;
+    pitch_d_ = pitch_d;
+    yaw_d_   = yaw_d;
+
     const double dt = std::max(1e-6, dt_att_);
 
-    // Attitude feedback (close the loop with measured roll/pitch/yaw)
     w_des_.x() = att_r_.step(wrap_pi(roll_d  - roll_),  dt);
     w_des_.y() = att_p_.step(wrap_pi(pitch_d - pitch_), dt);
     w_des_.z() = att_y_.step(wrap_pi(yaw_d   - yaw_),   dt);
@@ -267,8 +314,15 @@ private:
 
   void loop_rate()
   {
+    if (!have_cmd_) return;
+
     std::lock_guard<std::mutex> lk(mtx_);
+
     refresh_params();
+    const rclcpp::Time now = this->get_clock()->now();
+    builtin_interfaces::msg::Time stamp;
+    stamp.sec = static_cast<int32_t>(now.seconds());
+    stamp.nanosec = static_cast<uint32_t>(now.nanoseconds() % 1000000000LL);
 
     const double dt = std::max(1e-6, dt_rate_);
 
@@ -276,12 +330,36 @@ private:
     const double tau_y = clamp(rate_p_.step(w_des_.y() - w_.y(), dt), -max_tau_, max_tau_);
     const double tau_z = clamp(rate_y_.step(w_des_.z() - w_.z(), dt), -max_tau_, max_tau_);
 
-    // thrust along body-z (assumed near hover)
     const double Fz = clamp(mass_ * (g_ + a_des_.z()), 0.0, max_Fz_);
 
     std_msgs::msg::Float32MultiArray out;
     out.data = { (float)tau_x, (float)tau_y, (float)tau_z, (float)Fz };
     pub_out_->publish(out);
+
+    // -------- debug publish (same stamp) --------
+    geometry_msgs::msg::Vector3Stamped vmsg;
+    vmsg.header.stamp = stamp;
+    vmsg.header.frame_id = "world";
+    vmsg.vector.x = v_des_.x();
+    vmsg.vector.y = v_des_.y();
+    vmsg.vector.z = v_des_.z();
+    pub_vdes_->publish(vmsg);
+
+    geometry_msgs::msg::Vector3Stamped rpymsg;
+    rpymsg.header.stamp = stamp;
+    rpymsg.header.frame_id = "world";
+    rpymsg.vector.x = roll_d_;
+    rpymsg.vector.y = pitch_d_;
+    rpymsg.vector.z = yaw_d_;
+    pub_rpydes_->publish(rpymsg);
+
+    geometry_msgs::msg::Vector3Stamped wmsg;
+    wmsg.header.stamp = stamp;
+    wmsg.header.frame_id = "body";
+    wmsg.vector.x = w_des_.x();
+    wmsg.vector.y = w_des_.y();
+    wmsg.vector.z = w_des_.z();
+    pub_wdes_->publish(wmsg);
   }
 
   // ---------- state ----------
@@ -305,6 +383,14 @@ private:
   double max_tilt_{35.0*M_PI/180.0}, max_rate_{8.0}, max_tau_{0.02}, max_Fz_{1.0};
   double dt_pos_{0.01}, dt_vel_{0.01}, dt_att_{0.004}, dt_rate_{0.0025};
 
+  // desired rpy (computed in loop_att, published in loop_rate)
+  double roll_d_{0.0}, pitch_d_{0.0}, yaw_d_{0.0};
+
+  // debug pubs
+  rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr pub_vdes_;
+  rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr pub_rpydes_;
+  rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr pub_wdes_;
+
   // ROS
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_cmd_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_pose_;
@@ -322,3 +408,4 @@ int main(int argc, char** argv)
   rclcpp::shutdown();
   return 0;
 }
+
