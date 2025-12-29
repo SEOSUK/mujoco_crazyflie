@@ -3,7 +3,7 @@
 ```bash
 cd <your workspace>/src
 git clone https://github.com/SEOSUK/mujoco_crazyflie --recursive
-git checkout dc17ebe9e43aaf840019c17780abf7dfd5e80219
+git checkout just_flight
 cd ..
 colcon build
 ```
