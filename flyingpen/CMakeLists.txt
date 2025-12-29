@@ -11,21 +11,7 @@ find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 
-# ---------------- executables ----------------
-add_executable(trajectory8
-  src/trajectory8.cpp
-)
 
-ament_target_dependencies(trajectory8
-  rclcpp
-  std_msgs
-)
-
-# ---------------- install ----------------
-install(TARGETS
-  trajectory8
-  DESTINATION lib/${PROJECT_NAME}
-)
 
 # ---------------- testing ----------------
 if(BUILD_TESTING)

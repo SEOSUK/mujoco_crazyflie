@@ -10,23 +10,6 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
-find_package(Eigen3 REQUIRED)
-
-# ---------------- Executables ----------------
-
-# data_logger node
-add_executable(data_logger src/data_logging.cpp)
-ament_target_dependencies(data_logger
-  rclcpp
-  geometry_msgs
-  std_msgs
-)
-target_link_libraries(data_logger Eigen3::Eigen)
-
-install(TARGETS
-  data_logger
-  DESTINATION lib/${PROJECT_NAME}
-)
 
 # ---------------- Install resources ----------------
 

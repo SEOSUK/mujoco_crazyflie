@@ -26,23 +26,7 @@ def generate_launch_description():
         parameters=[params],
     )
 
-    data_logger_node = Node(
-        package="flyingpen_interface",
-        executable="data_logger",
-        name="data_logger",
-        output="screen",
-    )
-
-    trajectory_node = Node(
-        package="flyingpen",
-        executable="trajectory8",
-        name="trajectory8",
-        output="screen",
-    )
-
     return LaunchDescription([
         plant_node,
         controller_node,
-        data_logger_node,
-        trajectory_node,
     ])
