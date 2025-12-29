@@ -33,16 +33,18 @@ def generate_launch_description():
         output="screen",
     )
 
-    trajectory_node = Node(
+    # ✅ trajectory_generation node 추가
+    trajectory_generation_node = Node(
         package="flyingpen",
-        executable="trajectory8",
-        name="trajectory8",
+        executable="trajectory_generation",
+        name="trajectory_generation",
         output="screen",
     )
 
     return LaunchDescription([
         plant_node,
         controller_node,
+        trajectory_generation_node,  # ← 여기
         data_logger_node,
-        trajectory_node,
     ])
+

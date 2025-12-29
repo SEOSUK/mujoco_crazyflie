@@ -11,6 +11,7 @@ find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(Curses REQUIRED)                 # ★ 추가 (ncurses)
 
 # ---------------- Executables ----------------
 
@@ -25,6 +26,20 @@ target_link_libraries(data_logger Eigen3::Eigen)
 
 install(TARGETS
   data_logger
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+# command_publisher node
+add_executable(command_publisher src/command_publisher.cpp)  # ★ 추가
+ament_target_dependencies(command_publisher
+  rclcpp
+  std_msgs
+)
+target_include_directories(command_publisher PRIVATE ${CURSES_INCLUDE_DIR}) # ★ 추가
+target_link_libraries(command_publisher ${CURSES_LIBRARIES})               # ★ 추가
+
+install(TARGETS
+  command_publisher
   DESTINATION lib/${PROJECT_NAME}
 )
 

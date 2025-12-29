@@ -9,14 +9,21 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
-find_package(geometry_msgs REQUIRED)
 
 # ---------------- executables ----------------
 add_executable(trajectory8
   src/trajectory8.cpp
 )
-
 ament_target_dependencies(trajectory8
+  rclcpp
+  std_msgs
+)
+
+# ✅ NEW: trajectory_generation node
+add_executable(trajectory_generation
+  src/trajectory_generation.cpp
+)
+ament_target_dependencies(trajectory_generation
   rclcpp
   std_msgs
 )
@@ -24,6 +31,7 @@ ament_target_dependencies(trajectory8
 # ---------------- install ----------------
 install(TARGETS
   trajectory8
+  trajectory_generation
   DESTINATION lib/${PROJECT_NAME}
 )
 
