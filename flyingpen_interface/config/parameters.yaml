@@ -1,0 +1,44 @@
+low_level_controller:
+  ros__parameters:
+    # ---------------- system ----------------
+    mass: 0.04338
+    g: 9.81
+
+    # limits
+    max_tilt_rad: 0.6108652382   # 35 deg
+    max_rate: 8.0                # rad/s
+    max_tau: 0.02                # N*m (or your normalized torque limit)
+    max_thrust: 1.0              # N (or your normalized thrust limit)
+
+    # ---------------- loop dt ----------------
+    # NOTE: timer period(코드)과 dt_* 파라미터(제어식 dt)는 "동일하게" 맞추는 게 좋음
+    dt:
+      pos: 0.01       # 100 Hz
+      vel: 0.01       # 100 Hz
+      att: 0.004      # 250 Hz
+      rate: 0.0025    # 400 Hz
+
+    # ---------------- gains ----------------
+    # Position loop: pos error -> v_des
+    pos:
+      x: { kp: 1.0, kd: 0.01 }
+      y: { kp: 1.0, kd: 0.01 }
+      z: { kp: 2.0, kd: 0.01 }
+
+    # Velocity loop: vel error -> a_des
+    vel:
+      x: { kp: 2.0, kd: 0.1 }
+      y: { kp: 2.0, kd: 0.1 }
+      z: { kp: 3.0, kd: 0.1 }
+
+    # Attitude loop: (roll_d, pitch_d, yaw_d) error -> w_des
+    att:
+      roll:  { kp: 10., kd: 0.1 }
+      pitch: { kp: 10., kd: 0.1 }
+      yaw:   { kp: 10., kd: 0.1 }
+
+    # Rate loop: w error -> torque
+    rate:
+      roll:  { kp: 0.001, kd: 0.00001 }
+      pitch: { kp: 0.001, kd: 0.00001 }
+      yaw:   { kp: 0.001, kd: 0.00001 }

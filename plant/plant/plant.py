@@ -59,6 +59,16 @@ class CrazyfliePlant(Node):
         self.data = mujoco.MjData(self.model)
         self.model.opt.timestep = 1.0 / PHYSICS_HZ
 
+        # -------- IMU sensor ids --------
+        try:
+            self.imu_acc_sid = mujoco.mj_name2id(
+                self.model, mujoco.mjtObj.mjOBJ_SENSOR, "imu_acc"
+            )
+            self.get_logger().info("IMU accelerometer sensor found.")
+        except Exception:
+            self.imu_acc_sid = None
+            self.get_logger().warn("IMU accelerometer sensor NOT found.")
+
         # Parameters for mixer (X config)
         # Motor sites from your xml:
         # motor0: (+a, -a), motor1: (-a, -a), motor2: (-a, +a), motor3: (+a, +a)
@@ -101,6 +111,7 @@ class CrazyfliePlant(Node):
         # Use pinv for numerical safety
         self.B_pinv = np.linalg.pinv(self.B)
 
+
         # IO
         self.u = np.zeros(4, dtype=float)  # [tau_x, tau_y, tau_z, Fz]
 
@@ -110,6 +121,39 @@ class CrazyfliePlant(Node):
         self._prev_t: Optional[float] = None
         self._prev_linvel_W = None
         self._prev_angvel_B = None
+
+        # -------- actuator index lookup (by name) --------
+        def _act_id(name: str) -> Optional[int]:
+            try:
+                return mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, name)
+            except Exception:
+                return None
+
+        self.act_force_ids = []
+        self.act_torque_ids = []
+
+        for i in range(4):
+            fid = _act_id(f"motor{i}_force")
+            tid = _act_id(f"motor{i}_torque")
+            self.act_force_ids.append(fid)
+            self.act_torque_ids.append(tid)
+
+        # Check availability
+        if any(v is None or v < 0 for v in self.act_force_ids):
+            self.get_logger().warn(
+                f"Could not find all motor*_force actuators by name. act_force_ids={self.act_force_ids}. "
+                "Will fall back to ctrl[0:4]."
+            )
+
+        if any(v is None or v < 0 for v in self.act_torque_ids):
+            self.get_logger().warn(
+                f"Could not find all motor*_torque actuators by name. act_torque_ids={self.act_torque_ids}. "
+                "Reaction torque will NOT be applied unless torque actuators exist in XML."
+            )
+        else:
+            self.get_logger().info(f"Found torque actuators: {self.act_torque_ids}")
+
+
 
         # ROS
         self.sub_input = self.create_subscription(
@@ -130,6 +174,30 @@ class CrazyfliePlant(Node):
 
         self.get_logger().info("Physical allocation enabled: tau_z is produced ONLY via k_tau*f_i.")
 
+    def read_imu_acc_world(self, quat_wxyz):
+        """
+        Returns world-frame linear acceleration from MuJoCo IMU.
+        """
+        if self.imu_acc_sid is None:
+            return np.zeros(3, dtype=float)
+
+        adr = self.model.sensor_adr[self.imu_acc_sid]
+        dim = self.model.sensor_dim[self.imu_acc_sid]
+
+        acc_B = np.array(
+            self.data.sensordata[adr:adr + dim], dtype=float
+        )  # body frame, includes gravity
+
+        # rotation: body -> world
+        R_BW = rotmat_from_quat_wxyz(quat_wxyz)
+
+        # world gravity (MuJoCo convention)
+        g_W = np.array(self.model.opt.gravity, dtype=float)
+
+        # world linear acceleration
+        acc_W = R_BW @ acc_B + g_W
+        return acc_W
+
     def cb_input(self, msg: Float32MultiArray):
         if len(msg.data) < 4:
             self.get_logger().warn("'/crazyflie/in/input' needs 4 floats: [tau_x, tau_y, tau_z, Fz]")
@@ -149,15 +217,29 @@ class CrazyfliePlant(Node):
         f_clip = np.clip(f, self.thrust_min, self.thrust_max)
 
         if np.any(np.abs(f_clip - f) > 1e-9):
-            # optional: warn only occasionally would be better, but keep simple
             self.get_logger().warn(f"Thrust clipped. raw={f.tolist()} clipped={f_clip.tolist()}")
 
-        # Apply ONLY thrust actuators
-        self.data.ctrl[0:4] = f_clip
+        # ---------- apply thrust ----------
+        # Prefer actuator-name mapping if available
+        if all(v is not None and v >= 0 for v in self.act_force_ids):
+            for i in range(4):
+                self.data.ctrl[self.act_force_ids[i]] = float(f_clip[i])
+        else:
+            # fallback: assume first 4 actuators are motor forces
+            self.data.ctrl[0:4] = f_clip
 
-        # Torque actuators are NOT used (not fully actuated)
-        if self.model.nu >= 8:
-            self.data.ctrl[4:8] = 0.0
+        # ---------- apply reaction torque (per motor) ----------
+        # motor reaction torque per motor: tau_i = dir_i * k_tau * f_i
+        tau_m = self.motor_dir * self.k_tau * f_clip  # (4,)
+
+        if all(v is not None and v >= 0 for v in self.act_torque_ids):
+            for i in range(4):
+                self.data.ctrl[self.act_torque_ids[i]] = float(tau_m[i])
+        else:
+            # If torque actuators do not exist, we cannot display motor*_torque nor generate yaw torque
+            # through actuator channels. (MuJoCo does not automatically add reaction torque.)
+            pass
+
 
     # ------------------------ State publish ------------------------
     def read_state(self):
@@ -175,12 +257,14 @@ class CrazyfliePlant(Node):
     def publish_outputs(self, now_wall: float):
         pos_W, quat_wxyz, linvel_W, angvel_B = self.read_state()
 
+        # -------- linear acceleration from IMU --------
+        linacc_W = self.read_imu_acc_world(quat_wxyz)
+
+        # -------- angular acceleration (keep numerical diff if you want) --------
         if self._prev_t is None:
-            linacc_W = np.zeros(3, dtype=float)
             angacc_B = np.zeros(3, dtype=float)
         else:
             dt = max(1e-6, now_wall - self._prev_t)
-            linacc_W = (linvel_W - self._prev_linvel_W) / dt
             angacc_B = (angvel_B - self._prev_angvel_B) / dt
 
         self._prev_t = now_wall
