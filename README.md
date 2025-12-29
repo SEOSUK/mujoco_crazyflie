@@ -1,4 +1,5 @@
-# 플라잉펜 말고 무조코 시뮬
+# 플라잉펜 말고 크플-무조코 시뮬레이션만 있는 버전
+crazyflie firmware-like Cascade PID가 구현되어 있음.
 ## 인스톨
 ```bash
 cd <your workspace>/src
