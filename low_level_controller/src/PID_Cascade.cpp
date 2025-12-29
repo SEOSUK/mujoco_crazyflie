@@ -132,21 +132,21 @@ public:
     dt_rate_ = declare_parameter("dt.rate", 0.0025);  // 400 Hz
 
     // ---------- params (PID gains) ----------
-    pos_x_.declare(this, "pos.x", 1.5, 0.0);
-    pos_y_.declare(this, "pos.y", 1.5, 0.0);
-    pos_z_.declare(this, "pos.z", 2.0, 0.0);
+    pos_x_.declare(this, "pos.x", 1.0, 0.01);
+    pos_y_.declare(this, "pos.y", 1.0, 0.01);
+    pos_z_.declare(this, "pos.z", 2.0, 0.01);
 
-    vel_x_.declare(this, "vel.x", 3.0, 0.0);
-    vel_y_.declare(this, "vel.y", 3.0, 0.0);
-    vel_z_.declare(this, "vel.z", 6.0, 0.0);
+    vel_x_.declare(this, "vel.x", 2.0, 0.1);
+    vel_y_.declare(this, "vel.y", 2.0, 0.1);
+    vel_z_.declare(this, "vel.z", 3.0, 0.1);
 
-    att_r_.declare(this, "att.roll", 6.0, 0.0);
-    att_p_.declare(this, "att.pitch", 6.0, 0.0);
-    att_y_.declare(this, "att.yaw", 3.0, 0.0);
+    att_r_.declare(this, "att.roll", 10.0, 0.1);
+    att_p_.declare(this, "att.pitch", 10.0, 0.1);
+    att_y_.declare(this, "att.yaw", 10.0, 0.1);
 
-    rate_r_.declare(this, "rate.roll", 0.002, 0.0);
-    rate_p_.declare(this, "rate.pitch", 0.002, 0.0);
-    rate_y_.declare(this, "rate.yaw", 0.001, 0.0);
+    rate_r_.declare(this, "rate.roll", 0.001, 0.00001);
+    rate_p_.declare(this, "rate.pitch", 0.001, 0.00001);
+    rate_y_.declare(this, "rate.yaw", 0.001, 0.00001);
 
     // ---------- subs ----------
     sub_cmd_ = create_subscription<std_msgs::msg::Float64MultiArray>(
