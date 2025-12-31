@@ -19,6 +19,7 @@ low_level_controller:
       rate: 0.004    # 250 Hz
 
     # ---------------- gains ----------------
+    # 반응성 높이면 좋음. 좋은게 좋은거.
     # Position loop: pos error -> v_des
     pos:
       x: { kp: 3.0, kd: 0.01 }
