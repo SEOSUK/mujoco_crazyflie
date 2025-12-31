@@ -1,4 +1,5 @@
 from launch import LaunchDescription
+from launch.actions import ExecuteProcess
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 import os
@@ -9,13 +10,14 @@ def generate_launch_description():
     pkg_share = get_package_share_directory("flyingpen_interface")
     params = os.path.join(pkg_share, "config", "parameters.yaml")
 
-    # ---------- nodes ----------
-    plant_node = Node(
-        package="plant",
-        executable="plant",
-        name="plant",
+    # ---------- plant: run as python module (uses current env/venv) ----------
+    plant_node = ExecuteProcess(
+        cmd=[
+            "python3", "-m", "plant.plant",
+            "--ros-args", "-r", "__node:=plant"
+        ],
         output="screen",
-        parameters=[params],   # ✅ 추가 (plant: ros__parameters: noise: ... 읽음)
+        parameters=[params],   # âœ… ì¶”ê°€ (plant: ros__parameters: noise: ... ì½ìŒ)
     )
 
     controller_node = Node(
@@ -26,6 +28,7 @@ def generate_launch_description():
         parameters=[params],
     )
 
+<<<<<<< HEAD
     data_logger_node = Node(
         package="flyingpen_interface",
         executable="data_logger",
@@ -45,5 +48,10 @@ def generate_launch_description():
         controller_node,
         trajectory_generation_node,
         data_logger_node,
+=======
+    return LaunchDescription([
+        plant_node,
+        controller_node,
+>>>>>>> 871f306 (jazzyë²„ì „ì—ì„œ launchë¥¼ ì“°ê¸° ìœ„í•œ ìˆ˜ì •)
     ])
 
