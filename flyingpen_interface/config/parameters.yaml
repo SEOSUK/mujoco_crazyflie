@@ -1,3 +1,24 @@
+plant:
+  ros__parameters:
+    physics_hz: 1000.0
+    pub_hz: 400.0
+    viewer_hz: 60.0
+
+    arm_xy: 0.035355
+    k_tau: 0.00569278844371417 # b/k, Reaction Torque Ratio, zeta 등 값.
+    motor_dir: [1.0, -1.0, 1.0, -1.0]
+    thrust_min: 0.0
+    thrust_max: 0.20
+
+    noise:
+      enable: true
+      seed: 0
+      pos_var: [1e-6, 1e-6, 1e-6]
+      vel_var: [1e-4, 1e-4, 1e-4]
+      att_var: [1e-6, 1e-6, 1e-6]
+      ang_vel_var: [4e-6, 4e-6, 4e-6]
+      ang_acc_var: [1e-2, 1e-2, 1e-2]
+
 low_level_controller:
   ros__parameters:
     # ---------------- system ----------------
@@ -5,10 +26,10 @@ low_level_controller:
     g: 9.81
 
     # limits
-    max_tilt_rad: 100. #0.6108652382   # 35 deg
-    max_rate: 100. #8.0                # rad/s
-    max_tau: 100. #0.02                # N*m (or your normalized torque limit)
-    max_thrust: 100. #rust limit)
+    max_tilt_rad: 0.6108652382 #0.6108652382   # 35 deg
+    max_rate: 8. #8.0                # rad/s
+    max_tau: 1. #0.02              # 어차피 thrust선에서 컷 나니까 상관 x
+    max_thrust: 1.0 #               # 나중에 제대로 바꾸길 검토
 
     # ---------------- loop dt ----------------
     # NOTE: timer period(코드)과 dt_* 파라미터(제어식 dt)는 "동일하게" 맞추는 게 좋음
@@ -44,13 +65,12 @@ low_level_controller:
       pitch: { kp: 0.005, kd: 0.00001 }
       yaw:   { kp: 0.005, kd: 0.00001 }
       
-plant:
+rviz_visual:
   ros__parameters:
-    noise:
-      enable: true
-      seed: 0
-      pos_var: [1e-6, 1e-6, 1e-6]
-      vel_var: [1e-4, 1e-4, 1e-4]
-      att_var: [1e-6, 1e-6, 1e-6]
-      ang_vel_var: [4e-6, 4e-6, 4e-6]
-      ang_acc_var: [1e-2, 1e-2, 1e-2]
+    mesh_resource: "package://plant/data/assets/cf21B/cf21B_full.stl"
+    mesh_scale: 0.001     
+    mesh_alpha: 1.0      
+      
+data_logger:
+  ros__parameters:
+    csv_dir: "~/mujoco_ws/src/mujoco_crazyflie/flyingpen_interface/bag" # 본인경로에맞게바꿀것
