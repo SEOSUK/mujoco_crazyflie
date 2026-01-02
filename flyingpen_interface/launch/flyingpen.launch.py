@@ -15,7 +15,7 @@ def generate_launch_description():
         executable="plant",
         name="plant",
         output="screen",
-        parameters=[params],   # ✅ 추가 (plant: ros__parameters: noise: ... 읽음)
+        parameters=[params],
     )
 
     controller_node = Node(
@@ -26,13 +26,6 @@ def generate_launch_description():
         parameters=[params],
     )
 
-    data_logger_node = Node(
-        package="flyingpen_interface",
-        executable="data_logger",
-        name="data_logger",
-        output="screen",
-    )
-
     trajectory_generation_node = Node(
         package="flyingpen",
         executable="trajectory_generation",
@@ -40,10 +33,46 @@ def generate_launch_description():
         output="screen",
     )
 
+    data_logger_node = Node(
+        package="flyingpen_interface",
+        executable="data_logger",
+        name="data_logger",
+        output="screen",
+        parameters=[params],   # ✅ 이거 있어야 yaml 먹음                
+    )
+
+    # wrench_observer
+    wrench_observer_node = Node(
+        package="flyingpen",
+        executable="wrench_observer",
+        name="wrench_observer",
+        output="screen",
+    )
+
+    # rviz_visual
+    rviz_visual_node = Node(
+        package="flyingpen_interface",
+        executable="rviz_visual",
+        name="rviz_visual",
+        output="screen",
+        parameters=[params],   # ✅ 이거 있어야 yaml 먹음        
+    )
+
+    # ✅ rviz2
+    rviz2_node = Node(
+        package="rviz2",
+        executable="rviz2",
+        name="rviz2",
+        output="screen",
+        arguments=["-d", os.path.join(pkg_share, "config", "flyingpen.rviz")],
+    )
+
     return LaunchDescription([
         plant_node,
         controller_node,
         trajectory_generation_node,
+        wrench_observer_node,
+        rviz_visual_node,
         data_logger_node,
+        rviz2_node,
     ])
-

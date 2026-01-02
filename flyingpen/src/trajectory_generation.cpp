@@ -1,3 +1,88 @@
+/**
+ * @file trajectory_generation.cpp
+ *
+ * @brief
+ * Trajectory generation node that fuses user commands and (future) force feedback
+ * to generate final position/yaw commands for the Crazyflie low-level controller.
+ *
+ * ------------------------------------------------------------
+ * Overview
+ * ------------------------------------------------------------
+ * This node acts as a high-level command integrator between:
+ *
+ *   - User inputs (keyboard, teleoperation)
+ *   - Mode switching (position mode / velocity mode)
+ *   - (Future) force feedback for admittance-based interaction control
+ *
+ * The output of this node is a **continuous absolute position + yaw command**
+ * published to:
+ *
+ *   /crazyflie/in/pos_cmd  [Float64MultiArray: x, y, z, yaw]
+ *
+ * which is consumed by the low-level PID cascade controller.
+ *
+ * ------------------------------------------------------------
+ * Input Interfaces
+ * ------------------------------------------------------------
+ * 1) /su/keyboard_input  (Float64MultiArray)
+ *    - In position mode:
+ *        [x, y, z, yaw] are interpreted as absolute position/yaw commands.
+ *    - In velocity mode:
+ *        [vx, vy, vz, yaw_rate] are interpreted as velocity commands.
+ *
+ * 2) /su/use_vel_mode    (Float32)
+ *    - 0.0 : Position mode
+ *    - 1.0 : Velocity mode
+ *
+ * 3) /su/cmd_force       (Float32)
+ *    - Desired interaction force (currently stored only).
+ *    - Intended for future admittance control integration.
+ *
+ * ------------------------------------------------------------
+ * Internal Logic
+ * ------------------------------------------------------------
+ * - The node maintains an internal integrator state (su_int_pos_, su_int_yaw_)
+ *   that always represents the **absolute commanded pose**.
+ *
+ * - Position mode:
+ *     The incoming command is treated as an absolute pose, or as a delta
+ *     relative to a stored base pose when switching from velocity mode.
+ *
+ * - Velocity mode:
+ *     The incoming command is integrated over time to update the internal
+ *     position and yaw state.
+ *
+ * - Mode switching:
+ *     - pos -> vel : internal integrator is preserved.
+ *     - vel -> pos : current internal pose is stored as a base reference,
+ *                    and subsequent position commands are interpreted as offsets.
+ *
+ * ------------------------------------------------------------
+ * Future Extension: Admittance Control
+ * ------------------------------------------------------------
+ * This node is designed to be extended with admittance control by incorporating
+ * measured external force feedback, e.g.:
+ *
+ *   /su/f_ext_world  (external force estimate in world frame)
+ *
+ * The admittance logic can be injected in the velocity-mode section by modifying
+ * the commanded velocity based on force error:
+ *
+ *   v_cmd += v_admittance(F_des - F_meas)
+ *
+ * This design keeps the admittance logic decoupled from the low-level controller,
+ * allowing safe and modular experimentation with interaction control strategies.
+ *
+ * ------------------------------------------------------------
+ * Design Philosophy
+ * ------------------------------------------------------------
+ * - High-level command shaping (integration, mode logic, admittance)
+ *   is handled here.
+ * - Low-level stability and tracking are handled entirely by the PID cascade.
+ * - All outputs are absolute pose commands, simplifying downstream control.
+ */
+
+ 
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/float32.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>

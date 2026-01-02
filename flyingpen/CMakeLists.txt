@@ -19,7 +19,7 @@ ament_target_dependencies(trajectory8
   std_msgs
 )
 
-# ✅ NEW: trajectory_generation node
+# trajectory_generation node
 add_executable(trajectory_generation
   src/trajectory_generation.cpp
 )
@@ -28,10 +28,20 @@ ament_target_dependencies(trajectory_generation
   std_msgs
 )
 
+# wrench_observer node
+add_executable(wrench_observer
+  src/wrench_observer.cpp
+)
+ament_target_dependencies(wrench_observer
+  rclcpp
+  std_msgs
+)
+
 # ---------------- install ----------------
 install(TARGETS
   trajectory8
   trajectory_generation
+  wrench_observer
   DESTINATION lib/${PROJECT_NAME}
 )
 

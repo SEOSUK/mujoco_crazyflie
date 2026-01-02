@@ -3,8 +3,8 @@
 // Publishes /data_logging_msgs (Float64MultiArray) and also logs the same data to CSV.
 //
 // CSV:
-//   dir  : ~/mujoco_crazyflie/src/flyingpen_interface/bag
-//   name : strftime("%m%d%H%M").csv
+//   dir  : <share>/flyingpen_interface/bag   (default; overridable by parameter csv_dir)
+//   name : MMDDHHMM.csv  (local time)
 //
 // Note:
 // - logs "latest" values (not time-synchronized).
@@ -17,6 +17,8 @@
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
 
+#include <ament_index_cpp/get_package_share_directory.hpp>
+
 #include <Eigen/Dense>
 #include <mutex>
 #include <cmath>
@@ -27,6 +29,9 @@
 #include <string>
 #include <ctime>
 #include <filesystem>
+#include <cstdlib>
+#include <cerrno>
+#include <cstring>
 
 static inline double roll_from_quat(double x, double y, double z, double w)
 {
@@ -51,7 +56,7 @@ static inline double yaw_from_quat(double x, double y, double z, double w)
 
 static std::string expand_user(const std::string& path)
 {
-  // very small "~" expansion
+  // small "~" expansion (useful when user overrides via param)
   if (!path.empty() && path[0] == '~') {
     const char* home = std::getenv("HOME");
     if (home) {
@@ -61,6 +66,7 @@ static std::string expand_user(const std::string& path)
   return path;
 }
 
+// Returns "MMDDHHMM" (local time)
 static std::string now_mmddhhmm()
 {
   std::time_t t = std::time(nullptr);
@@ -70,7 +76,8 @@ static std::string now_mmddhhmm()
 #else
   localtime_r(&t, &tm);
 #endif
-  char buf[64];
+  char buf[16];
+  // MMDDHHMM -> 8 chars, plus null
   std::strftime(buf, sizeof(buf), "%m%d%H%M", &tm);
   return std::string(buf);
 }
@@ -83,22 +90,46 @@ public:
     publish_hz_ = declare_parameter("publish_hz", 400.0);
     if (publish_hz_ <= 0.0) publish_hz_ = 100.0;
 
-    // ---- CSV setup ----
-    csv_dir_ = declare_parameter<std::string>(
-      "csv_dir", "~/mujoco_crazyflie/src/flyingpen_interface/bag"
-    );
+    // ---- CSV setup (package-share-based default) ----
+    std::string pkg_share;
+    try {
+      pkg_share = ament_index_cpp::get_package_share_directory("flyingpen_interface");
+    } catch (const std::exception& e) {
+      RCLCPP_ERROR(get_logger(),
+                   "Failed to get package share directory for flyingpen_interface: %s",
+                   e.what());
+      pkg_share = ".";
+    }
+
+    const std::string default_csv_dir =
+      (std::filesystem::path(pkg_share) / "bag").string();
+
+    // yaml에서 data_logger.ros__parameters.csv_dir 로 override 가능
+    csv_dir_ = declare_parameter<std::string>("csv_dir", default_csv_dir);
     csv_dir_ = expand_user(csv_dir_);
 
+    RCLCPP_INFO(get_logger(), "csv_dir resolved: %s", csv_dir_.c_str());
+
+    // ensure directory exists
     try {
       std::filesystem::create_directories(csv_dir_);
     } catch (const std::exception& e) {
-      RCLCPP_ERROR(get_logger(), "Failed to create csv_dir '%s': %s", csv_dir_.c_str(), e.what());
+      RCLCPP_ERROR(get_logger(), "Failed to create csv_dir '%s': %s",
+                   csv_dir_.c_str(), e.what());
     }
 
-    csv_path_ = (std::filesystem::path(csv_dir_) / (now_mmddhhmm() + ".csv")).string();
+    // build file path: MMDDHHMM.csv
+    const std::string fname = now_mmddhhmm() + ".csv";
+    csv_path_ = (std::filesystem::path(csv_dir_) / fname).string();
+
+    // open CSV
+    errno = 0;
     csv_.open(csv_path_, std::ios::out | std::ios::trunc);
-    if (!csv_.is_open()) {
-      RCLCPP_ERROR(get_logger(), "Failed to open CSV file: %s", csv_path_.c_str());
+    if (!csv_.is_open() || csv_.fail()) {
+      const int err = errno;
+      RCLCPP_ERROR(get_logger(),
+                   "Failed to open CSV file: %s (errno=%d: %s)",
+                   csv_path_.c_str(), err, std::strerror(err));
     } else {
       write_csv_header();
       RCLCPP_INFO(get_logger(), "CSV logging enabled: %s", csv_path_.c_str());
@@ -109,34 +140,44 @@ public:
 
     // Subs
     sub_cmd_ = create_subscription<std_msgs::msg::Float64MultiArray>(
-      "/crazyflie/in/pos_cmd", 10, std::bind(&DataLogger::cb_cmd, this, std::placeholders::_1));
+      "/crazyflie/in/pos_cmd", 10,
+      std::bind(&DataLogger::cb_cmd, this, std::placeholders::_1));
 
     sub_input_ = create_subscription<std_msgs::msg::Float32MultiArray>(
-      "/crazyflie/in/input", 10, std::bind(&DataLogger::cb_input, this, std::placeholders::_1));
+      "/crazyflie/in/input", 10,
+      std::bind(&DataLogger::cb_input, this, std::placeholders::_1));
 
     sub_pose_ = create_subscription<geometry_msgs::msg::PoseStamped>(
-      "/crazyflie/out/pose", 10, std::bind(&DataLogger::cb_pose, this, std::placeholders::_1));
+      "/crazyflie/out/pose", 10,
+      std::bind(&DataLogger::cb_pose, this, std::placeholders::_1));
 
     sub_vel_ = create_subscription<geometry_msgs::msg::Vector3Stamped>(
-      "/crazyflie/out/vel", 10, std::bind(&DataLogger::cb_vel, this, std::placeholders::_1));
+      "/crazyflie/out/vel", 10,
+      std::bind(&DataLogger::cb_vel, this, std::placeholders::_1));
 
     sub_w_ = create_subscription<geometry_msgs::msg::Vector3Stamped>(
-      "/crazyflie/out/ang_vel", 10, std::bind(&DataLogger::cb_w, this, std::placeholders::_1));
+      "/crazyflie/out/ang_vel", 10,
+      std::bind(&DataLogger::cb_w, this, std::placeholders::_1));
 
     sub_acc_ = create_subscription<geometry_msgs::msg::Vector3Stamped>(
-      "/crazyflie/out/acc", 10, std::bind(&DataLogger::cb_acc, this, std::placeholders::_1));
+      "/crazyflie/out/acc", 10,
+      std::bind(&DataLogger::cb_acc, this, std::placeholders::_1));
 
     sub_angacc_ = create_subscription<geometry_msgs::msg::Vector3Stamped>(
-      "/crazyflie/out/ang_acc", 10, std::bind(&DataLogger::cb_angacc, this, std::placeholders::_1));
+      "/crazyflie/out/ang_acc", 10,
+      std::bind(&DataLogger::cb_angacc, this, std::placeholders::_1));
 
     sub_vdes_ = create_subscription<geometry_msgs::msg::Vector3Stamped>(
-      "/crazyflie/debug/v_des", 10, std::bind(&DataLogger::cb_vdes, this, std::placeholders::_1));
+      "/crazyflie/debug/v_des", 10,
+      std::bind(&DataLogger::cb_vdes, this, std::placeholders::_1));
 
     sub_rpydes_ = create_subscription<geometry_msgs::msg::Vector3Stamped>(
-      "/crazyflie/debug/rpy_des", 10, std::bind(&DataLogger::cb_rpydes, this, std::placeholders::_1));
+      "/crazyflie/debug/rpy_des", 10,
+      std::bind(&DataLogger::cb_rpydes, this, std::placeholders::_1));
 
     sub_wdes_ = create_subscription<geometry_msgs::msg::Vector3Stamped>(
-      "/crazyflie/debug/w_des", 10, std::bind(&DataLogger::cb_wdes, this, std::placeholders::_1));
+      "/crazyflie/debug/w_des", 10,
+      std::bind(&DataLogger::cb_wdes, this, std::placeholders::_1));
 
     // Timer
     const auto period = std::chrono::duration<double>(1.0 / publish_hz_);
@@ -144,7 +185,9 @@ public:
       std::chrono::duration_cast<std::chrono::nanoseconds>(period),
       std::bind(&DataLogger::publish, this));
 
-    RCLCPP_INFO(get_logger(), "data_logger started. Publishing /data_logging_msgs at %.1f Hz", publish_hz_);
+    RCLCPP_INFO(get_logger(),
+                "data_logger started. Publishing /data_logging_msgs at %.1f Hz",
+                publish_hz_);
   }
 
   ~DataLogger() override
@@ -158,7 +201,6 @@ public:
 private:
   void write_csv_header()
   {
-    // Columns match msg.data order
     csv_ <<
       "t_sec,"
       "cmd_x,cmd_y,cmd_z,cmd_yaw,"
@@ -266,7 +308,6 @@ private:
   // ----- publisher -----
   void publish()
   {
-    // snapshot
     Eigen::Vector3d cmd_pos, pos, vel, w, acc, angacc, vdes, wdes, tau;
     double cmd_yaw, roll, pitch, yaw;
     double rolld, pitchd, yawd;
@@ -361,12 +402,9 @@ private:
 
     msg.data[36] = static_cast<double>(mask);
 
-    // publish topic
     pub_->publish(msg);
 
-    // append CSV
     if (csv_.is_open()) {
-      // fixed precision for readability
       csv_ << std::setprecision(10) << std::fixed
            << t << ","
            << msg.data[1] << "," << msg.data[2] << "," << msg.data[3] << "," << msg.data[4] << ","
@@ -383,8 +421,6 @@ private:
            << static_cast<uint64_t>(mask)
            << "\n";
 
-      // flush occasionally (parameterize if you want). Here: every line flush is heavy at 400Hz.
-      // We'll flush every 200 lines.
       if (++csv_line_count_ % 200 == 0) {
         csv_.flush();
       }
@@ -394,7 +430,6 @@ private:
 private:
   std::mutex mtx_;
 
-  // latest values
   Eigen::Vector3d cmd_pos_{0,0,0};
   double cmd_yaw_{0.0};
 
@@ -413,7 +448,6 @@ private:
   Eigen::Vector3d tau_{0,0,0};
   double Fz_{0.0};
 
-  // validity flags
   bool have_cmd_{false};
   bool have_pose_{false};
   bool have_vel_{false};
@@ -425,7 +459,6 @@ private:
   bool have_wdes_{false};
   bool have_input_{false};
 
-  // ros
   double publish_hz_{400.0};
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr pub_;
   rclcpp::TimerBase::SharedPtr timer_;
@@ -441,7 +474,6 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_rpydes_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_wdes_;
 
-  // csv
   std::string csv_dir_;
   std::string csv_path_;
   std::ofstream csv_;
