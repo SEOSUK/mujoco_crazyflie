@@ -5,6 +5,7 @@ from ament_index_python.packages import get_package_share_directory
 import os
 
 
+
 def generate_launch_description():
     # ---------- params.yaml ----------
     pkg_share = get_package_share_directory("flyingpen_interface")
@@ -12,7 +13,8 @@ def generate_launch_description():
     rviz_config = os.path.join(pkg_share, "config", "flyingpen.rviz")
 
     # ---------- robot_description (URDF) ----------
-    urdf_path = "/home/mj/ros2_ws/src/mujoco_crazyflie/plant/data/cf_BLDC.urdf"
+    plant_share = get_package_share_directory("plant")
+    urdf_path = os.path.join(plant_share, "data", "cf_BLDC.urdf")
     with open(urdf_path, "r") as f:
         robot_description = f.read()
 
@@ -22,6 +24,16 @@ def generate_launch_description():
         name="robot_state_publisher",
         output="screen",
         parameters=[{"robot_description": robot_description}],
+    )
+
+    # wall TF
+    # args: x y z roll pitch yaw parent child
+    world_to_wall_tf_node = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="world_to_wall",
+        output="screen",
+        arguments=["1.5", "0", "0", "1.57", "0", "0", "world", "wall"],
     )
 
     # ---------- plant: run as python module (uses current env/venv) ----------
@@ -91,6 +103,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         robot_state_publisher_node,
+        world_to_wall_tf_node,
         plant_node,
         controller_node,
         trajectory_generation_node,

@@ -6,7 +6,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///home/mj/ros2_ws/src/mujoco_crazyflie/plant/data/assets/cf21B/cf21B_full.stl"
+        <mesh filename="package://plant/data/assets/cf21B/cf21B_full.stl"
               scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="light_gray">
