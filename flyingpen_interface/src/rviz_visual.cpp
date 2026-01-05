@@ -42,16 +42,6 @@ public:
 
     publish_hz_ = this->declare_parameter<double>("publish_hz", 60.0);
 
-    // -------------------------
-    // ✅ Mesh visual params
-    // -------------------------
-    // STL only is fine for now
-    mesh_resource_ = this->declare_parameter<std::string>(
-      "mesh_resource",
-      "package://plant/data/assets/cf21B/cf21B_full.stl"
-    );
-    mesh_scale_ = this->declare_parameter<double>("mesh_scale", 1.0);
-    mesh_alpha_ = this->declare_parameter<double>("mesh_alpha", 1.0);
 
     // -------------------------
     // TF broadcaster
@@ -83,10 +73,6 @@ public:
     pub_mob_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
       "/rviz/mob_Fext", 10);
 
-    // ✅ (pub) /rviz/crazyflie_mesh : Marker mesh
-    pub_cf_mesh_ = this->create_publisher<visualization_msgs::msg::Marker>(
-      "/rviz/crazyflie_mesh", 10);
-
     // -------------------------
     // Timer: publish TFs + marker at fixed rate
     // -------------------------
@@ -98,7 +84,6 @@ public:
       period, std::bind(&RvizVisual::loop_publish, this));
 
     RCLCPP_INFO(this->get_logger(), "rviz_visual started.");
-    RCLCPP_INFO(this->get_logger(), "mesh_resource: %s", mesh_resource_.c_str());
   }
 
 private:
@@ -198,44 +183,6 @@ private:
       tf_broadcaster_->sendTransform(tf);
     }
 
-    // ✅ 2.5) Mesh marker: cf21B_full.stl anchored at crazyflie frame
-    //     - Put marker in cf_frame_ and identity pose so TF drives it.
-    if (have_pose) {
-      visualization_msgs::msg::Marker mesh;
-      mesh.header.stamp = stamp;
-      mesh.header.frame_id = cf_frame_;
-      mesh.ns = "cf_mesh";
-      mesh.id = 0;
-      mesh.type = visualization_msgs::msg::Marker::MESH_RESOURCE;
-      mesh.action = visualization_msgs::msg::Marker::ADD;
-
-      mesh.mesh_resource = mesh_resource_;
-      mesh.mesh_use_embedded_materials = false;
-
-      // Identity pose in cf frame
-      mesh.pose.position.x = 0.0;
-      mesh.pose.position.y = 0.0;
-      mesh.pose.position.z = 0.0;
-      mesh.pose.orientation.x = 0.0;
-      mesh.pose.orientation.y = 0.0;
-      mesh.pose.orientation.z = 0.0;
-      mesh.pose.orientation.w = 1.0;
-
-      mesh.scale.x = mesh_scale_;
-      mesh.scale.y = mesh_scale_;
-      mesh.scale.z = mesh_scale_;
-
-      // visible color
-      mesh.color.a = static_cast<float>(std::max(0.0, std::min(1.0, mesh_alpha_)));
-      mesh.color.r = 0.8f;
-      mesh.color.g = 0.8f;
-      mesh.color.b = 0.8f;
-
-      // keep alive
-      mesh.lifetime = rclcpp::Duration::from_seconds(0.0);
-
-      pub_cf_mesh_->publish(mesh);
-    }
 
     // 3) Marker Arrow: /rviz/mob_Fext
     //    start = current pose position, end = start + force_scale * Fext
@@ -292,7 +239,6 @@ private:
   rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr sub_mob_wrench_;
 
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_mob_arrow_;
-  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_cf_mesh_;
   rclcpp::TimerBase::SharedPtr timer_;
 
   // =========================
@@ -323,10 +269,6 @@ private:
   double arrow_head_len_{0.04};
   double publish_hz_{60.0};
 
-  // ✅ mesh params
-  std::string mesh_resource_;
-  double mesh_scale_{1.0};
-  double mesh_alpha_{1.0};
 };
 
 int main(int argc, char** argv)

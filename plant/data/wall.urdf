@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<robot name="wall">
+
+  <!-- 벽(고정 구조물) 루트 프레임 -->
+  <link name="wall">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <!-- STL이 mm면 0.001, m면 1 -->
+        <mesh filename="package://plant/data/assets/structure/wall.stl"
+              scale="0.01 0.01 0.005"/>
+      </geometry>
+      <material name="green">
+        <color rgba="0.5 0.9 0.5 0.6"/>
+      </material>
+    </visual>
+  </link>
+
+</robot>
