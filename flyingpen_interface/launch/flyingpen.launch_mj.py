@@ -9,9 +9,22 @@ def generate_launch_description():
     # ---------- params.yaml ----------
     pkg_share = get_package_share_directory("flyingpen_interface")
     params = os.path.join(pkg_share, "config", "parameters.yaml")
+    rviz_config = os.path.join(pkg_share, "config", "flyingpen.rviz")
+
+    # ---------- robot_description (URDF) ----------
+    urdf_path = "/home/mj/ros2_ws/src/mujoco_crazyflie/plant/data/cf_BLDC.urdf"
+    with open(urdf_path, "r") as f:
+        robot_description = f.read()
+
+    robot_state_publisher_node = Node(
+        package="robot_state_publisher",
+        executable="robot_state_publisher",
+        name="robot_state_publisher",
+        output="screen",
+        parameters=[{"robot_description": robot_description}],
+    )
 
     # ---------- plant: run as python module (uses current env/venv) ----------
-    # NOTE: ExecuteProcess에는 parameters=가 없으므로, --params-file로 주입해야 함
     plant_node = ExecuteProcess(
         cmd=[
             "python3", "-m", "plant.plant",
@@ -37,7 +50,25 @@ def generate_launch_description():
         executable="trajectory_generation",
         name="trajectory_generation",
         output="screen",
-        parameters=[params],  # 필요 없으면 제거 가능 (안전하게 붙여둠)
+        parameters=[params],
+    )
+
+    # ---------- wrench_observer ----------
+    wrench_observer_node = Node(
+        package="flyingpen",
+        executable="wrench_observer",
+        name="wrench_observer",
+        output="screen",
+        parameters=[params],
+    )
+
+    # ---------- rviz_visual ----------
+    rviz_visual_node = Node(
+        package="flyingpen_interface",
+        executable="rviz_visual",
+        name="rviz_visual",
+        output="screen",
+        parameters=[params],
     )
 
     # ---------- data logger ----------
@@ -46,12 +77,25 @@ def generate_launch_description():
         executable="data_logger",
         name="data_logger",
         output="screen",
-        parameters=[params],  # 필요 없으면 제거 가능 (안전하게 붙여둠)
+        parameters=[params],
+    )
+
+    # ---------- rviz2 ----------
+    rviz2_node = Node(
+        package="rviz2",
+        executable="rviz2",
+        name="rviz2",
+        output="screen",
+        arguments=["-d", rviz_config],
     )
 
     return LaunchDescription([
+        robot_state_publisher_node,
         plant_node,
         controller_node,
         trajectory_generation_node,
+        wrench_observer_node,
+        rviz_visual_node,
         data_logger_node,
+        rviz2_node,
     ])
