@@ -13,7 +13,7 @@ from ament_index_python.packages import get_package_share_directory
 import mujoco
 import mujoco.viewer
 
-from geometry_msgs.msg import PoseStamped, Vector3Stamped
+from geometry_msgs.msg import PoseStamped, Vector3Stamped, WrenchStamped
 from std_msgs.msg import Float32MultiArray
 
 # -------------------- rates --------------------
@@ -137,6 +137,22 @@ class CrazyfliePlant(Node):
         self._ang_vel_std = self._var_to_std3(self.get_parameter("noise.ang_vel_var").value)
         self._ang_acc_std = self._var_to_std3(self.get_parameter("noise.ang_acc_var").value)
 
+        # ---- Contact arrow viz params ----
+        self.declare_parameter("viz.contact_arrows.enable", True)
+        self.declare_parameter("viz.contact_arrows.scale", 4.5)   # [m/N] 정도로 생각 (튜닝)
+        self.declare_parameter("viz.contact_arrows.width", 0.008)   # 화살표 두께(대충)
+        self.declare_parameter("viz.contact_arrows.max", 64)        # 너무 많으면 렉
+
+        self.viz_contact_enable = bool(self.get_parameter("viz.contact_arrows.enable").value)
+        self.viz_contact_scale = float(self.get_parameter("viz.contact_arrows.scale").value)
+        self.viz_contact_width = float(self.get_parameter("viz.contact_arrows.width").value)
+        self.viz_contact_max = int(self.get_parameter("viz.contact_arrows.max").value)
+
+        # 6D force buffer for mj_contactForce
+        self._cf6 = np.zeros(6, dtype=float)
+
+
+
         self.get_logger().info(
             "Noise(plant params): "
             f"enable={self.noise_enable}, seed={seed}, "
@@ -220,6 +236,7 @@ class CrazyfliePlant(Node):
         self.pub_acc = self.create_publisher(Vector3Stamped, "/crazyflie/out/acc", 10)
         self.pub_angacc = self.create_publisher(Vector3Stamped, "/crazyflie/out/ang_acc", 10)
         self.pub_angvel_gt = self.create_publisher(Vector3Stamped, "/crazyflie/out/ang_vel_gt", 10)
+        self.pub_contact_force = self.create_publisher(WrenchStamped, "/crazyflie/out/contact_force", 10)
 
         # ---- threads start ----
         self.viewer_thread = threading.Thread(target=self.viewer_loop, daemon=True)
@@ -418,6 +435,33 @@ class CrazyfliePlant(Node):
         a_msg.vector.z = float(angacc_B_noisy[2])
         self.pub_angacc.publish(a_msg)
 
+        # ---- contact resultant force ----
+        cf_msg = WrenchStamped()
+        cf_msg.header.stamp = stamp
+        cf_msg.header.frame_id = "world"
+
+
+        self.mjfc(self.model, self.data)   # self.Fw, self.rf, self.fcn 갱신
+        F = self.Fw.copy()
+
+        # 값이 거의 없으면 0으로 publish(로깅에서 "없음"을 명확히)
+        if np.linalg.norm(F) <= 1e-12:
+            cf_msg.wrench.force.x = 0.0
+            cf_msg.wrench.force.y = 0.0
+            cf_msg.wrench.force.z = 0.0
+        else:
+            cf_msg.wrench.force.x = float(F[0])
+            cf_msg.wrench.force.y = float(F[1])
+            cf_msg.wrench.force.z = float(F[2])
+
+        # torque는 아직 미계산이면 0
+        cf_msg.wrench.torque.x = 0.0
+        cf_msg.wrench.torque.y = 0.0
+        cf_msg.wrench.torque.z = 0.0
+
+        self.pub_contact_force.publish(cf_msg)
+
+
     # ------------------------ threads ------------------------
     def sim_loop(self):
         dt = 1.0 / max(1e-9, self.physics_hz)
@@ -442,6 +486,7 @@ class CrazyfliePlant(Node):
 
             next_step_wall += dt
 
+
     def viewer_loop(self):
         if self.viewer_hz <= 0:
             return
@@ -449,10 +494,13 @@ class CrazyfliePlant(Node):
         viewer_dt = 1.0 / max(1e-9, self.viewer_hz)
         try:
             with mujoco.viewer.launch_passive(self.model, self.data) as viewer:
+
+
                 self.get_logger().info("MuJoCo viewer started (passive).")
                 while viewer.is_running() and rclpy.ok() and not self._stop:
                     t0 = time.perf_counter()
                     with self._lock:
+                        self._update_contact_resultant_arrow_in_viewer(viewer)
                         viewer.sync()
                     t1 = time.perf_counter()
                     sleep_t = viewer_dt - (t1 - t0)
@@ -461,8 +509,123 @@ class CrazyfliePlant(Node):
         except Exception as e:
             self.get_logger().warn(f"viewer end: {e}")
 
+
     def close(self):
         self._stop = True
+
+
+    @staticmethod
+    def _arrow_mat_from_dir(d: np.ndarray) -> np.ndarray:
+        z = d / (np.linalg.norm(d) + 1e-12)
+
+        up = np.array([0.0, 0.0, 1.0], dtype=float)
+        if abs(np.dot(z, up)) > 0.95:
+            up = np.array([0.0, 1.0, 0.0], dtype=float)
+
+        x = np.cross(up, z)
+        x = x / (np.linalg.norm(x) + 1e-12)
+        y = np.cross(z, x)
+
+        # columns are axes
+        return np.column_stack([x, y, z])
+
+
+    @staticmethod
+    def _contact_frame_to_world(con) -> np.ndarray:
+        fr = np.array(con.frame, dtype=float)
+        if fr.shape == (3, 3):
+            return fr
+        fr = fr.ravel()
+        if fr.size == 9:
+            return fr.reshape(3, 3)
+        return np.eye(3, dtype=float)
+    
+
+    @staticmethod
+    def _set_geom_mat(g, R: np.ndarray):
+        try:
+            if getattr(g.mat, "shape", None) == (3, 3):
+                g.mat[:, :] = R
+            else:
+                g.mat[:] = R.reshape(-1)
+        except Exception:
+            # 최후 fallback (그래도 안 되면 그냥 넘김)
+            pass
+
+    
+    def mjfc(self, model, data):
+        self.fcn = 0.0
+        self.rf  = np.zeros(3, dtype=float)
+        self.Fw  = np.zeros(3, dtype=float)
+
+        for i in range(data.ncon):
+            fci = np.zeros(6, dtype=float)
+            try:
+                mujoco.mj_contactForce(model, data, i, fci)
+
+                Fn_signed = float(fci[0])         # signed normal component (contact frame x)
+                Fn_mag = abs(Fn_signed)           # magnitude for weighting/length
+                if Fn_mag < 1e-12:
+                    continue
+
+                con = data.contact[i]
+                pos_w = np.array(con.pos, dtype=float)
+
+                R_wc = self._contact_frame_to_world(con)
+                n_w = R_wc[:, 0]                  # world normal
+
+                # "드론이 벽에 가하는 힘"을 정확히 하려면,
+                # 어떤 geom이 드론/벽인지 판별해서 부호를 결정해야 함.
+                f_w = Fn_signed * n_w
+
+                self.fcn += Fn_mag
+                self.rf  += pos_w * Fn_mag
+                self.Fw  += f_w
+
+            except Exception:
+                pass
+
+
+
+    def _update_contact_resultant_arrow_in_viewer(self, viewer):
+        if (not self.viz_contact_enable) or self.viz_contact_scale <= 0.0:
+            viewer.user_scn.ngeom = 0
+            return
+
+        viewer.user_scn.ngeom = 0
+
+        # aggregate contacts
+        self.mjfc(self.model, self.data)
+
+        if self.fcn <= 1e-12:
+            return
+
+        p0 = self.rf / self.fcn          # representative contact point (weighted)
+        F  = self.Fw                     # resultant force (world)
+        Fn = float(np.linalg.norm(F))
+        if Fn <= 1e-12:
+            return
+
+        d = F / Fn
+        length = self.viz_contact_scale * Fn
+
+        g = viewer.user_scn.geoms[0]
+        mujoco.mjv_initGeom(
+            g,
+            mujoco.mjtGeom.mjGEOM_ARROW,
+            np.zeros(3),
+            np.zeros(3),
+            np.zeros(9),
+            np.array([1, 0, 0, 1], dtype=float)
+        )
+
+        g.pos[:] = p0
+        R = self._arrow_mat_from_dir(d)
+        self._set_geom_mat(g, R)
+        g.size[:] = np.array([self.viz_contact_width, self.viz_contact_width, length], dtype=float)
+
+        viewer.user_scn.ngeom = 1
+
 
 
 def main():
