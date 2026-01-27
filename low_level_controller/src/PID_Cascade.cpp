@@ -34,8 +34,9 @@ static inline double roll_from_quat(double x, double y, double z, double w)
 static inline double pitch_from_quat(double x, double y, double z, double w)
 {
   const double sinp = 2.0 * (w*y - z*x);
-  if (std::abs(sinp) >= 1.0)
-    return std::copysign(M_PI / 2.0, sinp);
+  if (std::abs(sinp) >= 1.0) {
+    return std::copysign(M_PI / 2.0, sinp);  // 90 deg
+  }
   return std::asin(sinp);
 }
 
@@ -50,13 +51,16 @@ struct PID {
   double prev{0};
   bool first{true};
 
+  // 1st-order LPF for derivative term
   double d_filt{0.0};
   bool d_first{true};
 
+  // Fixed cutoff frequency [Hz]
   static constexpr double DERIV_CUTOFF_HZ = 3.0;
 
   static inline double lpf_alpha(double dt, double fc_hz)
   {
+    // alpha = dt / (RC + dt), RC = 1/(2*pi*fc)
     const double rc = 1.0 / (2.0 * M_PI * fc_hz);
     return dt / (rc + dt);
   }
@@ -64,26 +68,36 @@ struct PID {
   double step(double err, double dt) {
     if (dt <= 0) return 0;
 
+    // raw numerical derivative of error
     double raw_d = 0.0;
-    if (!first)
+    if (!first) {
       raw_d = (err - prev) / dt;
+    }
 
+    // update prev/first for next step
     first = false;
     prev = err;
 
+    // low-pass filter the derivative
     const double a = lpf_alpha(dt, DERIV_CUTOFF_HZ);
     if (d_first) {
-      d_filt = raw_d;
+      d_filt = raw_d;   // initialize to avoid startup spike
       d_first = false;
     } else {
-      d_filt += a * (raw_d - d_filt);
+      d_filt = d_filt + a * (raw_d - d_filt);
     }
 
     return kp*err + kd*d_filt;
   }
 
-  void declare(rclcpp::Node* node, const std::string& prefix,
-               double kp_default, double kd_default)
+  void reset() {
+    prev = 0;
+    first = true;
+    d_filt = 0.0;
+    d_first = true;
+  }
+
+  void declare(rclcpp::Node* node, const std::string& prefix, double kp_default, double kd_default)
   {
     kp = node->declare_parameter(prefix + ".kp", kp_default);
     kd = node->declare_parameter(prefix + ".kd", kd_default);
@@ -102,7 +116,7 @@ class PIDCascade : public rclcpp::Node
 public:
   PIDCascade() : Node("low_level_controller")
   {
-    // ---------- params ----------
+    // ---------- params (system) ----------
     mass_ = declare_parameter("mass", 0.04338);
     g_    = declare_parameter("g", 9.81);
 
@@ -111,11 +125,13 @@ public:
     max_tau_  = declare_parameter("max_tau", 0.02);
     max_Fz_   = declare_parameter("max_thrust", 1.0);
 
-    dt_pos_  = declare_parameter("dt.pos", 0.01);
-    dt_vel_  = declare_parameter("dt.vel", 0.01);
-    dt_att_  = declare_parameter("dt.att", 0.004);
-    dt_rate_ = declare_parameter("dt.rate", 0.0025);
+    // ---------- params (loop dt) ----------
+    dt_pos_  = declare_parameter("dt.pos", 0.01);     // 100 Hz
+    dt_vel_  = declare_parameter("dt.vel", 0.01);     // 100 Hz
+    dt_att_  = declare_parameter("dt.att", 0.004);    // 250 Hz
+    dt_rate_ = declare_parameter("dt.rate", 0.0025);  // 400 Hz
 
+    // ---------- params (PID gains) ----------
     pos_x_.declare(this, "pos.x", 1.5, 0.0);
     pos_y_.declare(this, "pos.y", 1.5, 0.0);
     pos_z_.declare(this, "pos.z", 2.0, 0.0);
@@ -133,7 +149,7 @@ public:
     rate_y_.declare(this, "rate.yaw", 0.001, 0.0);
 
     // ---------- subs ----------
-    sub_cmd_  = create_subscription<std_msgs::msg::Float64MultiArray>(
+    sub_cmd_ = create_subscription<std_msgs::msg::Float64MultiArray>(
       "/crazyflie/in/pos_cmd", 10,
       std::bind(&PIDCascade::cb_cmd, this, std::placeholders::_1));
 
@@ -149,23 +165,41 @@ public:
       "/crazyflie/out/ang_vel", 10,
       std::bind(&PIDCascade::cb_angvel, this, std::placeholders::_1));
 
+    // ---------- pub ----------
     pub_out_ = create_publisher<std_msgs::msg::Float32MultiArray>(
       "/crazyflie/in/input", 10);
 
-    t_pos_  = create_wall_timer(std::chrono::milliseconds(10),
-              std::bind(&PIDCascade::loop_pos, this));
-    t_vel_  = create_wall_timer(std::chrono::milliseconds(10),
-              std::bind(&PIDCascade::loop_vel, this));
-    t_att_  = create_wall_timer(std::chrono::milliseconds(4),
-              std::bind(&PIDCascade::loop_att, this));
-    t_rate_ = create_wall_timer(std::chrono::microseconds(2500),
-              std::bind(&PIDCascade::loop_rate, this));
+    pub_vdes_ = create_publisher<geometry_msgs::msg::Vector3Stamped>(
+      "/crazyflie/debug/v_des", 10);
+
+    pub_rpydes_ = create_publisher<geometry_msgs::msg::Vector3Stamped>(
+      "/crazyflie/debug/rpy_des", 10);
+
+    pub_wdes_ = create_publisher<geometry_msgs::msg::Vector3Stamped>(
+      "/crazyflie/debug/w_des", 10);
+
+    // ---------- timers ----------
+    t_pos_  = create_wall_timer(std::chrono::milliseconds(10),    std::bind(&PIDCascade::loop_pos,  this));
+    t_vel_  = create_wall_timer(std::chrono::milliseconds(10),    std::bind(&PIDCascade::loop_vel,  this));
+    t_att_  = create_wall_timer(std::chrono::milliseconds(4),     std::bind(&PIDCascade::loop_att,  this));
+    t_rate_ = create_wall_timer(std::chrono::microseconds(2500),  std::bind(&PIDCascade::loop_rate, this));
+
+    // initial param refresh
+    refresh_params();
+
+    RCLCPP_INFO(get_logger(), "PID cascade controller ready (debug publish enabled).");
+    RCLCPP_INFO(get_logger(), "All numerical derivatives inside PIDs are 1st-order low-pass filtered (fc=5Hz).");
   }
 
 private:
   // ---------- callbacks ----------
   void cb_cmd(const std_msgs::msg::Float64MultiArray::SharedPtr m)
   {
+    if (m->data.size() < 4) {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+                           "pos_cmd needs 4 doubles: [x, y, z, yaw]");
+      return;
+    }
     std::lock_guard<std::mutex> lk(mtx_);
     cmd_pos_ << m->data[0], m->data[1], m->data[2];
     cmd_yaw_ = m->data[3];
@@ -175,10 +209,7 @@ private:
   void cb_pose(const geometry_msgs::msg::PoseStamped::SharedPtr m)
   {
     std::lock_guard<std::mutex> lk(mtx_);
-
-    pos_ << m->pose.position.x,
-            m->pose.position.y,
-            m->pose.position.z;
+    pos_ << m->pose.position.x, m->pose.position.y, m->pose.position.z;
 
     const double qx = m->pose.orientation.x;
     const double qy = m->pose.orientation.y;
@@ -187,21 +218,7 @@ private:
 
     roll_  = roll_from_quat(qx, qy, qz, qw);
     pitch_ = pitch_from_quat(qx, qy, qz, qw);
-
-    // ✅ ADDED: yaw unwrap
-    const double yaw_raw = yaw_from_quat(qx, qy, qz, qw);
-
-    if (yaw_init_) {
-      yaw_cont_ = yaw_raw;
-      yaw_prev_raw_ = yaw_raw;
-      yaw_init_ = false;
-    } else {
-      const double dy = wrap_pi(yaw_raw - yaw_prev_raw_);
-      yaw_cont_ += dy;
-      yaw_prev_raw_ = yaw_raw;
-    }
-
-    yaw_ = yaw_cont_;  // ✅ CHANGED: continuous yaw
+    yaw_   = yaw_from_quat(qx, qy, qz, qw);
   }
 
   void cb_vel(const geometry_msgs::msg::Vector3Stamped::SharedPtr m)
@@ -216,23 +233,59 @@ private:
     w_ << m->vector.x, m->vector.y, m->vector.z;
   }
 
+  // ---------- parameter refresh ----------
+  void refresh_params()
+  {
+    mass_     = get_parameter("mass").as_double();
+    g_        = get_parameter("g").as_double();
+    max_tilt_ = get_parameter("max_tilt_rad").as_double();
+    max_rate_ = get_parameter("max_rate").as_double();
+    max_tau_  = get_parameter("max_tau").as_double();
+    max_Fz_   = get_parameter("max_thrust").as_double();
+
+    dt_pos_  = get_parameter("dt.pos").as_double();
+    dt_vel_  = get_parameter("dt.vel").as_double();
+    dt_att_  = get_parameter("dt.att").as_double();
+    dt_rate_ = get_parameter("dt.rate").as_double();
+
+    pos_x_.refresh(this, "pos.x");
+    pos_y_.refresh(this, "pos.y");
+    pos_z_.refresh(this, "pos.z");
+
+    vel_x_.refresh(this, "vel.x");
+    vel_y_.refresh(this, "vel.y");
+    vel_z_.refresh(this, "vel.z");
+
+    att_r_.refresh(this, "att.roll");
+    att_p_.refresh(this, "att.pitch");
+    att_y_.refresh(this, "att.yaw");
+
+    rate_r_.refresh(this, "rate.roll");
+    rate_p_.refresh(this, "rate.pitch");
+    rate_y_.refresh(this, "rate.yaw");
+  }
+
   // ---------- loops ----------
   void loop_pos()
   {
     if (!have_cmd_) return;
     std::lock_guard<std::mutex> lk(mtx_);
-    v_des_.x() = pos_x_.step(cmd_pos_.x() - pos_.x(), dt_pos_);
-    v_des_.y() = pos_y_.step(cmd_pos_.y() - pos_.y(), dt_pos_);
-    v_des_.z() = pos_z_.step(cmd_pos_.z() - pos_.z(), dt_pos_);
+
+    const double dt = std::max(1e-6, dt_pos_);
+    v_des_.x() = pos_x_.step(cmd_pos_.x() - pos_.x(), dt);
+    v_des_.y() = pos_y_.step(cmd_pos_.y() - pos_.y(), dt);
+    v_des_.z() = pos_z_.step(cmd_pos_.z() - pos_.z(), dt);
   }
 
   void loop_vel()
   {
     if (!have_cmd_) return;
     std::lock_guard<std::mutex> lk(mtx_);
-    a_des_.x() = vel_x_.step(v_des_.x() - vel_.x(), dt_vel_);
-    a_des_.y() = vel_y_.step(v_des_.y() - vel_.y(), dt_vel_);
-    a_des_.z() = vel_z_.step(v_des_.z() - vel_.z(), dt_vel_);
+
+    const double dt = std::max(1e-6, dt_vel_);
+    a_des_.x() = vel_x_.step(v_des_.x() - vel_.x(), dt);
+    a_des_.y() = vel_y_.step(v_des_.y() - vel_.y(), dt);
+    a_des_.z() = vel_z_.step(v_des_.z() - vel_.z(), dt);
   }
 
   void loop_att()
@@ -240,16 +293,35 @@ private:
     if (!have_cmd_) return;
     std::lock_guard<std::mutex> lk(mtx_);
 
-    const double roll_d  = clamp(-a_des_.y()/g_, -max_tilt_, max_tilt_);
-    const double pitch_d = clamp( a_des_.x()/g_, -max_tilt_, max_tilt_);
-    const double yaw_d   = cmd_yaw_;
+    // yaw command
+    const double yaw_d = wrap_pi(cmd_yaw_);
 
-    // roll / pitch: wrap 유지
-    w_des_.x() = att_r_.step(wrap_pi(roll_d  - roll_),  dt_att_);
-    w_des_.y() = att_p_.step(wrap_pi(pitch_d - pitch_), dt_att_);
+    // world-frame desired accel -> desired roll/pitch with yaw compensation
+    const double g = std::max(1e-9, g_);
+    const double ax = a_des_.x();   // world x
+    const double ay = a_des_.y();   // world y
 
-    // ✅ CHANGED: yaw error는 unwrap된 yaw 사용, wrap 제거
-    w_des_.z() = att_y_.step(yaw_d - yaw_, dt_att_);
+    const double pitch_d = clamp(( ax*std::cos(yaw_d) + ay*std::sin(yaw_d) ) / g,
+                                -max_tilt_, max_tilt_);
+    const double roll_d  = clamp(( ax*std::sin(yaw_d) - ay*std::cos(yaw_d) ) / g,
+                                -max_tilt_, max_tilt_);
+    // translational cascade PID로부터 acceleration desired가 나옴.
+    // quadrotor 동역학에 의해서 roll_desired = arcsin(acc_y / g), pitch_desired = arcsin(acc_x / gcos,..) ...... 가 됨.
+    // 1차 테일러 (작은값근사) 하면 그냥 roll_d = acc_y / g 등등... 삼각함수 다 뗌.
+    // 근데 원래버전은 여기서 yaw_d를 안돌려줌.
+    // 마치 zyx가 아니라 xyz 인거처럼 생각함.
+    // quat to rpy에서 문제가 있던게 아니라 acc -> attitude desired 생성과정에서 이슈가 있었음.
+    // 이번 버전에는 돌려줌
+
+    roll_d_  = roll_d;
+    pitch_d_ = pitch_d;
+    yaw_d_   = yaw_d;
+
+    const double dt = std::max(1e-6, dt_att_);
+
+    w_des_.x() = att_r_.step(wrap_pi(roll_d  - roll_),  dt);
+    w_des_.y() = att_p_.step(wrap_pi(pitch_d - pitch_), dt);
+    w_des_.z() = att_y_.step(wrap_pi(yaw_d   - yaw_),   dt);
 
     w_des_.x() = clamp(w_des_.x(), -max_rate_, max_rate_);
     w_des_.y() = clamp(w_des_.y(), -max_rate_, max_rate_);
@@ -259,21 +331,51 @@ private:
   void loop_rate()
   {
     if (!have_cmd_) return;
+
     std::lock_guard<std::mutex> lk(mtx_);
 
-    const double tau_x =
-      clamp(rate_r_.step(w_des_.x() - w_.x(), dt_rate_), -max_tau_, max_tau_);
-    const double tau_y =
-      clamp(rate_p_.step(w_des_.y() - w_.y(), dt_rate_), -max_tau_, max_tau_);
-    const double tau_z =
-      clamp(rate_y_.step(w_des_.z() - w_.z(), dt_rate_), -max_tau_, max_tau_);
+    refresh_params();
+    const rclcpp::Time now = this->get_clock()->now();
+    builtin_interfaces::msg::Time stamp;
+    stamp.sec = static_cast<int32_t>(now.seconds());
+    stamp.nanosec = static_cast<uint32_t>(now.nanoseconds() % 1000000000LL);
 
-    const double Fz =
-      clamp(mass_ * (g_ + a_des_.z()), 0.0, max_Fz_);
+    const double dt = std::max(1e-6, dt_rate_);
+
+    const double tau_x = clamp(rate_r_.step(w_des_.x() - w_.x(), dt), -max_tau_, max_tau_);
+    const double tau_y = clamp(rate_p_.step(w_des_.y() - w_.y(), dt), -max_tau_, max_tau_);
+    const double tau_z = clamp(rate_y_.step(w_des_.z() - w_.z(), dt), -max_tau_, max_tau_);
+
+    const double Fz = clamp(mass_ * (g_ + a_des_.z()), 0.0, max_Fz_);
 
     std_msgs::msg::Float32MultiArray out;
-    out.data = {(float)tau_x, (float)tau_y, (float)tau_z, (float)Fz};
+    out.data = { (float)tau_x, (float)tau_y, (float)tau_z, (float)Fz };
     pub_out_->publish(out);
+
+    // -------- debug publish (same stamp) --------
+    geometry_msgs::msg::Vector3Stamped vmsg;
+    vmsg.header.stamp = stamp;
+    vmsg.header.frame_id = "world";
+    vmsg.vector.x = v_des_.x();
+    vmsg.vector.y = v_des_.y();
+    vmsg.vector.z = v_des_.z();
+    pub_vdes_->publish(vmsg);
+
+    geometry_msgs::msg::Vector3Stamped rpymsg;
+    rpymsg.header.stamp = stamp;
+    rpymsg.header.frame_id = "world";
+    rpymsg.vector.x = roll_d_;
+    rpymsg.vector.y = pitch_d_;
+    rpymsg.vector.z = yaw_d_;
+    pub_rpydes_->publish(rpymsg);
+
+    geometry_msgs::msg::Vector3Stamped wmsg;
+    wmsg.header.stamp = stamp;
+    wmsg.header.frame_id = "body";
+    wmsg.vector.x = w_des_.x();
+    wmsg.vector.y = w_des_.y();
+    wmsg.vector.z = w_des_.z();
+    pub_wdes_->publish(wmsg);
   }
 
   // ---------- state ----------
@@ -286,21 +388,26 @@ private:
 
   double roll_{0}, pitch_{0}, yaw_{0}, cmd_yaw_{0};
 
-  // ✅ ADDED: yaw unwrap state
-  double yaw_cont_{0.0};
-  double yaw_prev_raw_{0.0};
-  bool yaw_init_{true};
-
+  // PIDs
   PID pos_x_, pos_y_, pos_z_;
   PID vel_x_, vel_y_, vel_z_;
   PID att_r_, att_p_, att_y_;
   PID rate_r_, rate_p_, rate_y_;
 
+  // params
   double mass_{0.04338}, g_{9.81};
-  double max_tilt_{35.0*M_PI/180.0}, max_rate_{8.0};
-  double max_tau_{0.02}, max_Fz_{1.0};
+  double max_tilt_{35.0*M_PI/180.0}, max_rate_{8.0}, max_tau_{0.02}, max_Fz_{1.0};
   double dt_pos_{0.01}, dt_vel_{0.01}, dt_att_{0.004}, dt_rate_{0.0025};
 
+  // desired rpy (computed in loop_att, published in loop_rate)
+  double roll_d_{0.0}, pitch_d_{0.0}, yaw_d_{0.0};
+
+  // debug pubs
+  rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr pub_vdes_;
+  rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr pub_rpydes_;
+  rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr pub_wdes_;
+
+  // ROS
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_cmd_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_pose_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_vel_;
