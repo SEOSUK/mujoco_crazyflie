@@ -13,7 +13,7 @@ from ament_index_python.packages import get_package_share_directory
 import mujoco
 import mujoco.viewer
 
-from geometry_msgs.msg import PoseStamped, Vector3Stamped
+from geometry_msgs.msg import PoseStamped, Vector3Stamped, WrenchStamped
 from std_msgs.msg import Float32MultiArray
 
 # -------------------- rates --------------------
@@ -236,7 +236,7 @@ class CrazyfliePlant(Node):
         self.pub_acc = self.create_publisher(Vector3Stamped, "/crazyflie/out/acc", 10)
         self.pub_angacc = self.create_publisher(Vector3Stamped, "/crazyflie/out/ang_acc", 10)
         self.pub_angvel_gt = self.create_publisher(Vector3Stamped, "/crazyflie/out/ang_vel_gt", 10)
-
+        self.pub_contact_force = self.create_publisher(WrenchStamped, "/crazyflie/out/contact_force", 10)
 
         # ---- threads start ----
         self.viewer_thread = threading.Thread(target=self.viewer_loop, daemon=True)
@@ -434,6 +434,33 @@ class CrazyfliePlant(Node):
         a_msg.vector.y = float(angacc_B_noisy[1])
         a_msg.vector.z = float(angacc_B_noisy[2])
         self.pub_angacc.publish(a_msg)
+
+        # ---- contact resultant force ----
+        cf_msg = WrenchStamped()
+        cf_msg.header.stamp = stamp
+        cf_msg.header.frame_id = "world"
+
+
+        self.mjfc(self.model, self.data)   # self.Fw, self.rf, self.fcn 갱신
+        F = self.Fw.copy()
+
+        # 값이 거의 없으면 0으로 publish(로깅에서 "없음"을 명확히)
+        if np.linalg.norm(F) <= 1e-12:
+            cf_msg.wrench.force.x = 0.0
+            cf_msg.wrench.force.y = 0.0
+            cf_msg.wrench.force.z = 0.0
+        else:
+            cf_msg.wrench.force.x = float(F[0])
+            cf_msg.wrench.force.y = float(F[1])
+            cf_msg.wrench.force.z = float(F[2])
+
+        # torque는 아직 미계산이면 0
+        cf_msg.wrench.torque.x = 0.0
+        cf_msg.wrench.torque.y = 0.0
+        cf_msg.wrench.torque.z = 0.0
+
+        self.pub_contact_force.publish(cf_msg)
+
 
     # ------------------------ threads ------------------------
     def sim_loop(self):

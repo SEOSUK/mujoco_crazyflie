@@ -16,6 +16,8 @@
 #include <geometry_msgs/msg/vector3_stamped.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
+#include <geometry_msgs/msg/wrench_stamped.hpp>
+
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
@@ -179,6 +181,12 @@ public:
       "/crazyflie/debug/w_des", 10,
       std::bind(&DataLogger::cb_wdes, this, std::placeholders::_1));
 
+    sub_contact_ = create_subscription<geometry_msgs::msg::WrenchStamped>(
+      "/crazyflie/out/contact_force", 10,
+      std::bind(&DataLogger::cb_contact, this, std::placeholders::_1));
+
+
+
     // Timer
     const auto period = std::chrono::duration<double>(1.0 / publish_hz_);
     timer_ = create_wall_timer(
@@ -214,6 +222,7 @@ private:
       "rolld,pitchd,yawd,"
       "wdes_x,wdes_y,wdes_z,"
       "tau_x,tau_y,tau_z,Fz,"
+      "contact_Fx,contact_Fy,contact_Fz,"
       "validity_bitmask\n";
     csv_.flush();
   }
@@ -305,10 +314,24 @@ private:
     have_wdes_ = true;
   }
 
+  void cb_contact(const geometry_msgs::msg::WrenchStamped::SharedPtr m)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    contact_F_ << m->wrench.force.x, m->wrench.force.y, m->wrench.force.z;
+
+    // (선택) torque도 로깅하려면:
+    // contact_T_ << m->wrench.torque.x, m->wrench.torque.y, m->wrench.torque.z;
+
+    have_contact_ = true;
+  }
+
+
+
+
   // ----- publisher -----
   void publish()
   {
-    Eigen::Vector3d cmd_pos, pos, vel, w, acc, angacc, vdes, wdes, tau;
+    Eigen::Vector3d cmd_pos, pos, vel, w, acc, angacc, vdes, wdes, tau, contact_F;
     double cmd_yaw, roll, pitch, yaw;
     double rolld, pitchd, yawd;
     double Fz;
@@ -333,6 +356,7 @@ private:
       wdes = wdes_;
       tau = tau_;
       Fz = Fz_;
+      contact_F = contact_F_;
 
       mask = 0u;
       mask |= (have_cmd_    ? (1u<<0) : 0u);
@@ -345,12 +369,13 @@ private:
       mask |= (have_rpydes_ ? (1u<<7) : 0u);
       mask |= (have_wdes_   ? (1u<<8) : 0u);
       mask |= (have_input_  ? (1u<<9) : 0u);
+      mask |= (have_contact_ ? (1u<<10) : 0u); 
     }
 
     const double t = this->get_clock()->now().seconds();
 
     std_msgs::msg::Float64MultiArray msg;
-    msg.data.resize(37);
+    msg.data.resize(40);
 
     msg.data[0]  = t;
 
@@ -400,7 +425,13 @@ private:
     msg.data[34] = tau.z();
     msg.data[35] = Fz;
 
-    msg.data[36] = static_cast<double>(mask);
+    msg.data[36] = contact_F.x();
+    msg.data[37] = contact_F.y();
+    msg.data[38] = contact_F.z();
+
+    msg.data[39] = static_cast<double>(mask);
+
+
 
     pub_->publish(msg);
 
@@ -418,6 +449,7 @@ private:
            << msg.data[26] << "," << msg.data[27] << "," << msg.data[28] << ","
            << msg.data[29] << "," << msg.data[30] << "," << msg.data[31] << ","
            << msg.data[32] << "," << msg.data[33] << "," << msg.data[34] << "," << msg.data[35] << ","
+           << msg.data[36] << "," << msg.data[37] << "," << msg.data[38] << ","
            << static_cast<uint64_t>(mask)
            << "\n";
 
@@ -448,6 +480,8 @@ private:
   Eigen::Vector3d tau_{0,0,0};
   double Fz_{0.0};
 
+  Eigen::Vector3d contact_F_{0,0,0};
+
   bool have_cmd_{false};
   bool have_pose_{false};
   bool have_vel_{false};
@@ -458,6 +492,7 @@ private:
   bool have_rpydes_{false};
   bool have_wdes_{false};
   bool have_input_{false};
+  bool have_contact_{false};
 
   double publish_hz_{400.0};
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr pub_;
@@ -473,6 +508,7 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_vdes_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_rpydes_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_wdes_;
+  rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_contact_;
 
   std::string csv_dir_;
   std::string csv_path_;
