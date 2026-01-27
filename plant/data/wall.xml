@@ -1,0 +1,28 @@
+<mujoco>
+  <asset>
+    <mesh name="wall" file="structure/wall.stl" scale="1e-2 1e-2 3e-3"/>
+  </asset>
+
+  <worldbody>
+    <body name="wall" pos="1.5 0 0" quat="0.7071 0 0 0.7071">
+      <!-- visual -->
+      <geom name="wall_visual"
+            type="mesh"
+            mesh="wall"
+            material="light-green"
+            contype="0"
+            conaffinity="0"
+            mass="0"/>
+
+      <!-- collision -->
+      <geom name="wall_collision"
+            type="mesh"
+            mesh="wall"
+            group="3"
+            condim="3"
+            contype="1"
+            conaffinity="1"
+            mass="0"/>
+    </body>
+  </worldbody>
+</mujoco>
