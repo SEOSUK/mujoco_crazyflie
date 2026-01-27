@@ -13,7 +13,7 @@
 % 26 rolld, 27 pitchd, 28 yawd
 % 29 wdes_x, 30 wdes_y, 31 wdes_z
 % 32 tau_x, 33 tau_y, 34 tau_z, 35 Fz
-% 36 contact_Fx, 37 contact_Fy, 38 contact_Fz
+% 36 contact_F.x, 37 contact_F.y, 38 contact_F.z
 % 39 validity_bitmask
 
 clear; clc;
@@ -71,9 +71,9 @@ wdes_x = col(30); wdes_y = col(31); wdes_z = col(32);
 tau_x = col(33); tau_y = col(34); tau_z = col(35); Fz = col(36);
 
 % --- Contact Force ---
-contact_Fx = col(37); contact_Fy = col(38); contact_Fz = col(39);
 
-mask = uint32(col(40));
+
+mask = uint32(col(37));
 
 %% ---- convenience: unwrap yaw for nicer plots ----
 yaw_u    = unwrap(yaw);
@@ -167,25 +167,6 @@ nexttile; plot(t, tau_x, 'LineWidth', 1.2); grid on; ylabel('\tau_x');
 nexttile; plot(t, tau_y, 'LineWidth', 1.2); grid on; ylabel('\tau_y');
 nexttile; plot(t, tau_z, 'LineWidth', 1.2); grid on; ylabel('\tau_z');
 nexttile; plot(t, Fz,    'LineWidth', 1.2); grid on; ylabel('Fz'); xlabel('t [s]');
-
-%% ---- Figure 6: Contact force (world) ----
-figure('Name','Contact force: F_contact (world)','Color','w');
-tiledlayout(3,1,'Padding','compact','TileSpacing','compact');
-
-nexttile;
-plot(t, contact_Fx, 'LineWidth', 1.2);
-grid on; ylabel('F_{c,x} [N]'); legend('contact F_x');
-ylim([0 0.3])
-
-nexttile;
-plot(t, contact_Fy, 'LineWidth', 1.2);
-grid on; ylabel('F_{c,y} [N]'); legend('contact F_y');
-ylim([0 0.3])
-
-nexttile;
-plot(t, contact_Fz, 'LineWidth', 1.2);
-grid on; ylabel('F_{c,z} [N]'); xlabel('t [s]'); legend('contact F_z');
-ylim([0 0.3])
 
 %% ---- (Optional) Validity bitmask visualization ----
 figure('Name','Validity bitmask','Color','w');
