@@ -9,7 +9,7 @@
     <material name="gold" rgba="0.969 0.878 0.6 1"/>
     <material name="green" rgba="0.522 0.902 0.145 1"/>
     <material name="yellow" rgba="0.96 0.92 0.55 1"/>
-    <material name="light-green" rgba=".6 0.9 0.6 0.6"/>
+    <material name="light-green" rgba="0.6 0.9 0.6 0.6"/>
     <!-- The LED materials are initially transparent and can be changed dynamically -->
     <material name="led_top" rgba="1.0 1.0 1.0 0.0"/>
     <material name="led_bot" rgba="1.0 1.0 1.0 0.0"/>
@@ -54,8 +54,8 @@
     </default>
   </default>
 
+<include file="wall.xml"/>
 
-  <include file="wall.xml"/>
 
 
   <worldbody>
@@ -67,6 +67,17 @@
      material="tile_mat"
      contype="1"
      conaffinity="1"/>
+
+
+    <!--<body name="big_cylinder" pos="2.5 0.0 0.0">
+     <geom name="big_cylinder_geom"
+           type="cylinder"
+           size="1.5 2.0"       
+           rgba="0.6 0.9 0.6 0.4"
+           contype="1"
+           conaffinity="1"
+           friction="1 0.01 0.0001"/>
+   </body> -->
       
     <body name="drone" pos="0 0 0.05" childclass="cf21B">
       <freejoint/>    
@@ -121,7 +132,7 @@
               contype="1"
               conaffinity="1"
               rgba="1 0 0 1"/>
-      </body>
+      </body> 
 
 
 
