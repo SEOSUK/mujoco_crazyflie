@@ -19,6 +19,13 @@ plant:
       ang_vel_var: [4e-6, 4e-6, 4e-6]
       ang_acc_var: [1e-2, 1e-2, 1e-2]
 
+    # ---- contact numerical diff + LPF params ----
+    contact_filter:
+      enable: true
+      cutoff_hz: 5.0    # 지만 rad/s로 대입할 것
+      timer_hz: 100.0       # 수치미분/필터 전용 콜백 주기
+      use_exp_alpha: true
+
 low_level_controller:
   ros__parameters:
     # ---------------- system ----------------

@@ -151,6 +151,39 @@ class CrazyfliePlant(Node):
         # 6D force buffer for mj_contactForce
         self._cf6 = np.zeros(6, dtype=float)
 
+        # ---- 수치 미분 + LPF params ----
+        self.declare_parameter("contact_filter.enable", True)
+        self.declare_parameter("contact_filter.cutoff_hz", 5.0)     # 4~5 Hz 추천
+        self.declare_parameter("contact_filter.timer_hz", 100.0)    # 수치미분 전용 콜백 주기
+        self.declare_parameter("contact_filter.use_exp_alpha", True)
+
+
+        self.contact_filter_enable = bool(self.get_parameter("contact_filter.enable").value)
+        self.contact_cutoff_hz = float(self.get_parameter("contact_filter.cutoff_hz").value)
+        self.contact_timer_hz = float(self.get_parameter("contact_filter.timer_hz").value)
+        self.use_exp_alpha = bool(self.get_parameter("contact_filter.use_exp_alpha").value)
+
+
+        # raw force 최신값 버퍼 (publish_outputs에서 업데이트)
+        self._F_raw_latest = np.zeros(3, dtype=float)
+
+        # 수치미분 상태
+        self._F_raw_prev = np.zeros(3, dtype=float)
+
+        # 필터/미분 결과 상태(100Hz 타이머가 갱신)
+        self._F_filt_latest = np.zeros(3, dtype=float)
+        self._Fdot_raw_latest = np.zeros(3, dtype=float)
+        self._Fdot_filt_latest = np.zeros(3, dtype=float)
+
+        # 타이머 dt 실측용
+        self._contact_timer_prev_ns = None
+
+
+        self.timer_contact = None
+        if self.contact_filter_enable:
+            period = 1.0 / self.contact_timer_hz
+            self.timer_contact = self.create_timer(period, self.cb_contact_diff_100hz)
+
 
 
         self.get_logger().info(
@@ -237,6 +270,9 @@ class CrazyfliePlant(Node):
         self.pub_angacc = self.create_publisher(Vector3Stamped, "/crazyflie/out/ang_acc", 10)
         self.pub_angvel_gt = self.create_publisher(Vector3Stamped, "/crazyflie/out/ang_vel_gt", 10)
         self.pub_contact_force = self.create_publisher(WrenchStamped, "/crazyflie/out/contact_force", 10)
+        self.pub_contact_force_filt = self.create_publisher(WrenchStamped, "/crazyflie/out/contact_force_filt", 10)
+
+
 
         # ---- threads start ----
         self.viewer_thread = threading.Thread(target=self.viewer_loop, daemon=True)
@@ -435,24 +471,22 @@ class CrazyfliePlant(Node):
         a_msg.vector.z = float(angacc_B_noisy[2])
         self.pub_angacc.publish(a_msg)
 
-        # ---- contact resultant force ----
+
+        # contact Force + LPF
+        self.mjfc(self.model, self.data)   # self.Fw, self.rf, self.fcn 갱신
+        F_raw = self.Fw.copy()             # 시작의 데이터
+
+        # 최신 raw force 저장 (타이머가 소비)
+        self._F_raw_latest = F_raw.copy()
+
+        # ---- contact force raw publish ----
         cf_msg = WrenchStamped()
         cf_msg.header.stamp = stamp
         cf_msg.header.frame_id = "world"
 
-
-        self.mjfc(self.model, self.data)   # self.Fw, self.rf, self.fcn 갱신
-        F = self.Fw.copy()
-
-        # 값이 거의 없으면 0으로 publish(로깅에서 "없음"을 명확히)
-        if np.linalg.norm(F) <= 1e-12:
-            cf_msg.wrench.force.x = 0.0
-            cf_msg.wrench.force.y = 0.0
-            cf_msg.wrench.force.z = 0.0
-        else:
-            cf_msg.wrench.force.x = float(F[0])
-            cf_msg.wrench.force.y = float(F[1])
-            cf_msg.wrench.force.z = float(F[2])
+        cf_msg.wrench.force.x = float(F_raw[0])
+        cf_msg.wrench.force.y = float(F_raw[1])
+        cf_msg.wrench.force.z = float(F_raw[2])
 
         # torque는 아직 미계산이면 0
         cf_msg.wrench.torque.x = 0.0
@@ -460,6 +494,8 @@ class CrazyfliePlant(Node):
         cf_msg.wrench.torque.z = 0.0
 
         self.pub_contact_force.publish(cf_msg)
+
+
 
 
     # ------------------------ threads ------------------------
@@ -485,6 +521,74 @@ class CrazyfliePlant(Node):
                     self.publish_outputs(dt_sim=dt)
 
             next_step_wall += dt
+
+
+    def cb_contact_diff_100hz(self):
+        """
+        100 Hz 타이머에서:
+        - dt는 타이머 실제 호출 간격(실측) 사용
+        - 최신 raw force(self._F_raw_latest)로 수치미분
+        - 1차 LPF로 F, Fdot 필터링
+        - filt force를 /contact_force_filt로 publish
+        """
+
+        now_ns = self.get_clock().now().nanoseconds
+
+        # ---- 0) 첫 호출: 시간/prev force 초기화 ----
+        if self._contact_timer_prev_ns is None:
+            self._contact_timer_prev_ns = now_ns
+            self._F_raw_prev = self._F_raw_latest.copy()
+            # 필요하면 필터도 여기서 초기화할 수 있음(선택)
+            # self._F_filt_latest = self._F_raw_prev.copy()
+            # self._Fdot_filt_latest = np.zeros(3, dtype=float)
+            return
+
+        # ---- 1) dt 계산 (타이머 실측) ----
+        dt = (now_ns - self._contact_timer_prev_ns) * 1e-9
+        self._contact_timer_prev_ns = now_ns
+
+        # 타이머 지터/중단 등 방어
+        if dt <= 1e-6 or dt > 0.05:
+            return
+
+        # ---- 2) 최신 raw force 읽기 ----
+        F = self._F_raw_latest  # numpy array (shared)
+        # 안전하게 하려면 copy:
+        # F = self._F_raw_latest.copy()
+
+        # ---- 3) 수치미분 (Fdot) ----
+        Fdot_raw = (F - self._F_raw_prev) / dt
+        self._F_raw_prev = F.copy()
+
+        self._Fdot_raw_latest = Fdot_raw.copy()
+
+
+        # ---- 4) 1차 LPF alpha 계산
+        wc = float(max(0.0, self.contact_cutoff_hz))
+
+        if wc <= 0.0:
+            a = 1.0
+        else:
+            a = float(np.clip(wc * dt, 0.0, 1.0))
+
+        # ---- 5) 필터링 (Fdot, F) ----
+        self._Fdot_filt_latest = (1.0 - a) * self._Fdot_filt_latest + a * Fdot_raw
+        self._F_filt_latest    = (1.0 - a) * self._F_filt_latest    + a * F
+
+        # ---- 6) publish (filtered force) ----
+        msg = WrenchStamped()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = "world"
+        msg.wrench.force.x = float(self._F_filt_latest[0])
+        msg.wrench.force.y = float(self._F_filt_latest[1])
+        msg.wrench.force.z = float(self._F_filt_latest[2])
+        msg.wrench.torque.x = 0.0
+        msg.wrench.torque.y = 0.0
+        msg.wrench.torque.z = 0.0
+        self.pub_contact_force_filt.publish(msg)
+
+
+
 
 
     def viewer_loop(self):
@@ -513,6 +617,18 @@ class CrazyfliePlant(Node):
     def close(self):
         self._stop = True
 
+    
+    @staticmethod
+    def _contact_frame_to_world(con) -> np.ndarray:
+        fr = np.array(con.frame, dtype=float)
+        if fr.shape == (3, 3):
+            return fr
+        fr = fr.ravel()
+        if fr.size == 9:
+            return fr.reshape(3, 3)
+        return np.eye(3, dtype=float)
+
+
 
     @staticmethod
     def _arrow_mat_from_dir(d: np.ndarray) -> np.ndarray:
@@ -530,16 +646,6 @@ class CrazyfliePlant(Node):
         return np.column_stack([x, y, z])
 
 
-    @staticmethod
-    def _contact_frame_to_world(con) -> np.ndarray:
-        fr = np.array(con.frame, dtype=float)
-        if fr.shape == (3, 3):
-            return fr
-        fr = fr.ravel()
-        if fr.size == 9:
-            return fr.reshape(3, 3)
-        return np.eye(3, dtype=float)
-    
 
     @staticmethod
     def _set_geom_mat(g, R: np.ndarray):

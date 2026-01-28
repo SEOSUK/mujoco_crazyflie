@@ -9,6 +9,8 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+
 
 # ---------------- executables ----------------
 add_executable(trajectory8
@@ -17,6 +19,7 @@ add_executable(trajectory8
 ament_target_dependencies(trajectory8
   rclcpp
   std_msgs
+  geometry_msgs
 )
 
 # trajectory_generation node
@@ -26,6 +29,7 @@ add_executable(trajectory_generation
 ament_target_dependencies(trajectory_generation
   rclcpp
   std_msgs
+  geometry_msgs
 )
 
 # wrench_observer node
