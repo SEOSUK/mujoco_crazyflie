@@ -1,0 +1,30 @@
+<mujoco>
+  <asset>
+    <mesh name="sunchip" file="structure/SunChip.stl" scale="1e-2 1e-2 8e-3"/>
+  </asset>
+
+  <worldbody>
+    <body name="sunchip" pos="1.5 0 0" quat="0.7071 0 0 0.7071">
+      <!-- visual -->
+      <geom name="sunchip_visual"
+            type="mesh"
+            mesh="sunchip"
+            material="light-green"
+            condim="1"
+            contype="0"
+            conaffinity="0"
+            mass="0"/>
+
+      <!-- collision -->
+      <geom name="sunchip_collision"
+            type="mesh"
+            mesh="sunchip"
+            rgba="1 0 0 0.35"
+            group="0"
+            condim="3"
+            contype="1"
+            conaffinity="1"
+            mass="0"/>
+    </body>
+  </worldbody>
+</mujoco>

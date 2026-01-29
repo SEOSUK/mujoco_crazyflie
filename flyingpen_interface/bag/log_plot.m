@@ -1,6 +1,6 @@
 %% plot_flyingpen_log.m
 % Reads data_logger CSV and compares desired vs actual signals with subplots.
-% Assumes column order exactly as in your Float64MultiArray (0..36):
+% Column order exactly as in Float64MultiArray (0..45):
 % 0  t_sec
 % 1  cmd_x, 2 cmd_y, 3 cmd_z, 4 cmd_yaw
 % 5  pos_x, 6 pos_y, 7 pos_z
@@ -13,8 +13,11 @@
 % 26 rolld, 27 pitchd, 28 yawd
 % 29 wdes_x, 30 wdes_y, 31 wdes_z
 % 32 tau_x, 33 tau_y, 34 tau_z, 35 Fz
-% 36 contact_Fx, 37 contact_Fy, 38 contact_Fz
-% 39 validity_bitmask
+% 36 contact_Fx_raw, 37 contact_Fy_raw, 38 contact_Fz_raw
+% 39 contact_Fx_filt,40 contact_Fy_filt,41 contact_Fz_filt
+% 42 cmd_force
+% 43 F_error_dot_raw, 44 F_error_dot_filt
+% 45 validity_bitmask
 
 clear; clc;
 
@@ -37,8 +40,8 @@ opts = setvartype(opts, 'double');   % ensure numeric
 T = readtable(csvPath, opts);
 
 A = table2array(T);
-if size(A,2) < 40
-    error("CSV must have >= 40 columns, got %d", size(A,2));
+if size(A,2) < 46
+    error("CSV must have >= 46 columns, got %d", size(A,2));
 end
 
 t = A(:,1);
@@ -71,9 +74,17 @@ wdes_x = col(30); wdes_y = col(31); wdes_z = col(32);
 tau_x = col(33); tau_y = col(34); tau_z = col(35); Fz = col(36);
 
 % --- Contact Force ---
-contact_Fx = col(37); contact_Fy = col(38); contact_Fz = col(39);
+contact_Fx_raw = col(37); contact_Fy_raw = col(38); contact_Fz_raw = col(39);
 
-mask = uint32(col(40));
+% --- Contact Force filt ---
+contact_Fx_filt = col(40); contact_Fy_filt = col(41); contact_Fz_filt = col(42);
+
+% --- Command Force ---
+cmd_F = col(43);
+
+lpf_force_raw = col(44); lpf_force_filter = col(45);
+
+mask = uint32(col(46));
 
 %% ---- convenience: unwrap yaw for nicer plots ----
 yaw_u    = unwrap(yaw);
@@ -168,24 +179,79 @@ nexttile; plot(t, tau_y, 'LineWidth', 1.2); grid on; ylabel('\tau_y');
 nexttile; plot(t, tau_z, 'LineWidth', 1.2); grid on; ylabel('\tau_z');
 nexttile; plot(t, Fz,    'LineWidth', 1.2); grid on; ylabel('Fz'); xlabel('t [s]');
 
-%% ---- Figure 6: Contact force (world) ----
-figure('Name','Contact force: F_contact (world)','Color','w');
+%% ---- Figure 6: Contact force raw ----
+figure('Name','Contact force raw: F_contact_raw (world)','Color','w');
 tiledlayout(3,1,'Padding','compact','TileSpacing','compact');
 
 nexttile;
-plot(t, contact_Fx, 'LineWidth', 1.2);
-grid on; ylabel('F_{c,x} [N]'); legend('contact F_x');
-ylim([0 0.3])
+plot(t, contact_Fx_raw, 'LineWidth', 1.2);
+grid on; ylabel('F_{c,x} [N]'); legend('contact F_x_raw');
+ylim([-0.05 0.25])
 
 nexttile;
-plot(t, contact_Fy, 'LineWidth', 1.2);
-grid on; ylabel('F_{c,y} [N]'); legend('contact F_y');
-ylim([0 0.3])
+plot(t, contact_Fy_raw, 'LineWidth', 1.2);
+grid on; ylabel('F_{c,y} [N]'); legend('contact F_y_raw');
+ylim([-0.05 0.25])
 
 nexttile;
-plot(t, contact_Fz, 'LineWidth', 1.2);
-grid on; ylabel('F_{c,z} [N]'); xlabel('t [s]'); legend('contact F_z');
-ylim([0 0.3])
+plot(t, contact_Fz_raw, 'LineWidth', 1.2);
+grid on; ylabel('F_{c,z} [N]'); xlabel('t [s]'); legend('contact F_z_raw');
+ylim([-0.05 0.25])
+
+
+%% ---- Figure 7: Contact force filter ----
+figure('Name','Contact force filter: F_contact_filt (world)','Color','w');
+tiledlayout(3,1,'Padding','compact','TileSpacing','compact');
+
+nexttile;
+plot(t, contact_Fx_filt, 'LineWidth', 1.2);
+grid on; ylabel('F_{c,x} [N]'); legend('contact F_x_filt');
+ylim([-0.05 0.25])
+
+nexttile;
+plot(t, contact_Fy_filt, 'LineWidth', 1.2);
+grid on; ylabel('F_{c,y} [N]'); legend('contact F_y_filt');
+ylim([-0.05 0.25])
+
+nexttile;
+plot(t, contact_Fz_filt, 'LineWidth', 1.2);
+grid on; ylabel('F_{c,z} [N]'); xlabel('t [s]'); legend('contact F_z_filt');
+ylim([-0.05 0.25])
+
+
+%% ---- Figure 8: Fx raw vs filtered (overlay) ----
+figure('Name','Contact Fx: raw vs filtered','Color','w');
+
+plot(t, contact_Fx_raw,  'LineWidth', 2); hold on;
+plot(t, contact_Fx_filt, 'LineWidth', 2);
+plot(t, cmd_F, 'LineWidth', 2);
+grid on;
+%xlim([90 100])
+xlabel('t [s]');
+ylabel('F_{c,x} [N]');
+legend('contact F_x raw','contact F_x filt', 'cmd Force', 'Location','best');
+
+
+%% ---- Figure 9: Command force ----c
+figure('Name','Command Force : F_cmd','Color','w');
+tiledlayout(1,1,'Padding','compact','TileSpacing','compact');
+
+nexttile;
+plot(t, cmd_F, 'LineWidth', 1.2);
+grid on; ylabel('F_{cmd} [N]'); xlabel('t [s]'); legend('F_{cmd}');
+ylim([-0.08 0.08])
+
+%% ---- Figure 10: LPF Force error dot----
+figure('Name','LPF debug: F\_error\_dot','Color','w');
+
+plot(t, lpf_force_raw, 'LineWidth', 1.2); hold on;
+plot(t, lpf_force_filter, 'LineWidth', 1.2);
+grid on;
+
+xlabel('t [s]');
+ylabel('F\_error\_dot [N/s]');
+legend('raw','filtered');
+
 
 %% ---- (Optional) Validity bitmask visualization ----
 figure('Name','Validity bitmask','Color','w');
