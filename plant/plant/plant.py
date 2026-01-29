@@ -620,13 +620,13 @@ class CrazyfliePlant(Node):
     
     @staticmethod
     def _contact_frame_to_world(con) -> np.ndarray:
-        fr = np.array(con.frame, dtype=float)
-        if fr.shape == (3, 3):
-            return fr
-        fr = fr.ravel()
+        fr = np.array(con.frame, dtype=float).ravel()
         if fr.size == 9:
+            # MuJoCo contact.frame은 [n; t1; t2]가 연속으로 저장되는 형태가 일반적이라
+            # reshape(3,3) 하면 row가 axis가 된다.
             return fr.reshape(3, 3)
         return np.eye(3, dtype=float)
+
 
 
 
@@ -669,27 +669,36 @@ class CrazyfliePlant(Node):
             try:
                 mujoco.mj_contactForce(model, data, i, fci)
 
-                Fn_signed = float(fci[0])         # signed normal component (contact frame x)
-                Fn_mag = abs(Fn_signed)           # magnitude for weighting/length
-                if Fn_mag < 1e-12:
-                    continue
-
                 con = data.contact[i]
                 pos_w = np.array(con.pos, dtype=float)
 
-                R_wc = self._contact_frame_to_world(con)
-                n_w = R_wc[:, 0]                  # world normal
+                # con.frame -> (3,3)
+                R = self._contact_frame_to_world(con)
 
-                # "드론이 벽에 가하는 힘"을 정확히 하려면,
-                # 어떤 geom이 드론/벽인지 판별해서 부호를 결정해야 함.
-                f_w = Fn_signed * n_w
+                # ✅ MuJoCo frame 배열은 보통 [n; t1; t2] (rows = axes)
+                n_w  = R[0, :]   # normal (world)
+                t1_w = R[1, :]   # tangent1 (world)
+                t2_w = R[2, :]   # tangent2 (world)
+
+                # contact-frame force components (x=normal, y=t1, z=t2)
+                F_c = fci[0:3].copy()
+
+                # ✅ contact -> world : F_w = [n t1 t2] * F_c
+                C = np.column_stack([n_w, t1_w, t2_w])   # columns are axes in world
+                F_w = C @ F_c
+
+                # (원하면 resultant 크기 weighting은 |normal|이 아니라 |F|로)
+                Fn_mag = float(np.linalg.norm(F_w))
+                if Fn_mag < 1e-12:
+                    continue
 
                 self.fcn += Fn_mag
                 self.rf  += pos_w * Fn_mag
-                self.Fw  += f_w
+                self.Fw  += F_w
 
             except Exception:
                 pass
+
 
 
 
