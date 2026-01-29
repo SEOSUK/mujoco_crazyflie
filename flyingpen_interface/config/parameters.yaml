@@ -80,4 +80,5 @@ rviz_visual:
       
 data_logger:
   ros__parameters:
-    csv_dir: "~/ros2_ws/src/mujoco_crazyflie/flyingpen_interface/bag" # 본인경로에맞게바꿀것
+#    csv_dir: "~/ros2_ws/src/mujoco_crazyflie/flyingpen_interface/bag" # MJ
+    csv_dir: "~/mujoco_crazyflie/src/flyingpen_interface/bag" # SU

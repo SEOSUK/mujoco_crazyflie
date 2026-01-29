@@ -2,6 +2,8 @@
 #include <rclcpp/rclcpp.hpp>
 
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <geometry_msgs/msg/vector3_stamped.hpp>   // ✅ EE vel
+#include <geometry_msgs/msg/wrench_stamped.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
 
@@ -32,8 +34,19 @@ public:
     cf_frame_     = this->declare_parameter<std::string>("cf_frame", "crazyflie");
     cmd_frame_    = this->declare_parameter<std::string>("cmd_frame", "cmd_position");
 
+    // ✅ EE frames/topics
+    ee_frame_ = this->declare_parameter<std::string>("ee_frame", "end_effector");
+    ee_pose_topic_ = this->declare_parameter<std::string>("ee_pose_topic", "/crazyflie/out/EE_pose");
+    ee_vel_topic_  = this->declare_parameter<std::string>("ee_vel_topic",  "/crazyflie/out/EE_velocity");
+
     // Force vector (N) -> arrow length (m) scale
-    force_scale_  = this->declare_parameter<double>("force_scale", 0.05);
+    force_scale_  = this->declare_parameter<double>("force_scale", 10.);
+
+    // contact force arrow scale
+    contact_force_scale_ = this->declare_parameter<double>("contact_force_scale", 10.);
+
+    // ✅ EE velocity arrow scale
+    ee_vel_scale_ = this->declare_parameter<double>("ee_vel_scale", 1.0);
 
     // Marker appearance
     arrow_shaft_diam_ = this->declare_parameter<double>("arrow_shaft_diam", 0.01);
@@ -41,7 +54,6 @@ public:
     arrow_head_len_   = this->declare_parameter<double>("arrow_head_len",  0.04);
 
     publish_hz_ = this->declare_parameter<double>("publish_hz", 60.0);
-
 
     // -------------------------
     // TF broadcaster
@@ -51,30 +63,46 @@ public:
     // -------------------------
     // Subscribers
     // -------------------------
-    // (sub) /crazyflie/out/pose : PoseStamped (attitude feedback)
     sub_pose_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
       "/crazyflie/out/pose", 10,
       std::bind(&RvizVisual::cb_pose, this, std::placeholders::_1));
 
-    // (sub) /crazyflie/in/pos_cmd : Float64MultiArray [x,y,z,yaw]
+    // ✅ EE pose/vel from fk_ik_transform
+    sub_ee_pose_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
+      ee_pose_topic_, 10,
+      std::bind(&RvizVisual::cb_ee_pose, this, std::placeholders::_1));
+
+    sub_ee_vel_ = this->create_subscription<geometry_msgs::msg::Vector3Stamped>(
+      ee_vel_topic_, 10,
+      std::bind(&RvizVisual::cb_ee_vel, this, std::placeholders::_1));
+
     sub_pos_cmd_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
       "/crazyflie/in/pos_cmd", 10,
       std::bind(&RvizVisual::cb_pos_cmd, this, std::placeholders::_1));
 
-    // (sub) /crazyflie/out/mob_wrench : Float32MultiArray [Fx,Fy,Fz] in world frame
     sub_mob_wrench_ = this->create_subscription<std_msgs::msg::Float32MultiArray>(
       "/crazyflie/out/mob_wrench", 10,
       std::bind(&RvizVisual::cb_mob_wrench, this, std::placeholders::_1));
 
+    sub_contact_force_ = this->create_subscription<geometry_msgs::msg::WrenchStamped>(
+      "/crazyflie/out/EE_contact_force", 10,
+      std::bind(&RvizVisual::cb_contact_force, this, std::placeholders::_1));
+
     // -------------------------
-    // Publisher (Marker)
+    // Publishers (Markers)
     // -------------------------
-    // (pub) /rviz/mob_Fext : Marker arrow
     pub_mob_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
       "/rviz/mob_Fext", 10);
 
+    pub_contact_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
+      "/rviz/EE_contact_force", 10);
+
+    // ✅ EE velocity arrow marker
+    pub_ee_vel_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
+      "/rviz/EE_velocity", 10);
+
     // -------------------------
-    // Timer: publish TFs + marker at fixed rate
+    // Timer
     // -------------------------
     const auto period = std::chrono::duration_cast<std::chrono::nanoseconds>(
       std::chrono::duration<double>(1.0 / std::max(1e-6, publish_hz_))
@@ -84,6 +112,8 @@ public:
       period, std::bind(&RvizVisual::loop_publish, this));
 
     RCLCPP_INFO(this->get_logger(), "rviz_visual started.");
+    RCLCPP_INFO(this->get_logger(), "Sub EE pose/vel: %s , %s",
+                ee_pose_topic_.c_str(), ee_vel_topic_.c_str());
   }
 
 private:
@@ -97,6 +127,22 @@ private:
     have_pose_ = true;
   }
 
+  // ✅ EE pose
+  void cb_ee_pose(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    ee_pose_ = *msg;
+    have_ee_pose_ = true;
+  }
+
+  // ✅ EE velocity
+  void cb_ee_vel(const geometry_msgs::msg::Vector3Stamped::SharedPtr msg)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    ee_vel_ = *msg;
+    have_ee_vel_ = true;
+  }
+
   void cb_pos_cmd(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
   {
     if (msg->data.size() < 4) return;
@@ -105,7 +151,7 @@ private:
     cmd_pos_[0] = msg->data[0];
     cmd_pos_[1] = msg->data[1];
     cmd_pos_[2] = msg->data[2];
-    cmd_yaw_    = msg->data[3];  // (assumed rad; if deg, convert here)
+    cmd_yaw_    = msg->data[3];
     have_cmd_ = true;
   }
 
@@ -121,32 +167,59 @@ private:
     have_mob_ = true;
   }
 
+  void cb_contact_force(const geometry_msgs::msg::WrenchStamped::SharedPtr msg)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    contact_F_[0] = static_cast<float>(msg->wrench.force.x);
+    contact_F_[1] = static_cast<float>(msg->wrench.force.y);
+    contact_F_[2] = static_cast<float>(msg->wrench.force.z);
+    have_contact_ = true;
+    contact_frame_id_ = msg->header.frame_id;
+  }
+
   // =========================
   // Timer loop
   // =========================
   void loop_publish()
   {
     // snapshot
-    geometry_msgs::msg::PoseStamped pose;
+    geometry_msgs::msg::PoseStamped pose, ee_pose;
+    geometry_msgs::msg::Vector3Stamped ee_vel;
     std::array<double, 3> cmd_pos;
     double cmd_yaw;
     std::array<float, 3> Fext;
-    bool have_pose, have_cmd, have_mob;
+    std::array<float, 3> Fcontact;
+
+    bool have_pose, have_cmd, have_mob, have_contact;
+    bool have_ee_pose, have_ee_vel;
+    std::string contact_frame_id;
 
     {
       std::lock_guard<std::mutex> lk(mtx_);
       pose = pose_;
+      ee_pose = ee_pose_;
+      ee_vel = ee_vel_;
+
       cmd_pos = cmd_pos_;
       cmd_yaw = cmd_yaw_;
+
       Fext = mob_Fext_;
+      Fcontact = contact_F_;
+
       have_pose = have_pose_;
       have_cmd = have_cmd_;
       have_mob = have_mob_;
+      have_contact = have_contact_;
+
+      have_ee_pose = have_ee_pose_;
+      have_ee_vel  = have_ee_vel_;
+
+      contact_frame_id = contact_frame_id_;
     }
 
     const auto stamp = this->now();
 
-    // 1) TF: world -> crazyflie (from pose feedback)
+    // 1) TF: world -> crazyflie
     if (have_pose) {
       geometry_msgs::msg::TransformStamped tf;
       tf.header.stamp = stamp;
@@ -156,12 +229,11 @@ private:
       tf.transform.translation.x = pose.pose.position.x;
       tf.transform.translation.y = pose.pose.position.y;
       tf.transform.translation.z = pose.pose.position.z;
-
-      tf.transform.rotation = pose.pose.orientation; // 그대로 사용 (x,y,z,w)
+      tf.transform.rotation = pose.pose.orientation;
       tf_broadcaster_->sendTransform(tf);
     }
 
-    // 2) TF: world -> cmd_position (from pos_cmd)
+    // 2) TF: world -> cmd_position
     if (have_cmd) {
       geometry_msgs::msg::TransformStamped tf;
       tf.header.stamp = stamp;
@@ -172,20 +244,30 @@ private:
       tf.transform.translation.y = cmd_pos[1];
       tf.transform.translation.z = cmd_pos[2];
 
-      // yaw only
       tf2::Quaternion q;
       q.setRPY(0.0, 0.0, cmd_yaw);
       tf.transform.rotation.x = q.x();
       tf.transform.rotation.y = q.y();
       tf.transform.rotation.z = q.z();
       tf.transform.rotation.w = q.w();
-
       tf_broadcaster_->sendTransform(tf);
     }
 
+    // ✅ 3) TF: world -> end_effector  (from /crazyflie/out/EE_pose)
+    if (have_ee_pose) {
+      geometry_msgs::msg::TransformStamped tf;
+      tf.header.stamp = stamp;
+      tf.header.frame_id = parent_frame_;
+      tf.child_frame_id = ee_frame_;
 
-    // 3) Marker Arrow: /rviz/mob_Fext
-    //    start = current pose position, end = start + force_scale * Fext
+      tf.transform.translation.x = ee_pose.pose.position.x;
+      tf.transform.translation.y = ee_pose.pose.position.y;
+      tf.transform.translation.z = ee_pose.pose.position.z;
+      tf.transform.rotation = ee_pose.pose.orientation;
+      tf_broadcaster_->sendTransform(tf);
+    }
+
+    // 4) Marker Arrow: mob wrench (origin=drone position)
     if (have_pose && have_mob) {
       visualization_msgs::msg::Marker mk;
       mk.header.stamp = stamp;
@@ -195,7 +277,6 @@ private:
       mk.type = visualization_msgs::msg::Marker::ARROW;
       mk.action = visualization_msgs::msg::Marker::ADD;
 
-      // Arrow points (start/end)
       geometry_msgs::msg::Point p0, p1;
       p0.x = pose.pose.position.x;
       p0.y = pose.pose.position.y;
@@ -205,26 +286,91 @@ private:
       p1.y = p0.y + force_scale_ * static_cast<double>(Fext[1]);
       p1.z = p0.z + force_scale_ * static_cast<double>(Fext[2]);
 
-      mk.points.clear();
-      mk.points.push_back(p0);
-      mk.points.push_back(p1);
-
-      // Marker scale for ARROW when using points:
-      // scale.x = shaft diameter, scale.y = head diameter, scale.z = head length
+      mk.points = {p0, p1};
       mk.scale.x = arrow_shaft_diam_;
       mk.scale.y = arrow_head_diam_;
       mk.scale.z = arrow_head_len_;
 
-      // color
       mk.color.a = 1.0;
       mk.color.r = 1.0;
       mk.color.g = 0.3;
       mk.color.b = 0.3;
 
-      // lifetime (0 = forever; 짧게 하면 끊김 없이 갱신되는 느낌)
       mk.lifetime = rclcpp::Duration::from_seconds(0.2);
-
       pub_mob_arrow_->publish(mk);
+    }
+
+    // 5) Marker Arrow: contact force (origin=EE position)
+    if (have_ee_pose && have_contact) {
+      visualization_msgs::msg::Marker mk;
+      mk.header.stamp = stamp;
+      mk.header.frame_id = parent_frame_;
+
+      mk.ns = "contact_force";
+      mk.id = 0;
+      mk.type = visualization_msgs::msg::Marker::ARROW;
+      mk.action = visualization_msgs::msg::Marker::ADD;
+
+      geometry_msgs::msg::Point p0, p1;
+
+      // ✅ start at EE position (not drone)
+      p0.x = ee_pose.pose.position.x;
+      p0.y = ee_pose.pose.position.y;
+      p0.z = ee_pose.pose.position.z;
+
+      p1.x = p0.x + contact_force_scale_ * static_cast<double>(Fcontact[0]);
+      p1.y = p0.y + contact_force_scale_ * static_cast<double>(Fcontact[1]);
+      p1.z = p0.z + contact_force_scale_ * static_cast<double>(Fcontact[2]);
+
+      mk.points = {p0, p1};
+      mk.scale.x = arrow_shaft_diam_;
+      mk.scale.y = arrow_head_diam_;
+      mk.scale.z = arrow_head_len_;
+
+      mk.color.a = 1.0;
+      mk.color.r = 0.3;
+      mk.color.g = 0.3;
+      mk.color.b = 1.0;
+
+      mk.lifetime = rclcpp::Duration::from_seconds(0.2);
+      pub_contact_arrow_->publish(mk);
+    }
+
+
+    // ✅ 6) EE velocity arrow marker (origin=EE position)
+    //    start = EE pos, end = start + ee_vel_scale * v_EE
+    if (have_ee_pose && have_ee_vel) {
+      visualization_msgs::msg::Marker mk;
+      mk.header.stamp = stamp;
+      mk.header.frame_id = parent_frame_; // world에서 그려도 되고, ee_frame_으로 그려도 됨
+
+      mk.ns = "ee_velocity";
+      mk.id = 0;
+      mk.type = visualization_msgs::msg::Marker::ARROW;
+      mk.action = visualization_msgs::msg::Marker::ADD;
+
+      geometry_msgs::msg::Point p0, p1;
+      p0.x = ee_pose.pose.position.x;
+      p0.y = ee_pose.pose.position.y;
+      p0.z = ee_pose.pose.position.z;
+
+      p1.x = p0.x + ee_vel_scale_ * static_cast<double>(ee_vel.vector.x);
+      p1.y = p0.y + ee_vel_scale_ * static_cast<double>(ee_vel.vector.y);
+      p1.z = p0.z + ee_vel_scale_ * static_cast<double>(ee_vel.vector.z);
+
+      mk.points = {p0, p1};
+      mk.scale.x = arrow_shaft_diam_;
+      mk.scale.y = arrow_head_diam_;
+      mk.scale.z = arrow_head_len_;
+
+      // 색: 초록
+      mk.color.a = 1.0;
+      mk.color.r = 0.2;
+      mk.color.g = 1.0;
+      mk.color.b = 0.2;
+
+      mk.lifetime = rclcpp::Duration::from_seconds(0.2);
+      pub_ee_vel_arrow_->publish(mk);
     }
   }
 
@@ -235,10 +381,16 @@ private:
   std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
 
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_pose_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_ee_pose_;          // ✅
+  rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_ee_vel_;        // ✅
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_pos_cmd_;
   rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr sub_mob_wrench_;
+  rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_contact_force_;
 
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_mob_arrow_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_contact_arrow_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_ee_vel_arrow_;        // ✅
+
   rclcpp::TimerBase::SharedPtr timer_;
 
   // =========================
@@ -249,12 +401,22 @@ private:
   geometry_msgs::msg::PoseStamped pose_;
   bool have_pose_{false};
 
+  // ✅ EE pose/vel
+  geometry_msgs::msg::PoseStamped ee_pose_;
+  geometry_msgs::msg::Vector3Stamped ee_vel_;
+  bool have_ee_pose_{false};
+  bool have_ee_vel_{false};
+
   std::array<double, 3> cmd_pos_{0.0, 0.0, 0.0};
   double cmd_yaw_{0.0};
   bool have_cmd_{false};
 
   std::array<float, 3> mob_Fext_{0.0f, 0.0f, 0.0f};
   bool have_mob_{false};
+
+  std::array<float, 3> contact_F_{0.0f, 0.0f, 0.0f};
+  bool have_contact_{false};
+  std::string contact_frame_id_;
 
   // =========================
   // Params
@@ -263,12 +425,19 @@ private:
   std::string cf_frame_;
   std::string cmd_frame_;
 
-  double force_scale_{0.05};
+  // ✅ EE TF frame & topics
+  std::string ee_frame_;
+  std::string ee_pose_topic_;
+  std::string ee_vel_topic_;
+
+  double force_scale_{10.};
+  double contact_force_scale_{10.};
+  double ee_vel_scale_{1.0};
+
   double arrow_shaft_diam_{0.01};
   double arrow_head_diam_{0.02};
   double arrow_head_len_{0.04};
   double publish_hz_{60.0};
-
 };
 
 int main(int argc, char** argv)

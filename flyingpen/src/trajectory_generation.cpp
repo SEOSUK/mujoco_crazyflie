@@ -117,7 +117,7 @@ public:
       std::bind(&TrajectoryGeneration::cmdForceCb, this, std::placeholders::_1));
 
     sub_contact_force_ = this->create_subscription<geometry_msgs::msg::WrenchStamped>(
-      "/crazyflie/out/contact_force_filt", 10,
+      "/crazyflie/out/EE_contact_force_filt", 10,
       std::bind(&TrajectoryGeneration::contactForceCb, this, std::placeholders::_1));
 
 

@@ -269,8 +269,8 @@ class CrazyfliePlant(Node):
         self.pub_acc = self.create_publisher(Vector3Stamped, "/crazyflie/out/acc", 10)
         self.pub_angacc = self.create_publisher(Vector3Stamped, "/crazyflie/out/ang_acc", 10)
         self.pub_angvel_gt = self.create_publisher(Vector3Stamped, "/crazyflie/out/ang_vel_gt", 10)
-        self.pub_contact_force = self.create_publisher(WrenchStamped, "/crazyflie/out/contact_force", 10)
-        self.pub_contact_force_filt = self.create_publisher(WrenchStamped, "/crazyflie/out/contact_force_filt", 10)
+        self.pub_contact_force = self.create_publisher(WrenchStamped, "/crazyflie/out/EE_contact_force", 10)
+        self.pub_contact_force_filt = self.create_publisher(WrenchStamped, "/crazyflie/out/EE_contact_force_filt", 10)
 
 
 
