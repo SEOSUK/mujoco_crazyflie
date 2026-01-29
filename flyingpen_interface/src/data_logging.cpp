@@ -17,6 +17,8 @@
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
 #include <geometry_msgs/msg/wrench_stamped.hpp>
+#include <std_msgs/msg/float32.hpp>
+
 
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
@@ -181,10 +183,21 @@ public:
       "/crazyflie/debug/w_des", 10,
       std::bind(&DataLogger::cb_wdes, this, std::placeholders::_1));
 
-    sub_contact_ = create_subscription<geometry_msgs::msg::WrenchStamped>(
+    sub_contact_raw_ = create_subscription<geometry_msgs::msg::WrenchStamped>(
       "/crazyflie/out/contact_force", 10,
-      std::bind(&DataLogger::cb_contact, this, std::placeholders::_1));
+      std::bind(&DataLogger::cb_contact_raw, this, std::placeholders::_1));
 
+    sub_contact_filt_ = create_subscription<geometry_msgs::msg::WrenchStamped>(
+      "/crazyflie/out/contact_force_filt", 10,
+      std::bind(&DataLogger::cb_contact_filt, this, std::placeholders::_1));
+
+    sub_cmd_force_ = create_subscription<std_msgs::msg::Float32>(
+      "su/cmd_force", 10,
+      std::bind(&DataLogger::cb_cmd_force, this, std::placeholders::_1));
+
+    sub_force_lpf_ = create_subscription<std_msgs::msg::Float64MultiArray>(
+      "/su/force_lpf", 10,
+      std::bind(&DataLogger::cb_force_lpf, this, std::placeholders::_1));
 
 
     // Timer
@@ -223,6 +236,9 @@ private:
       "wdes_x,wdes_y,wdes_z,"
       "tau_x,tau_y,tau_z,Fz,"
       "contact_Fx,contact_Fy,contact_Fz,"
+      "contact_Fx_filt,contact_Fy_filt,contact_Fz_filt,"
+      "cmd_force,"
+      "F_error_dot_raw,F_error_dot_filt,"
       "validity_bitmask\n";
     csv_.flush();
   }
@@ -314,16 +330,41 @@ private:
     have_wdes_ = true;
   }
 
-  void cb_contact(const geometry_msgs::msg::WrenchStamped::SharedPtr m)
+  void cb_contact_raw(const geometry_msgs::msg::WrenchStamped::SharedPtr m)
   {
     std::lock_guard<std::mutex> lk(mtx_);
-    contact_F_ << m->wrench.force.x, m->wrench.force.y, m->wrench.force.z;
+    contact_F_raw_ << m->wrench.force.x, m->wrench.force.y, m->wrench.force.z;
 
     // (선택) torque도 로깅하려면:
     // contact_T_ << m->wrench.torque.x, m->wrench.torque.y, m->wrench.torque.z;
 
-    have_contact_ = true;
+    have_contact_raw_ = true;
   }
+
+  void cb_contact_filt(const geometry_msgs::msg::WrenchStamped::SharedPtr m)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    contact_F_filt_ << m->wrench.force.x, m->wrench.force.y, m->wrench.force.z;
+    have_contact_filt_ = true;
+  }
+
+  void cb_cmd_force(const std_msgs::msg::Float32::SharedPtr m)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    cmd_force_ = static_cast<double>(m->data);
+    have_cmd_force_ = true;
+  }
+
+
+  void cb_force_lpf(const std_msgs::msg::Float64MultiArray::SharedPtr m)
+  {
+    if (m->data.size() < 2) return;
+    std::lock_guard<std::mutex> lk(mtx_);
+    F_error_dot_raw_  = m->data[0];
+    F_error_dot_filt_ = m->data[1];
+    have_force_lpf_ = true;
+  }
+
 
 
 
@@ -331,10 +372,12 @@ private:
   // ----- publisher -----
   void publish()
   {
-    Eigen::Vector3d cmd_pos, pos, vel, w, acc, angacc, vdes, wdes, tau, contact_F;
+    Eigen::Vector3d cmd_pos, pos, vel, w, acc, angacc, vdes, wdes, tau, contact_F_raw, contact_F_filt;
     double cmd_yaw, roll, pitch, yaw;
     double rolld, pitchd, yawd;
-    double Fz;
+    double Fz, cmd_force, F_error_dot_raw, F_error_dot_filt;
+
+
     uint32_t mask;
 
     {
@@ -356,7 +399,12 @@ private:
       wdes = wdes_;
       tau = tau_;
       Fz = Fz_;
-      contact_F = contact_F_;
+      contact_F_raw = contact_F_raw_;
+      contact_F_filt = contact_F_filt_;
+      cmd_force = cmd_force_;
+      F_error_dot_raw  = F_error_dot_raw_;
+      F_error_dot_filt = F_error_dot_filt_;
+
 
       mask = 0u;
       mask |= (have_cmd_    ? (1u<<0) : 0u);
@@ -369,13 +417,17 @@ private:
       mask |= (have_rpydes_ ? (1u<<7) : 0u);
       mask |= (have_wdes_   ? (1u<<8) : 0u);
       mask |= (have_input_  ? (1u<<9) : 0u);
-      mask |= (have_contact_ ? (1u<<10) : 0u); 
+      mask |= (have_contact_raw_ ? (1u<<10) : 0u);
+      mask |= (have_contact_filt_ ? (1u<<11) : 0u);
+      mask |= (have_cmd_force_ ? (1u<<12) : 0u);
+      mask |= (have_force_lpf_ ? (1u<<13) : 0u);
+
     }
 
     const double t = this->get_clock()->now().seconds();
 
     std_msgs::msg::Float64MultiArray msg;
-    msg.data.resize(40);
+    msg.data.resize(46);
 
     msg.data[0]  = t;
 
@@ -425,11 +477,21 @@ private:
     msg.data[34] = tau.z();
     msg.data[35] = Fz;
 
-    msg.data[36] = contact_F.x();
-    msg.data[37] = contact_F.y();
-    msg.data[38] = contact_F.z();
+    msg.data[36] = contact_F_raw.x();
+    msg.data[37] = contact_F_raw.y();
+    msg.data[38] = contact_F_raw.z();
 
-    msg.data[39] = static_cast<double>(mask);
+    msg.data[39] = contact_F_filt.x();
+    msg.data[40] = contact_F_filt.y();
+    msg.data[41] = contact_F_filt.z();
+
+
+    msg.data[42] = cmd_force;
+
+    msg.data[43] = F_error_dot_raw;
+    msg.data[44] = F_error_dot_filt;
+
+    msg.data[45] = static_cast<double>(mask);
 
 
 
@@ -450,6 +512,9 @@ private:
            << msg.data[29] << "," << msg.data[30] << "," << msg.data[31] << ","
            << msg.data[32] << "," << msg.data[33] << "," << msg.data[34] << "," << msg.data[35] << ","
            << msg.data[36] << "," << msg.data[37] << "," << msg.data[38] << ","
+           << msg.data[39] << "," << msg.data[40] << "," << msg.data[41] << ","
+           << msg.data[42] << ","
+           << msg.data[43] << "," << msg.data[44] << ","
            << static_cast<uint64_t>(mask)
            << "\n";
 
@@ -480,8 +545,16 @@ private:
   Eigen::Vector3d tau_{0,0,0};
   double Fz_{0.0};
 
-  Eigen::Vector3d contact_F_{0,0,0};
+  Eigen::Vector3d contact_F_raw_{0,0,0};
+  Eigen::Vector3d contact_F_filt_{0,0,0};
 
+
+  double cmd_force_{0.0};
+  double F_error_dot_raw_{0.0};
+  double F_error_dot_filt_{0.0};
+
+
+  bool have_force_lpf_{false};
   bool have_cmd_{false};
   bool have_pose_{false};
   bool have_vel_{false};
@@ -492,7 +565,9 @@ private:
   bool have_rpydes_{false};
   bool have_wdes_{false};
   bool have_input_{false};
-  bool have_contact_{false};
+  bool have_cmd_force_{false};
+  bool have_contact_raw_{false};
+  bool have_contact_filt_{false};
 
   double publish_hz_{400.0};
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr pub_;
@@ -508,7 +583,11 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_vdes_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_rpydes_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_wdes_;
-  rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_contact_;
+  rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_contact_raw_;
+  rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_contact_filt_;
+  rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_cmd_force_;
+  rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_force_lpf_;
+
 
   std::string csv_dir_;
   std::string csv_path_;
