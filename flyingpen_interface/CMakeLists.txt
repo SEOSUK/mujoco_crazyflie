@@ -13,7 +13,7 @@ find_package(std_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(Curses REQUIRED)                 # ncurses
 find_package(ament_index_cpp REQUIRED)
-# ★ 추가
+
 find_package(visualization_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
@@ -26,7 +26,7 @@ ament_target_dependencies(data_logger
   rclcpp
   geometry_msgs
   std_msgs
-  ament_index_cpp  
+  ament_index_cpp
 )
 target_link_libraries(data_logger Eigen3::Eigen)
 
@@ -49,7 +49,7 @@ install(TARGETS
   DESTINATION lib/${PROJECT_NAME}
 )
 
-# ★ rviz_visual node
+# rviz_visual node
 add_executable(rviz_visual src/rviz_visual.cpp)
 ament_target_dependencies(rviz_visual
   rclcpp
@@ -62,6 +62,21 @@ ament_target_dependencies(rviz_visual
 
 install(TARGETS
   rviz_visual
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+# fk_ik_transform node
+add_executable(fk_ik_transform src/fk_ik_transform.cpp)
+ament_target_dependencies(fk_ik_transform
+  rclcpp
+  geometry_msgs
+)
+
+# ✅ Eigen 사용하므로 링크 추가
+target_link_libraries(fk_ik_transform Eigen3::Eigen)
+
+install(TARGETS
+  fk_ik_transform
   DESTINATION lib/${PROJECT_NAME}
 )
 

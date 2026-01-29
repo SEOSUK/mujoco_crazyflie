@@ -184,11 +184,11 @@ public:
       std::bind(&DataLogger::cb_wdes, this, std::placeholders::_1));
 
     sub_contact_raw_ = create_subscription<geometry_msgs::msg::WrenchStamped>(
-      "/crazyflie/out/contact_force", 10,
+      "/crazyflie/out/EE_contact_force", 10,
       std::bind(&DataLogger::cb_contact_raw, this, std::placeholders::_1));
 
     sub_contact_filt_ = create_subscription<geometry_msgs::msg::WrenchStamped>(
-      "/crazyflie/out/contact_force_filt", 10,
+      "/crazyflie/out/EE_contact_force_filt", 10,
       std::bind(&DataLogger::cb_contact_filt, this, std::placeholders::_1));
 
     sub_cmd_force_ = create_subscription<std_msgs::msg::Float32>(
