@@ -100,12 +100,22 @@ def generate_launch_description():
         output="screen",
         arguments=["-d", rviz_config],
     )
-
+    
+    # ---------- fk_ik_transform ----------
+    fk_ik_transform_node = Node(
+        package="flyingpen_interface",
+        executable="fk_ik_transform",
+        name="fk_ik_transform",
+        output="screen",
+        parameters=[params],
+    )    
+    
     return LaunchDescription([
         robot_state_publisher_node,
         world_to_wall_tf_node,
         plant_node,
         controller_node,
+        fk_ik_transform_node,        
         trajectory_generation_node,
         wrench_observer_node,
         rviz_visual_node,

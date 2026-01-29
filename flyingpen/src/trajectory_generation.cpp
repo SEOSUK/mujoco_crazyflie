@@ -5,93 +5,26 @@
  * Trajectory generation node that fuses user commands and (future) force feedback
  * to generate final position/yaw commands for the Crazyflie low-level controller.
  *
- * ------------------------------------------------------------
- * Overview
- * ------------------------------------------------------------
- * This node acts as a high-level command integrator between:
- *
- *   - User inputs (keyboard, teleoperation)
- *   - Mode switching (position mode / velocity mode)
- *   - (Future) force feedback for admittance-based interaction control
- *
- * The output of this node is a **continuous absolute position + yaw command**
- * published to:
- *
- *   /crazyflie/in/pos_cmd  [Float64MultiArray: x, y, z, yaw]
- *
- * which is consumed by the low-level PID cascade controller.
- *
- * ------------------------------------------------------------
- * Input Interfaces
- * ------------------------------------------------------------
- * 1) /su/keyboard_input  (Float64MultiArray)
- *    - In position mode:
- *        [x, y, z, yaw] are interpreted as absolute position/yaw commands.
- *    - In velocity mode:
- *        [vx, vy, vz, yaw_rate] are interpreted as velocity commands.
- *
- * 2) /su/use_vel_mode    (Float32)
- *    - 0.0 : Position mode
- *    - 1.0 : Velocity mode
- *
- * 3) /su/cmd_force       (Float32)
- *    - Desired interaction force (currently stored only).
- *    - Intended for future admittance control integration.
- *
- * ------------------------------------------------------------
- * Internal Logic
- * ------------------------------------------------------------
- * - The node maintains an internal integrator state (su_int_pos_, su_int_yaw_)
- *   that always represents the **absolute commanded pose**.
- *
- * - Position mode:
- *     The incoming command is treated as an absolute pose, or as a delta
- *     relative to a stored base pose when switching from velocity mode.
- *
- * - Velocity mode:
- *     The incoming command is integrated over time to update the internal
- *     position and yaw state.
- *
- * - Mode switching:
- *     - pos -> vel : internal integrator is preserved.
- *     - vel -> pos : current internal pose is stored as a base reference,
- *                    and subsequent position commands are interpreted as offsets.
- *
- * ------------------------------------------------------------
- * Future Extension: Admittance Control
- * ------------------------------------------------------------
- * This node is designed to be extended with admittance control by incorporating
- * measured external force feedback, e.g.:
- *
- *   /su/f_ext_world  (external force estimate in world frame)
- *
- * The admittance logic can be injected in the velocity-mode section by modifying
- * the commanded velocity based on force error:
- *
- *   v_cmd += v_admittance(F_des - F_meas)
- *
- * This design keeps the admittance logic decoupled from the low-level controller,
- * allowing safe and modular experimentation with interaction control strategies.
- *
- * ------------------------------------------------------------
- * Design Philosophy
- * ------------------------------------------------------------
- * - High-level command shaping (integration, mode logic, admittance)
- *   is handled here.
- * - Low-level stability and tracking are handled entirely by the PID cascade.
- * - All outputs are absolute pose commands, simplifying downstream control.
+ * Publishes:
+ *  - /crazyflie/in/pos_cmd                 [std_msgs/Float64MultiArray: x,y,z,yaw(rad)]
+ *  - /su/force_lpf                        [std_msgs/Float64MultiArray: raw, filt]
+ *  - /estimated_contact_frame_quat        [geometry_msgs/QuaternionStamped]  (R_C as quat)
  */
 
- 
 #include <rclcpp/rclcpp.hpp>
+
 #include <std_msgs/msg/float32.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
+
 #include <geometry_msgs/msg/wrench_stamped.hpp>
+#include <geometry_msgs/msg/quaternion_stamped.hpp>
+
 #include <array>
 #include <algorithm>
 #include <cmath>
 #include <mutex>
 
+#include <Eigen/Dense>
 
 using namespace std::chrono_literals;
 
@@ -120,10 +53,8 @@ public:
       "/crazyflie/out/EE_contact_force_filt", 10,
       std::bind(&TrajectoryGeneration::contactForceCb, this, std::placeholders::_1));
 
-
-
     // -------------------------
-    // Publisher (final output)
+    // Publishers
     // -------------------------
     pub_pos_cmd_ = this->create_publisher<std_msgs::msg::Float64MultiArray>(
       "/crazyflie/in/pos_cmd", 10);
@@ -131,22 +62,144 @@ public:
     pub_force_lpf_ = this->create_publisher<std_msgs::msg::Float64MultiArray>(
       "/su/force_lpf", 10);
 
-    
+    pub_contact_quat_ = this->create_publisher<geometry_msgs::msg::QuaternionStamped>(
+      "/estimated_contact_frame_quat", 10);
 
     // -------------------------
-    // Update loop
+    // Update loops
     // -------------------------
     timer_ = this->create_wall_timer(
       10ms, std::bind(&TrajectoryGeneration::update, this)); // 100 Hz
-    
-    // force/admittance update (분리)
+
     force_timer_ = this->create_wall_timer(
-      10ms, std::bind(&TrajectoryGeneration::forceUpdate, this));  // 100 Hz 
+      10ms, std::bind(&TrajectoryGeneration::forceUpdate, this));  // 100 Hz
 
     RCLCPP_INFO(this->get_logger(), "trajectory_generation started");
   }
 
 private:
+  bool flip_measured_force_ = false;   // 필요하면 true로
+  // -------------------------
+  // Utils
+  // -------------------------
+  static inline double wrap_pi(double a)
+  {
+    while (a > M_PI) a -= 2.0 * M_PI;
+    while (a < -M_PI) a += 2.0 * M_PI;
+    return a;
+  }
+
+  // yaw align parameters (velocity mode)
+  double yaw_align_kp_   = 3.0;   // [rad/s] per rad (1st-order yaw tracking)
+  double normal_xy_min_  = 1e-3;  // avoid atan2 on near-vertical normal
+
+  // =========================
+  // Contact frame estimation
+  // =========================
+  struct ContactFrame
+  {
+    Eigen::Vector3d n_w = Eigen::Vector3d::UnitX();     // contact normal in world
+    Eigen::Matrix3d R_C = Eigen::Matrix3d::Identity();  // contact->world
+    bool valid = false;
+  };
+
+  ContactFrame cf_;
+
+  // Params (rough defaults)
+  double normal_force_threshold_ = 0.005; // [N] below this, consider "no contact"
+  double normal_lpf_alpha_       = 0.2;   // 0~1 (bigger = faster)
+
+  bool normal_vector_estimation(ContactFrame &cf_out)
+  {
+    // 1) get latest measured force (world frame assumed)
+    std::array<double,3> Fw_arr{0.0,0.0,0.0};
+    {
+      std::lock_guard<std::mutex> lk(force_mtx_);
+      Fw_arr = contact_F_;
+    }
+    Eigen::Vector3d Fw(Fw_arr[0], Fw_arr[1], Fw_arr[2]);
+
+    const double Fnorm = Fw.norm();
+    if (Fnorm < normal_force_threshold_) {
+      cf_out.valid = false;
+      return false;
+    }
+
+    // 2) estimate normal direction (flip sign here if needed)
+    Eigen::Vector3d n_new = Fw / (Fnorm + 1e-12);
+
+    // 3) LPF the normal (optional)
+    if (!cf_out.valid) {
+      cf_out.n_w = n_new;
+    } else {
+      cf_out.n_w = (1.0 - normal_lpf_alpha_) * cf_out.n_w + normal_lpf_alpha_ * n_new;
+      const double nn = cf_out.n_w.norm();
+      if (nn > 1e-9) cf_out.n_w /= nn;
+      else cf_out.n_w = n_new;
+    }
+
+    // 4) build contact frame axes
+    const Eigen::Vector3d x_c = cf_out.n_w.normalized();
+
+    // world gravity axis reference (z-up). If NED, use (0,0,-1)
+    const Eigen::Vector3d g_axis = Eigen::Vector3d::UnitZ();
+
+    // y_c = x_c × g_axis
+    Eigen::Vector3d y_c = x_c.cross(g_axis);
+    double y_norm = y_c.norm();
+
+    // fallback if parallel
+    if (y_norm < 1e-6) {
+      Eigen::Vector3d a = Eigen::Vector3d::UnitY();
+      if (std::abs(x_c.dot(a)) > 0.9) a = Eigen::Vector3d::UnitX();
+      y_c = x_c.cross(a);
+      y_norm = y_c.norm();
+      if (y_norm < 1e-9) {
+        cf_out.valid = false;
+        return false;
+      }
+    }
+    y_c /= (y_norm + 1e-12);
+
+    // ✅ flip y-axis direction (as requested)
+    y_c = -y_c;
+
+    // z_c = x_c × y_c
+    Eigen::Vector3d z_c = x_c.cross(y_c);
+    const double z_norm = z_c.norm();
+    if (z_norm < 1e-9) {
+      cf_out.valid = false;
+      return false;
+    }
+    z_c /= z_norm;
+
+    // 5) R_C = [x_c y_c z_c]
+    cf_out.R_C.col(0) = x_c;
+    cf_out.R_C.col(1) = y_c;
+    cf_out.R_C.col(2) = z_c;
+
+    cf_out.valid = true;
+    return true;
+  }
+
+  void publishContactQuat(const Eigen::Matrix3d &R_C, const rclcpp::Time &stamp)
+  {
+    // Eigen quaternion from rotation matrix
+    Eigen::Quaterniond q(R_C);
+    q.normalize();
+
+    geometry_msgs::msg::QuaternionStamped msg;
+    msg.header.stamp = stamp;
+    msg.header.frame_id = "world";  // adjust if you use different world frame id
+
+    msg.quaternion.w = q.w();
+    msg.quaternion.x = q.x();
+    msg.quaternion.y = q.y();
+    msg.quaternion.z = q.z();
+
+    pub_contact_quat_->publish(msg);
+  }
+
   // =========================
   // Callbacks
   // =========================
@@ -157,7 +210,7 @@ private:
     sp_in_[0] = msg->data[0];
     sp_in_[1] = msg->data[1];
     sp_in_[2] = msg->data[2];
-    sp_in_yaw_ = msg->data[3]; // deg or deg/s depending on mode
+    sp_in_yaw_ = msg->data[3]; // NOTE: yaw and yaw_rate are assumed rad / rad/s
 
     sp_received_ = true;
   }
@@ -170,7 +223,7 @@ private:
   void cmdForceCb(const std_msgs::msg::Float32::SharedPtr msg)
   {
     std::lock_guard<std::mutex> lk(force_mtx_);
-    su_cmd_fx_ = msg->data; // F_des_x (저장만)
+    su_cmd_fx_ = msg->data; // F_des_x (store)
   }
 
   void contactForceCb(const geometry_msgs::msg::WrenchStamped::SharedPtr msg)
@@ -183,104 +236,122 @@ private:
     f_ext_received_ = true;
   }
 
-
-  void forceUpdate()
+  // =========================
+  // Force update (admittance helper)
+  // =========================
+void forceUpdate()
+{
+  float use_vel;
   {
+    std::lock_guard<std::mutex> lk(force_mtx_);
+    use_vel = su_cmd_use_vel_mode_;
+  }
 
-    float use_vel;
-    {
-      std::lock_guard<std::mutex> lk(force_mtx_);
-      use_vel = su_cmd_use_vel_mode_;
-    }
+  if (use_vel <= 0.5f) {
+    eF_state_initialized_ = false;
+    return;
+  }
 
-    if (use_vel <= 0.5f) {
-      eF_state_initialized_ = false;
-      return;
-    }
+  // snapshot
+  float su_cmd_fx_local = 0.0f;
+  std::array<double,3> contact_F_local{0.0,0.0,0.0};
+  bool f_ok = false;
 
+  {
+    std::lock_guard<std::mutex> lk(force_mtx_);
+    su_cmd_fx_local = su_cmd_fx_;
+    contact_F_local = contact_F_;
+    f_ok = f_ext_received_;
+  }
+  if (!f_ok) return;
 
-    // --- shared snapshot ---
-    float su_cmd_fx_local = 0.0f;
-    std::array<double,3> contact_F_local{0.0,0.0,0.0};
-    bool  f_ok = false;
+  // dt
+  const rclcpp::Time now = this->now();
+  double dt = 0.0;
+  if (eF_last_time_.nanoseconds() != 0) {
+    dt = (now - eF_last_time_).seconds();
+  }
+  eF_last_time_ = now;
 
-    {
-      std::lock_guard<std::mutex> lk(force_mtx_);
-      su_cmd_fx_local = su_cmd_fx_;
-      contact_F_local = contact_F_;   
-      f_ok = f_ext_received_;
-    }
-    if (!f_ok) return;
+  if (dt <= 1e-5 || dt > 0.1) {
+    eF_state_initialized_ = false;
+    return;
+  }
 
-    // --- dt ---
-    const rclcpp::Time now = this->now();
-    double dt = 0.0;
-    if (eF_last_time_.nanoseconds() != 0) {
-      dt = (now - eF_last_time_).seconds();
-    }
-    eF_last_time_ = now;
+  // -----------------------------
+  // 1) world force -> contact x
+  // -----------------------------
+  Eigen::Vector3d Fw(contact_F_local[0], contact_F_local[1], contact_F_local[2]);
+  if (flip_measured_force_) {
+    Fw = -Fw;
+  }
 
-    if (dt <= 1e-5 || dt > 0.1) {
-      eF_state_initialized_ = false;
-      return;
-    }
+  // Update contact frame estimate using the same normal estimator
+  ContactFrame cf_local = cf_;
+  const bool cf_ok = normal_vector_estimation(cf_local);
+  if (!(cf_ok && cf_local.valid)) {
+    // frame not reliable -> don't update force controller
+    eF_state_initialized_ = false;
+    return;
+  }
+  cf_ = cf_local;
 
-    // --- e_F 정의 ---
-    std::array<double,3> eF{0.0,0.0,0.0};                              
-    eF[0] = static_cast<double>(su_cmd_fx_local) - contact_F_local[0];   // x축
-    eF[1] = 0.0 - contact_F_local[1];                                    // y축
-    eF[2] = 0.0 - contact_F_local[2];                                    // z축
+  // world -> contact
+  const Eigen::Vector3d Fc = cf_local.R_C.transpose() * Fw;
+  const double Fcx = Fc.x();   // ✅ normal force measurement
 
-    // --- init ---
-    if (!eF_state_initialized_) {
-      eF_prev_ = eF;
-      eF_dot_filt_prev_ = {0.0,0.0,0.0};
+  // -----------------------------
+  // 2) force error uses ONLY normal axis
+  // -----------------------------
+  std::array<double,3> eF{0.0,0.0,0.0};
+  eF[0] = static_cast<double>(su_cmd_fx_local) - Fcx;  // ✅ contact-frame x
+  eF[1] = 0.0;
+  eF[2] = 0.0;
 
-      {
-        std::lock_guard<std::mutex> lk(force_mtx_);
-        eF_ = eF;
-        eF_dot_filt_ = {0.0,0.0,0.0};
-      }
-
-      eF_state_initialized_ = true;
-      return;
-    }
-
-    // --- numeric diff ---
-    std::array<double,3> eF_dot_raw{0.0,0.0,0.0};
-    eF_dot_raw[0] = (eF[0] - eF_prev_[0]) / dt;        
-    eF_dot_raw[1] = (eF[1] - eF_prev_[1]) / dt;
-    eF_dot_raw[2] = (eF[2] - eF_prev_[2]) / dt; 
-
-    // --- LPF on dot(e_F) ---
-    const double wc = 3.0;                 // Hz
-    const double alpha = wc * dt;           // Euler
-    const double a = std::clamp(alpha, 0.0, 1.0);
-
-    std::array<double,3> eF_dot_filt{0.0,0.0,0.0}; 
-    eF_dot_filt[0] = (1.0 - a) * eF_dot_filt_prev_[0] + a * eF_dot_raw[0];
-    eF_dot_filt[1] = (1.0 - a) * eF_dot_filt_prev_[1] + a * eF_dot_raw[1];
-    eF_dot_filt[2] = (1.0 - a) * eF_dot_filt_prev_[2] + a * eF_dot_raw[2];
-
-    // --- state update ---
+  // init
+  if (!eF_state_initialized_) {
     eF_prev_ = eF;
-    eF_dot_filt_prev_ = eF_dot_filt;
+    eF_dot_filt_prev_ = {0.0,0.0,0.0};
 
     {
       std::lock_guard<std::mutex> lk(force_mtx_);
       eF_ = eF;
-      eF_dot_filt_ = eF_dot_filt;
+      eF_dot_filt_ = {0.0,0.0,0.0};
     }
 
-    // --- debug publish ---
-    std_msgs::msg::Float64MultiArray lpf;
-    lpf.data.resize(2);
-    lpf.data[0] = eF_dot_raw[0];
-    lpf.data[1] = eF_dot_filt[0];
-    pub_force_lpf_->publish(lpf);
+    eF_state_initialized_ = true;
+    return;
   }
 
+  // numeric diff (x only도 충분)
+  std::array<double,3> eF_dot_raw{0.0,0.0,0.0};
+  eF_dot_raw[0] = (eF[0] - eF_prev_[0]) / dt;
 
+  // LPF on dot(e_F)
+  const double wc = 3.0;
+  const double alpha = wc * dt;
+  const double a = std::clamp(alpha, 0.0, 1.0);
+
+  std::array<double,3> eF_dot_filt{0.0,0.0,0.0};
+  eF_dot_filt[0] = (1.0 - a) * eF_dot_filt_prev_[0] + a * eF_dot_raw[0];
+
+  // state update
+  eF_prev_ = eF;
+  eF_dot_filt_prev_ = eF_dot_filt;
+
+  {
+    std::lock_guard<std::mutex> lk(force_mtx_);
+    eF_ = eF;
+    eF_dot_filt_ = eF_dot_filt;
+  }
+
+  // debug publish: raw and filtered derivative (x-axis)
+  std_msgs::msg::Float64MultiArray lpf;
+  lpf.data.resize(2);
+  lpf.data[0] = eF_dot_raw[0];
+  lpf.data[1] = eF_dot_filt[0];
+  pub_force_lpf_->publish(lpf);
+}
 
 
   // =========================
@@ -289,7 +360,7 @@ private:
   void update()
   {
     if (!sp_received_) {
-      return; // 입력 아직 없음
+      return;
     }
 
     const rclcpp::Time now = this->now();
@@ -299,24 +370,19 @@ private:
     }
     last_time_ = now;
 
-    // dt 튀는 구간은 리셋 (원본 코드 스타일)
     if (dt <= 1e-5 || dt > 0.1) {
-      // 첫 호출/이상 dt: 내부 초기화는 다음 정상 tick에서 하도록
-      publishOut(); // 그래도 일단 현재 상태(내부값) 혹은 초기값 송신
+      publishOut();
       return;
     }
 
     const bool vel_mode_on = (su_cmd_use_vel_mode_ > 0.5f);
 
-    // 0) 첫 정상 tick에서 내부 적분 상태 초기화
+    // init integrator
     if (!su_int_initialized_) {
-      // 펌웨어는 state 기반 초기화인데,
-      // 여기서는 "현재 입력 setpoint"를 기준으로 초기화하는 게 자연스러움.
       if (!vel_mode_on) {
         su_int_pos_ = sp_in_;
         su_int_yaw_ = sp_in_yaw_;
       } else {
-        // vel 모드로 시작하면 현재 위치를 모르니 0에서 시작 (필요시 외부 state 토픽 추가 권장)
         su_int_pos_ = {0.0, 0.0, 0.0};
         su_int_yaw_ = 0.0;
       }
@@ -325,90 +391,91 @@ private:
       su_pos_base_valid_ = false;
     }
 
-    // 1) 모드 전환 감지 (원본 로직 동일)
+    // mode switching
     if (vel_mode_on && !su_vel_mode_prev_) {
-      // pos -> vel 전환: 내부 적분 상태 유지, base invalidate
       su_pos_base_valid_ = false;
-
-      // (Admittance 상태가 있다면 여기서 리셋하면 됨)
-      // adm_reset();
-
     } else if (!vel_mode_on && su_vel_mode_prev_) {
-      // vel -> pos 전환: 기준점 저장 후, pos 입력을 "변위"로 해석
       su_pos_base_ = su_int_pos_;
       su_yaw_base_ = su_int_yaw_;
       su_pos_base_valid_ = true;
-
-      // (Admittance 상태가 있다면 여기서도 리셋)
-      // adm_reset();
     }
     su_vel_mode_prev_ = vel_mode_on;
 
-    // 2) 모드별 처리 (원본 핵심)
+    // mode behavior
     if (!vel_mode_on) {
-      // --------------------------
       // Position mode
-      // --------------------------
       if (su_pos_base_valid_) {
-        // vel -> pos 이후: position/yaw = base + delta
         su_int_pos_[0] = su_pos_base_[0] + sp_in_[0];
         su_int_pos_[1] = su_pos_base_[1] + sp_in_[1];
         su_int_pos_[2] = su_pos_base_[2] + sp_in_[2];
         su_int_yaw_    = su_yaw_base_    + sp_in_yaw_;
       } else {
-        // 초기 pos 모드: absolute
         su_int_pos_ = sp_in_;
         su_int_yaw_ = sp_in_yaw_;
       }
 
     } else {
-      // --------------------------
       // Velocity mode
-      // --------------------------
       double vx_cmd   = sp_in_[0];
       double vy_cmd   = sp_in_[1];
       double vz_cmd   = sp_in_[2];
-      double vyaw_cmd = sp_in_yaw_; // deg/s
+      double vyaw_cmd = sp_in_yaw_; // [rad/s]
 
-
-
+      // read admittance states
       std::array<double,3> eF{0.0, 0.0, 0.0};
       std::array<double,3> eF_dot_filt{0.0, 0.0, 0.0};
-
       {
         std::lock_guard<std::mutex> lk(force_mtx_);
         eF = eF_;
         eF_dot_filt = eF_dot_filt_;
       }
 
-      // x축만 adm 구현
+      // admittance (x only)
       const double K_p = 3.0;
       const double K_d = 0.005;
       const double vel_adm_x = K_p * eF[0] + K_d * eF_dot_filt[0];
-
-      // 실제 속도 명령에 반영
       vx_cmd += vel_adm_x;
 
+      // contact frame conversion
+      Eigen::Vector3d v_c(vx_cmd, vy_cmd, vz_cmd);
+      Eigen::Vector3d v_w = v_c; // fallback: treat cmd as world vel
 
+      ContactFrame cf_local = cf_;
+      const bool cf_ok = normal_vector_estimation(cf_local);
+      if (cf_ok && cf_local.valid) {
+        v_w = cf_local.R_C * v_c;
+        cf_ = cf_local;
 
+        // publish quaternion of R_C
+        publishContactQuat(cf_local.R_C, now);
+      }
 
-      // ----- Admittance 훅 -----
-      // 원본은 (F_des - F_meas) 및 F_dot 필요.
-      // 현재 노드 입력에는 F_meas(외력 추정)가 없어서 적용 불가.
-      // 추후 예: "/su/f_ext_world" 같은 토픽(Float64MultiArray[3])을 추가하면 여기서 반영하면 됨.
-      //
-      // const double F_des_x = su_cmd_fx_;
-      // const double F_meas_x = f_ext_world_[0];
-      // vx_cmd += v_adm_x;
+      // integrate world position
+      su_int_pos_[0] += v_w.x() * dt;
+      su_int_pos_[1] += v_w.y() * dt;
+      su_int_pos_[2] += v_w.z() * dt;
 
-      // ----- 적분 -----
-      su_int_pos_[0] += vx_cmd   * dt;
-      su_int_pos_[1] += vy_cmd   * dt;
-      su_int_pos_[2] += vz_cmd   * dt;
-      su_int_yaw_    += vyaw_cmd * dt;
+      // yaw align to normal (if available), else use user yaw rate
+      double yaw_next = su_int_yaw_; // fallback
+      if (cf_ok && cf_local.valid) {
+        const Eigen::Vector3d n_w = cf_local.n_w;
+        const double nxy = std::hypot(n_w.x(), n_w.y());
+
+        if (nxy > normal_xy_min_) {
+          const double psi_align = std::atan2(n_w.y(), n_w.x()); // [rad]
+          const double e_yaw = wrap_pi(psi_align - su_int_yaw_);
+          double psi_dot = yaw_align_kp_ * e_yaw; // [rad/s]
+          // psi_dot = std::clamp(psi_dot, -2.0, 2.0); // optional
+          yaw_next = su_int_yaw_ + psi_dot * dt;
+        } else {
+          yaw_next = su_int_yaw_ + vyaw_cmd * dt;
+        }
+      } else {
+        yaw_next = su_int_yaw_ + vyaw_cmd * dt;
+      }
+      su_int_yaw_ = yaw_next;
     }
 
-    // 3) 최종 출력: 항상 absolute pos/yaw
     publishOut();
   }
 
@@ -419,7 +486,7 @@ private:
     out.data[0] = su_int_pos_[0];
     out.data[1] = su_int_pos_[1];
     out.data[2] = su_int_pos_[2];
-    out.data[3] = su_int_yaw_;
+    out.data[3] = su_int_yaw_; // yaw [rad]
     pub_pos_cmd_->publish(out);
   }
 
@@ -430,14 +497,16 @@ private:
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr            sub_use_vel_mode_;
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr            sub_cmd_force_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_contact_force_;
+
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr     pub_pos_cmd_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr     pub_force_lpf_;
-  rclcpp::TimerBase::SharedPtr                                       timer_;
-  rclcpp::TimerBase::SharedPtr                                       force_timer_;
+  rclcpp::Publisher<geometry_msgs::msg::QuaternionStamped>::SharedPtr pub_contact_quat_;
 
+  rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::TimerBase::SharedPtr force_timer_;
 
   // =========================
-  // Internal state (su_cmd_integrator 대응)
+  // Internal state
   // =========================
   // inputs (sp_in)
   std::array<double, 3> sp_in_{0.0, 0.0, 0.0};
@@ -446,7 +515,7 @@ private:
 
   // params/commands
   float su_cmd_use_vel_mode_{0.0f}; // default: position mode
-  float su_cmd_fx_{0.0f};           // F_des_x (저장만)
+  float su_cmd_fx_{0.0f};           // F_des_x
 
   // integrator state
   std::array<double, 3> su_int_pos_{0.0, 0.0, 0.0};
@@ -456,30 +525,26 @@ private:
   // mode switching bookkeeping
   bool su_vel_mode_prev_{false};
 
-  // vel->pos 이후 변위 명령을 위한 기준점
+  // vel->pos base
   std::array<double, 3> su_pos_base_{0.0, 0.0, 0.0};
   double su_yaw_base_{0.0};
   bool su_pos_base_valid_{false};
 
-  // contact force (scalar, world-x)
+  // force/admittance shared state
   std::mutex force_mtx_;
 
-  // eF 및 eF_dot(LPF 결과) 공유 상태
   std::array<double,3> eF_{0.0, 0.0, 0.0};
   std::array<double,3> eF_dot_filt_{0.0, 0.0, 0.0};
 
-  // 내부 상태(미분/필터용)
   std::array<double,3> eF_prev_{0.0, 0.0, 0.0};
   std::array<double,3> eF_dot_filt_prev_{0.0, 0.0, 0.0};
-  std::array<double,3> contact_F_{0.0, 0.0, 0.0};   // from WrenchStamped.force
+
+  std::array<double,3> contact_F_{0.0, 0.0, 0.0};
   bool eF_state_initialized_{false};
   bool f_ext_received_{false};
 
-
   rclcpp::Time eF_last_time_;
   rclcpp::Time last_time_;
-
-
 };
 
 int main(int argc, char **argv)
@@ -489,4 +554,3 @@ int main(int argc, char **argv)
   rclcpp::shutdown();
   return 0;
 }
-
