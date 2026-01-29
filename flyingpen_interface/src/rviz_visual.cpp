@@ -4,6 +4,7 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/vector3_stamped.hpp>   // ✅ EE vel
 #include <geometry_msgs/msg/wrench_stamped.hpp>
+#include <geometry_msgs/msg/quaternion_stamped.hpp> // ✅ contact frame quat
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
 
@@ -38,6 +39,14 @@ public:
     ee_frame_ = this->declare_parameter<std::string>("ee_frame", "end_effector");
     ee_pose_topic_ = this->declare_parameter<std::string>("ee_pose_topic", "/crazyflie/out/EE_pose");
     ee_vel_topic_  = this->declare_parameter<std::string>("ee_vel_topic",  "/crazyflie/out/EE_velocity");
+
+    // ✅ estimated contact frame quat topic
+    contact_frame_quat_topic_ = this->declare_parameter<std::string>(
+      "contact_frame_quat_topic", "/estimated_contact_frame_quat");
+
+    // ✅ TF child frame name for estimated contact frame
+    est_contact_frame_ = this->declare_parameter<std::string>(
+      "est_contact_frame", "estimated_contact_frame");
 
     // Force vector (N) -> arrow length (m) scale
     force_scale_  = this->declare_parameter<double>("force_scale", 10.);
@@ -88,6 +97,11 @@ public:
       "/crazyflie/out/EE_contact_force", 10,
       std::bind(&RvizVisual::cb_contact_force, this, std::placeholders::_1));
 
+    // ✅ estimated contact frame quaternion (R_C as quat)
+    sub_contact_frame_quat_ = this->create_subscription<geometry_msgs::msg::QuaternionStamped>(
+      contact_frame_quat_topic_, 10,
+      std::bind(&RvizVisual::cb_contact_frame_quat, this, std::placeholders::_1));
+
     // -------------------------
     // Publishers (Markers)
     // -------------------------
@@ -114,6 +128,8 @@ public:
     RCLCPP_INFO(this->get_logger(), "rviz_visual started.");
     RCLCPP_INFO(this->get_logger(), "Sub EE pose/vel: %s , %s",
                 ee_pose_topic_.c_str(), ee_vel_topic_.c_str());
+    RCLCPP_INFO(this->get_logger(), "Sub contact frame quat: %s",
+                contact_frame_quat_topic_.c_str());
   }
 
 private:
@@ -177,6 +193,14 @@ private:
     contact_frame_id_ = msg->header.frame_id;
   }
 
+  // ✅ estimated contact frame quaternion
+  void cb_contact_frame_quat(const geometry_msgs::msg::QuaternionStamped::SharedPtr msg)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    contact_q_ = msg->quaternion;
+    have_contact_q_ = true;
+  }
+
   // =========================
   // Timer loop
   // =========================
@@ -189,9 +213,11 @@ private:
     double cmd_yaw;
     std::array<float, 3> Fext;
     std::array<float, 3> Fcontact;
+    geometry_msgs::msg::Quaternion contact_q;
 
     bool have_pose, have_cmd, have_mob, have_contact;
     bool have_ee_pose, have_ee_vel;
+    bool have_contact_q;
     std::string contact_frame_id;
 
     {
@@ -206,6 +232,8 @@ private:
       Fext = mob_Fext_;
       Fcontact = contact_F_;
 
+      contact_q = contact_q_;
+
       have_pose = have_pose_;
       have_cmd = have_cmd_;
       have_mob = have_mob_;
@@ -213,6 +241,8 @@ private:
 
       have_ee_pose = have_ee_pose_;
       have_ee_vel  = have_ee_vel_;
+
+      have_contact_q = have_contact_q_;
 
       contact_frame_id = contact_frame_id_;
     }
@@ -253,7 +283,7 @@ private:
       tf_broadcaster_->sendTransform(tf);
     }
 
-    // ✅ 3) TF: world -> end_effector  (from /crazyflie/out/EE_pose)
+    // 3) TF: world -> end_effector
     if (have_ee_pose) {
       geometry_msgs::msg::TransformStamped tf;
       tf.header.stamp = stamp;
@@ -267,7 +297,35 @@ private:
       tf_broadcaster_->sendTransform(tf);
     }
 
-    // 4) Marker Arrow: mob wrench (origin=drone position)
+    // 4) TF: world -> estimated_contact_frame
+    if (have_ee_pose && have_contact_q) {
+      geometry_msgs::msg::TransformStamped tf;
+      tf.header.stamp = stamp;
+      tf.header.frame_id = parent_frame_;        // world
+      tf.child_frame_id  = est_contact_frame_;   // estimated_contact_frame
+
+      // origin at EE position (so the axes appear at EE)
+      tf.transform.translation.x = ee_pose.pose.position.x;
+      tf.transform.translation.y = ee_pose.pose.position.y;
+      tf.transform.translation.z = ee_pose.pose.position.z;
+
+      // contact_q is contact->world (R_C), so world->contact is inverse
+      tf2::Quaternion q_wc(contact_q.x, contact_q.y, contact_q.z, contact_q.w);
+      q_wc.normalize();
+      // tf2::Quaternion q_cw = q_wc.inverse();     // world->contact
+
+      tf.transform.rotation.x = q_wc.x();
+      tf.transform.rotation.y = q_wc.y();
+      tf.transform.rotation.z = q_wc.z();
+      tf.transform.rotation.w = q_wc.w();
+
+      tf_broadcaster_->sendTransform(tf);
+    }
+
+
+
+
+    // 5) Marker Arrow: mob wrench (origin=drone position)
     if (have_pose && have_mob) {
       visualization_msgs::msg::Marker mk;
       mk.header.stamp = stamp;
@@ -300,7 +358,7 @@ private:
       pub_mob_arrow_->publish(mk);
     }
 
-    // 5) Marker Arrow: contact force (origin=EE position)
+    // 6) Marker Arrow: contact force (origin=EE position)
     if (have_ee_pose && have_contact) {
       visualization_msgs::msg::Marker mk;
       mk.header.stamp = stamp;
@@ -312,8 +370,6 @@ private:
       mk.action = visualization_msgs::msg::Marker::ADD;
 
       geometry_msgs::msg::Point p0, p1;
-
-      // ✅ start at EE position (not drone)
       p0.x = ee_pose.pose.position.x;
       p0.y = ee_pose.pose.position.y;
       p0.z = ee_pose.pose.position.z;
@@ -336,13 +392,11 @@ private:
       pub_contact_arrow_->publish(mk);
     }
 
-
-    // ✅ 6) EE velocity arrow marker (origin=EE position)
-    //    start = EE pos, end = start + ee_vel_scale * v_EE
+    // 7) EE velocity arrow marker (origin=EE position)
     if (have_ee_pose && have_ee_vel) {
       visualization_msgs::msg::Marker mk;
       mk.header.stamp = stamp;
-      mk.header.frame_id = parent_frame_; // world에서 그려도 되고, ee_frame_으로 그려도 됨
+      mk.header.frame_id = parent_frame_;
 
       mk.ns = "ee_velocity";
       mk.id = 0;
@@ -363,7 +417,6 @@ private:
       mk.scale.y = arrow_head_diam_;
       mk.scale.z = arrow_head_len_;
 
-      // 색: 초록
       mk.color.a = 1.0;
       mk.color.r = 0.2;
       mk.color.g = 1.0;
@@ -381,15 +434,18 @@ private:
   std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
 
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_pose_;
-  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_ee_pose_;          // ✅
-  rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_ee_vel_;        // ✅
+  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_ee_pose_;
+  rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_ee_vel_;
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_pos_cmd_;
   rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr sub_mob_wrench_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_contact_force_;
 
+  // ✅ new: estimated contact frame quaternion
+  rclcpp::Subscription<geometry_msgs::msg::QuaternionStamped>::SharedPtr sub_contact_frame_quat_;
+
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_mob_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_contact_arrow_;
-  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_ee_vel_arrow_;        // ✅
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_ee_vel_arrow_;
 
   rclcpp::TimerBase::SharedPtr timer_;
 
@@ -401,7 +457,6 @@ private:
   geometry_msgs::msg::PoseStamped pose_;
   bool have_pose_{false};
 
-  // ✅ EE pose/vel
   geometry_msgs::msg::PoseStamped ee_pose_;
   geometry_msgs::msg::Vector3Stamped ee_vel_;
   bool have_ee_pose_{false};
@@ -418,6 +473,10 @@ private:
   bool have_contact_{false};
   std::string contact_frame_id_;
 
+  // ✅ new: estimated contact frame quaternion
+  geometry_msgs::msg::Quaternion contact_q_;
+  bool have_contact_q_{false};
+
   // =========================
   // Params
   // =========================
@@ -425,10 +484,13 @@ private:
   std::string cf_frame_;
   std::string cmd_frame_;
 
-  // ✅ EE TF frame & topics
   std::string ee_frame_;
   std::string ee_pose_topic_;
   std::string ee_vel_topic_;
+
+  // ✅ new params
+  std::string contact_frame_quat_topic_;
+  std::string est_contact_frame_;
 
   double force_scale_{10.};
   double contact_force_scale_{10.};

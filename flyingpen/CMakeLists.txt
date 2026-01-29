@@ -10,6 +10,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(Eigen3 REQUIRED)
 
 
 # ---------------- executables ----------------
@@ -23,14 +24,20 @@ ament_target_dependencies(trajectory8
 )
 
 # trajectory_generation node
-add_executable(trajectory_generation
-  src/trajectory_generation.cpp
-)
+add_executable(trajectory_generation src/trajectory_generation.cpp)
 ament_target_dependencies(trajectory_generation
   rclcpp
   std_msgs
   geometry_msgs
 )
+
+target_link_libraries(trajectory_generation Eigen3::Eigen)
+
+install(TARGETS
+  trajectory_generation
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 
 # wrench_observer node
 add_executable(wrench_observer
