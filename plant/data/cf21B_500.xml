@@ -43,20 +43,44 @@
   </asset>
 
   <default>
-    <default class="cf21B">
-      <default class="visual">
-        <geom group="2" type="mesh" contype="0" conaffinity="0" />
+    <!-- 드론 시각 -->
+    <default class="cf">
+      <default class="cf_visual">
+        <geom group="2" type="mesh" contype="0" conaffinity="0"/>
       </default>
-      <default class="collision">
-        <geom group="3" condim="1" />
+
+      <!-- 드론 바디 접촉(바닥만) -->
+      <default class="cf_body_col">
+        <geom group="3" condim="3"
+              contype="4" conaffinity="1" friction="0.05 0 0" margin="0" gap="0"/>
       </default>
-      <site group="5" />
+
+      <!-- 팁 접촉(박스만) -->
+      <default class="cf_tip_col">
+        <geom group="3" condim="3"
+              contype="8" conaffinity="2" friction="0.05 0 0" margin="0" gap="0"/>
+      </default>
+
+      <site group="5"/>
+    </default>
+
+    <!-- 바닥(박스+드론바디와 접촉 허용) -->
+    <default class="env_ground">
+      <geom contype="1" conaffinity="6"  friction="1.0 0 0" condim="3" margin="0" gap="0"/>
+      <!-- conaffinity 6 = (2|4) : 박스채널, 드론바디채널 -->
+    </default>
+
+    <!-- 박스(바닥+팁과 접촉 허용) -->
+    <default class="env_box">
+      <geom contype="2" conaffinity="9" friction="1.0 0 0" condim="3" margin="0" gap="0"/>
+      <!-- conaffinity 9 = (1|8) : 바닥채널, 팁채널 -->
     </default>
   </default>
 
+
+
+
 <!--<include file="wall.xml"/> -->
-
-
 
   <worldbody>
    <geom
@@ -65,10 +89,9 @@
      size="5 5 0.1"
      pos="0 0 0"
      material="tile_mat"
-     contype="1"
-     conaffinity="1"/>
+     class="env_ground"/>
 
-
+<!--
     <body name="big_cylinder" pos="1.2 0.0 0.0">
      <geom name="big_cylinder_geom"
            type="cylinder"
@@ -78,31 +101,45 @@
            contype="1"
            conaffinity="1"/>
     </body>
-      
-    <body name="drone" pos="0 0 0.05" childclass="cf21B">
+-->
+
+
+
+    <body name="push_box" pos="0.6 0.0 0.0">
+      <freejoint/>
+      <inertial pos="0 0 0" mass="0.01" diaginertia="1.0e-4 1.0e-4 1.0e-4"/>
+      <geom name="push_box_geom"
+            class="env_box"
+            type="box"
+            size="0.25 0.25 0.25"
+            rgba="0.2 0.4 0.9 0.3"/>
+    </body>
+
+
+    <body name="drone" pos="0 0 0.05" childclass="cf">
       <freejoint/>    
       <site name="CoM" />
       <site name="imu" pos="0 0 0" quat="1 0 0 0"/>
 
       <inertial pos="0.0 0.0 0.0" mass="0.04338" diaginertia="2.3951e-5 2.3951e-5 3.2347e-5" />
       <!-- Meshes -->
-      <geom mesh="pcb" material="gray" class="visual" />
-      <geom mesh="motors" material="black" class="visual" />
-      <geom mesh="prop-guards" material="black" class="visual" />
-      <geom mesh="connectors" material="black" class="visual" />
-      <geom mesh="connector-pins" material="gold" class="visual" />
-      <geom mesh="battery" material="light-gray" class="visual" />
-      <geom mesh="battery-holder" material="black" class="visual" />
-      <geom name="led_top" mesh="led-diffusor" material="led_top" class="visual" pos="0 0 0.015" euler="180 0 0"/>
-      <geom name="led_bot" mesh="led-diffusor" material="led_bot" class="visual" pos="0 0 -0.002"/>
-      <geom name="ee_visual" mesh="end-effector" material="yellow" class="visual" pos="0 0 -0.003" quat="0.7071 0 0 0.7071" contype="0" conaffinity="0"/>
+      <geom mesh="pcb" material="gray" class="cf_visual" />
+      <geom mesh="motors" material="black" class="cf_visual" />
+      <geom mesh="prop-guards" material="black" class="cf_visual" />
+      <geom mesh="connectors" material="black" class="cf_visual" />
+      <geom mesh="connector-pins" material="gold" class="cf_visual" />
+      <geom mesh="battery" material="light-gray" class="cf_visual" />
+      <geom mesh="battery-holder" material="black" class="cf_visual" />
+      <geom name="led_top" mesh="led-diffusor" material="led_top" class="cf_visual" pos="0 0 0.015" euler="180 0 0"/>
+      <geom name="led_bot" mesh="led-diffusor" material="led_bot" class="cf_visual" pos="0 0 -0.002"/>
+      <geom name="ee_visual" mesh="end-effector" material="yellow" class="cf_visual" pos="0 0 -0.003" quat="0.7071 0 0 0.7071"/>
 
 
       <!-- Collision geometry is estimated based on the visual mesh. We use a sphere for maximum
        computational efficiency with larger swarms. Used by default-->
-      <geom  name="col_sphere" type="sphere" size="0.068" pos="0 0 0.02" class="collision" contype="1" conaffinity="1" />
+      <geom  name="col_sphere" type="sphere" size="0.068" pos="0 0 0.02" class="cf_body_col"/>
       <!-- For higher accuracy with lower performance, you can use a box. By default off. -->
-      <geom  name="col_box" type="box" size="0.07 0.07 0.02" class="collision" rgba="0.5 0.5 0.5 0" contype="0" conaffinity="0" />
+      <geom  name="col_box" type="box" size="0.07 0.07 0.02" class="cf_body_col" rgba="0.5 0.5 0.5 0"/>
 
       <!-- Motors and Propellers -->
       <site name="motor0" pos="0.03536 -0.03536 0.0" />
@@ -110,16 +147,16 @@
       <site name="motor2" pos="-0.03536 0.03536 0.0" />
       <site name="motor3" pos="0.03536 0.03536 0.0" />
       <body name="prop0" pos="0.03536 -0.03536 0.012" euler="0 0 45">
-        <geom mesh="propL" material="green" class="visual"/>
+        <geom mesh="propL" material="green" class="cf_visual"/>
       </body>
       <body name="prop1" pos="-0.03536 -0.03536 0.012" euler="0 0 135">
-        <geom mesh="propR" material="green" class="visual"/>
+        <geom mesh="propR" material="green" class="cf_visual"/>
       </body>
       <body name="prop2" pos="-0.03536 0.03536 0.012" euler="0 0 225">
-        <geom mesh="propL" material="green" class="visual"/>
+        <geom mesh="propL" material="green" class="cf_visual"/>
       </body>
       <body name="prop3" pos="0.03536 0.03536 0.012" euler="0 0 315">
-        <geom mesh="propR" material="green" class="visual"/>
+        <geom mesh="propR" material="green" class="cf_visual"/>
       </body>
 
 
@@ -129,9 +166,7 @@
         <geom name="ee_tip_sphere"
               type="sphere"
               size="0.006"
-              condim="1"
-              contype="1"
-              conaffinity="1"
+              class="cf_tip_col"
               rgba="1 0 0 1"/>
       </body> 
 
@@ -157,6 +192,8 @@
   control limits from our constants module with the ones in the MuJoCo model. Instead, we rely on
   the controller simulation for proper clipping. 
   -->
+
+
   <actuator>
     <motor gear="0 0 1 0 0 0" site="motor0" name="motor0_force" />
     <motor gear="0 0 1 0 0 0" site="motor1" name="motor1_force" />
