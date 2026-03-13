@@ -186,20 +186,50 @@ class CrazyfliePlant(Node):
 
 
 
-        self.get_logger().info(
-            "Noise(plant params): "
-            f"enable={self.noise_enable}, seed={seed}, "
-            f"pos_std={self._pos_std}, vel_std={self._vel_std}, att_std={self._att_std}, "
-            f"ang_vel_std={self._ang_vel_std}, ang_acc_std={self._ang_acc_std}"
-        )
-
         # ---- MuJoCo model ----
         pkg_share = get_package_share_directory("plant")
         xml_path = os.path.join(pkg_share, "data", "cf21B_500.xml")
-        self.get_logger().info(f"Loading MuJoCo model: {xml_path}")
 
         self.model = mujoco.MjModel.from_xml_path(xml_path)
         self.data = mujoco.MjData(self.model)
+
+        # -------------------- drone state address (freejoint) --------------------
+        self.bid_drone = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "drone")
+        if self.bid_drone < 0:
+            raise RuntimeError("Body 'drone' not found in XML")
+
+        jnt_adr = int(self.model.body_jntadr[self.bid_drone])
+        jnt_num = int(self.model.body_jntnum[self.bid_drone])
+        if jnt_num < 1:
+            raise RuntimeError("Body 'drone' has no joint (expected freejoint)")
+
+        self.jid_drone = jnt_adr  # first joint id of drone body
+        self.qpos_adr_drone = int(self.model.jnt_qposadr[self.jid_drone])  # start index in qpos
+        self.qvel_adr_drone = int(self.model.jnt_dofadr[self.jid_drone])   # start index in qvel
+        jtype = int(self.model.jnt_type[self.jid_drone])
+        if jtype != mujoco.mjtJoint.mjJNT_FREE:
+            raise RuntimeError(f"Body 'drone' first joint is not FREE (type={jtype})")
+
+
+        # -----------------------------------------------------------------------
+
+
+        # -------------------- contact filter geom ids --------------------
+        # 원하는 접촉쌍: end-effector tip <-> push_box
+        self.gid_tip = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, "ee_tip_sphere")
+        self.gid_box = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, "push_box_geom")
+        # (나중에 벽이면 "wall_geom" 같은 이름으로 하나 더 추가)
+
+        if self.gid_tip < 0 or self.gid_box < 0:
+            raise RuntimeError(
+                f"geom id not found: tip={self.gid_tip}, box={self.gid_box}. "
+                "Check geom names in XML."
+            )
+
+
+        self._last_contact_log_ns = 0
+        # ---------------------------------------------------------------
+
 
         self.model.opt.timestep = 1.0 / max(1e-9, self.physics_hz)
 
@@ -245,18 +275,6 @@ class CrazyfliePlant(Node):
             self.act_force_ids.append(_act_id(f"motor{i}_force"))
             self.act_torque_ids.append(_act_id(f"motor{i}_torque"))
 
-        if any(v is None or v < 0 for v in self.act_force_ids):
-            self.get_logger().warn(
-                f"Could not find all motor*_force actuators. act_force_ids={self.act_force_ids}. "
-                "Fallback to ctrl[0:4]."
-            )
-        if any(v is None or v < 0 for v in self.act_torque_ids):
-            self.get_logger().warn(
-                f"Could not find all motor*_torque actuators. act_torque_ids={self.act_torque_ids}. "
-                "Reaction torque won't be applied unless torque actuators exist."
-            )
-        else:
-            self.get_logger().info(f"Found torque actuators: {self.act_torque_ids}")
 
         # ---- ROS IO ----
         self.sub_input = self.create_subscription(
@@ -280,11 +298,6 @@ class CrazyfliePlant(Node):
         self.viewer_thread.start()
         self.sim_thread.start()
 
-        self.get_logger().info(
-            f"Running: physics={self.physics_hz:.1f}Hz, pub={self.pub_hz:.1f}Hz, viewer={self.viewer_hz:.1f}Hz"
-        )
-        self.get_logger().info("Fix applied: publish is STEP-BASED (no publish catch-up without mj_step).")
-        self.get_logger().info("LPF removed: publishing pose/vel/gyro/angacc with optional noise.")
 
     # ------------------------ NOISE helpers ------------------------
     @staticmethod
@@ -310,10 +323,9 @@ class CrazyfliePlant(Node):
     def _sensor_id(self, name: str) -> Optional[int]:
         try:
             sid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SENSOR, name)
-            self.get_logger().info(f"Sensor found: {name}")
             return sid
+        
         except Exception:
-            self.get_logger().warn(f"Sensor NOT found: {name}")
             return None
 
     def _read_sensor_vec3(self, sid: Optional[int]) -> np.ndarray:
@@ -337,7 +349,6 @@ class CrazyfliePlant(Node):
     # ------------------------ ROS input ------------------------
     def cb_input(self, msg: Float32MultiArray):
         if len(msg.data) < 4:
-            self.get_logger().warn("'/crazyflie/in/input' needs 4 floats: [tau_x, tau_y, tau_z, Fz]")
             return
         with self._lock:
             self.u[:] = np.array(msg.data[:4], dtype=float)
@@ -365,11 +376,14 @@ class CrazyfliePlant(Node):
 
     # ------------------------ State read ------------------------
     def read_state(self):
-        pos_W = np.array(self.data.qpos[0:3], dtype=float)
-        quat_wxyz = np.array(self.data.qpos[3:7], dtype=float)
+        qa = self.qpos_adr_drone
+        va = self.qvel_adr_drone
 
-        linvel_W = np.array(self.data.qvel[0:3], dtype=float)
-        angvel_W = np.array(self.data.qvel[3:6], dtype=float)
+        pos_W = np.array(self.data.qpos[qa:qa+3], dtype=float)
+        quat_wxyz = np.array(self.data.qpos[qa+3:qa+7], dtype=float)
+
+        linvel_W = np.array(self.data.qvel[va:va+3], dtype=float)
+        angvel_W = np.array(self.data.qvel[va+3:va+6], dtype=float)
 
         R_BW = rotmat_from_quat_wxyz(quat_wxyz)
         angvel_B = R_BW.T @ angvel_W
@@ -600,7 +614,6 @@ class CrazyfliePlant(Node):
             with mujoco.viewer.launch_passive(self.model, self.data) as viewer:
 
 
-                self.get_logger().info("MuJoCo viewer started (passive).")
                 while viewer.is_running() and rclpy.ok() and not self._stop:
                     t0 = time.perf_counter()
                     with self._lock:
@@ -610,8 +623,8 @@ class CrazyfliePlant(Node):
                     sleep_t = viewer_dt - (t1 - t0)
                     if sleep_t > 0:
                         time.sleep(sleep_t)
-        except Exception as e:
-            self.get_logger().warn(f"viewer end: {e}")
+        except Exception:
+            pass
 
 
     def close(self):
@@ -664,12 +677,32 @@ class CrazyfliePlant(Node):
         self.rf  = np.zeros(3, dtype=float)
         self.Fw  = np.zeros(3, dtype=float)
 
+        now_ns = self.get_clock().now().nanoseconds
+        do_log = False
+        if now_ns - self._last_contact_log_ns > 1_000_000_000:  # 1s
+            self._last_contact_log_ns = now_ns
+            do_log = True
+
+
         for i in range(data.ncon):
+            con = data.contact[i]
+
+            if do_log and i < 5:
+                n1 = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, int(con.geom1))
+                n2 = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, int(con.geom2))
+
+            # -------------------- FILTER: tip <-> box만 누적 --------------------
+            g1 = int(con.geom1)
+            g2 = int(con.geom2)
+            if not ((g1 == self.gid_tip and g2 == self.gid_box) or
+                    (g1 == self.gid_box and g2 == self.gid_tip)):
+                continue
+            # -------------------------------------------------------------------
+
             fci = np.zeros(6, dtype=float)
             try:
                 mujoco.mj_contactForce(model, data, i, fci)
 
-                con = data.contact[i]
                 pos_w = np.array(con.pos, dtype=float)
 
                 # con.frame -> (3,3)
@@ -709,8 +742,6 @@ class CrazyfliePlant(Node):
 
         viewer.user_scn.ngeom = 0
 
-        # aggregate contacts
-        self.mjfc(self.model, self.data)
 
         if self.fcn <= 1e-12:
             return
