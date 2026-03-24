@@ -5,7 +5,7 @@ plant:
     viewer_hz: 60.0
 
     arm_xy: 0.035355
-    k_tau: 0.00569278844371417 # b/k, Reaction Torque Ratio, zeta 등 값.
+    k_tau: 0.00569278844371417
     motor_dir: [1.0, -1.0, 1.0, -1.0]
     thrust_min: 0.0
     thrust_max: 0.20
@@ -13,11 +13,24 @@ plant:
     noise:
       enable: true
       seed: 0
-      pos_var: [1e-6, 1e-6, 1e-6]
-      vel_var: [1e-4, 1e-4, 1e-4]
-      att_var: [1e-6, 1e-6, 1e-6]
-      ang_vel_var: [4e-6, 4e-6, 4e-6]
-      ang_acc_var: [1e-2, 1e-2, 1e-2]
+      hz: 30.0
+      pos_amp: [1e-4, 1e-4, 1e-4]
+      vel_amp: [1e-5, 1e-5, 1e-5]
+      att_amp: [1e-5, 1e-5, 1e-5]
+      ang_vel_amp: [4e-6, 4e-6, 4e-6]
+      ang_acc_amp: [1e-2, 1e-2, 1e-2]
+      lpf:
+        enable: false
+        cutoff_hz: 30.0
+
+        
+    actuator:
+      delay:
+        enable: true
+        sec: 0.0005
+      lpf:
+        enable: false
+        cutoff_hz: 100.0
 
     # ---- contact numerical diff + LPF params ----
     contact_filter:
@@ -39,7 +52,7 @@ low_level_controller:
     max_thrust: 1.0 #               # 나중에 제대로 바꾸길 검토
 
     # ---------------- loop dt ----------------
-    # NOTE: timer period(코드)과 dt_* 파라미터(제어식 dt)는 "동일하게" 맞추는 게 좋음
+    # NOTE: timer period(코드)과 dt_* 파라미터(제어식 dt)는 "동일하게" 맞춰야 함
     dt:
       pos: 0.01       # 100 Hz
       vel: 0.01       # 100 Hz
@@ -62,9 +75,9 @@ low_level_controller:
 
     # Attitude loop: (roll_d, pitch_d, yaw_d) error -> w_des
     att:
-      roll:  { kp: 10., kd: 0.1 }
-      pitch: { kp: 10., kd: 0.1 }
-      yaw:   { kp: 10., kd: 0.1 }
+      roll:  { kp: 8., kd: 0.1 }
+      pitch: { kp: 8., kd: 0.1 }
+      yaw:   { kp: 3., kd: 0.1 }
 
     # Rate loop: w error -> torque
     rate:

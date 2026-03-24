@@ -55,7 +55,7 @@ class ContactManager:
 
         # geom ids
         self.gid_tip = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, "ee_tip_sphere")
-        self.gid_box = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, "push_box_geom")
+        self.gid_box = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, "wall_collision")
 
         if self.gid_tip < 0 or self.gid_box < 0:
             raise RuntimeError(
