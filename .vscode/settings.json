@@ -1,0 +1,32 @@
+{
+    "python.autoComplete.extraPaths": [
+        "/home/seosuk/mujoco_crazyflie/install/plant/lib/python3.10/site-packages",
+        "/home/seosuk/sitl_ws/install/px4_ros_com/local/lib/python3.10/dist-packages",
+        "/home/seosuk/sitl_ws/install/px4_offboard/lib/python3.10/site-packages",
+        "/home/seosuk/sitl_ws/install/px4_msgs/local/lib/python3.10/dist-packages",
+        "/home/seosuk/sitl_ws/install/dynamixel_workbench_msgs/local/lib/python3.10/dist-packages",
+        "/home/seosuk/sitl_ws/install/dynamixel_sdk_custom_interfaces/local/lib/python3.10/dist-packages",
+        "/home/seosuk/sitl_ws/install/crazyflie_sim/local/lib/python3.10/dist-packages",
+        "/home/seosuk/sitl_ws/install/crazyflie_examples/local/lib/python3.10/dist-packages",
+        "/home/seosuk/sitl_ws/install/crazyflie_py/lib/python3.10/site-packages",
+        "/home/seosuk/sitl_ws/install/crazyflie_interfaces/local/lib/python3.10/dist-packages",
+        "/home/seosuk/Desktop/crazyflie-firmware/build",
+        "/opt/ros/humble/lib/python3.10/site-packages",
+        "/opt/ros/humble/local/lib/python3.10/dist-packages"
+    ],
+    "python.analysis.extraPaths": [
+        "/home/seosuk/mujoco_crazyflie/install/plant/lib/python3.10/site-packages",
+        "/home/seosuk/sitl_ws/install/px4_ros_com/local/lib/python3.10/dist-packages",
+        "/home/seosuk/sitl_ws/install/px4_offboard/lib/python3.10/site-packages",
+        "/home/seosuk/sitl_ws/install/px4_msgs/local/lib/python3.10/dist-packages",
+        "/home/seosuk/sitl_ws/install/dynamixel_workbench_msgs/local/lib/python3.10/dist-packages",
+        "/home/seosuk/sitl_ws/install/dynamixel_sdk_custom_interfaces/local/lib/python3.10/dist-packages",
+        "/home/seosuk/sitl_ws/install/crazyflie_sim/local/lib/python3.10/dist-packages",
+        "/home/seosuk/sitl_ws/install/crazyflie_examples/local/lib/python3.10/dist-packages",
+        "/home/seosuk/sitl_ws/install/crazyflie_py/lib/python3.10/site-packages",
+        "/home/seosuk/sitl_ws/install/crazyflie_interfaces/local/lib/python3.10/dist-packages",
+        "/home/seosuk/Desktop/crazyflie-firmware/build",
+        "/opt/ros/humble/lib/python3.10/site-packages",
+        "/opt/ros/humble/local/lib/python3.10/dist-packages"
+    ]
+}
