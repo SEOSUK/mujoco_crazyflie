@@ -20,8 +20,8 @@
             mesh="wall"
             group="3"
             condim="3"
-            contype="1"
-            conaffinity="1"
+            contype="2"
+            conaffinity="8"
             mass="0"/>
     </body>
   </worldbody>

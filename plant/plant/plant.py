@@ -17,7 +17,7 @@ from geometry_msgs.msg import PoseStamped, Vector3Stamped
 from std_msgs.msg import Float32MultiArray
 
 from .contact import ContactManager
-
+from collections import deque
 
 PHYSICS_HZ = 1000.0
 PUB_HZ = 400.0
@@ -94,24 +94,59 @@ class CrazyfliePlant(Node):
 
         self.declare_parameter("noise.enable", True)
         self.declare_parameter("noise.seed", 0)
-        self.declare_parameter("noise.pos_var", [0.0, 0.0, 0.0])
-        self.declare_parameter("noise.vel_var", [0.0, 0.0, 0.0])
-        self.declare_parameter("noise.att_var", [0.0, 0.0, 0.0])
-        self.declare_parameter("noise.ang_vel_var", [0.0, 0.0, 0.0])
-        self.declare_parameter("noise.ang_acc_var", [0.0, 0.0, 0.0])
+        self.declare_parameter("noise.hz", 60.0)
+        self.declare_parameter("noise.pos_amp", [0.0, 0.0, 0.0])
+        self.declare_parameter("noise.vel_amp", [0.0, 0.0, 0.0])
+        self.declare_parameter("noise.att_amp", [0.0, 0.0, 0.0])
+        self.declare_parameter("noise.ang_vel_amp", [0.0, 0.0, 0.0])
+        self.declare_parameter("noise.ang_acc_amp", [0.0, 0.0, 0.0])
+
 
         self.noise_enable = bool(self.get_parameter("noise.enable").value)
         seed = int(self.get_parameter("noise.seed").value)
         self.rng = np.random.default_rng(None if seed == 0 else seed)
 
-        self._pos_std = self._var_to_std3(self.get_parameter("noise.pos_var").value)
-        self._vel_std = self._var_to_std3(self.get_parameter("noise.vel_var").value)
-        self._att_std = self._var_to_std3(self.get_parameter("noise.att_var").value)
-        self._ang_vel_std = self._var_to_std3(self.get_parameter("noise.ang_vel_var").value)
-        self._ang_acc_std = self._var_to_std3(self.get_parameter("noise.ang_acc_var").value)
+        # 변경: var를 "진폭"으로 사용
+        self._pos_amp = self._to_amp3(self.get_parameter("noise.pos_amp").value)
+        self._vel_amp = self._to_amp3(self.get_parameter("noise.vel_amp").value)
+        self._att_amp = self._to_amp3(self.get_parameter("noise.att_amp").value)
+        self._ang_vel_amp = self._to_amp3(self.get_parameter("noise.ang_vel_amp").value)
+        self._ang_acc_amp = self._to_amp3(self.get_parameter("noise.ang_acc_amp").value)
+        
+        self.noise_hz = float(self.get_parameter("noise.hz").value)
+
+        self._noise_t0_ns = None
+
+        self._pos_noise = np.zeros(3, dtype=float)
+        self._vel_noise = np.zeros(3, dtype=float)
+        self._att_noise = np.zeros(3, dtype=float)
+        self._ang_vel_noise = np.zeros(3, dtype=float)
+        self._ang_acc_noise = np.zeros(3, dtype=float)
+
+        # 축별 위상: 완전히 같은 사인파가 되지 않도록 seed 기반 랜덤 위상 부여
+        self._pos_phase = self.rng.uniform(0.0, 2.0*np.pi, size=3)
+        self._vel_phase = self.rng.uniform(0.0, 2.0*np.pi, size=3)
+        self._att_phase = self.rng.uniform(0.0, 2.0*np.pi, size=3)
+        self._ang_vel_phase = self.rng.uniform(0.0, 2.0*np.pi, size=3)
+        self._ang_acc_phase = self.rng.uniform(0.0, 2.0*np.pi, size=3)
+
+
+        self.declare_parameter("noise.lpf.enable", False)
+        self.declare_parameter("noise.lpf.cutoff_hz", 0.0)
+
+        self.noise_lpf_enable = bool(self.get_parameter("noise.lpf.enable").value)
+        self.noise_lpf_cutoff_hz = float(self.get_parameter("noise.lpf.cutoff_hz").value)
+
+        self._pos_filt = np.zeros(3, dtype=float)
+        self._vel_filt = np.zeros(3, dtype=float)
+        self._ang_vel_filt = np.zeros(3, dtype=float)
+        self._ang_acc_filt = np.zeros(3, dtype=float)
+
+        self._noise_lpf_initialized = False
+
 
         pkg_share = get_package_share_directory("plant")
-        xml_path = os.path.join(pkg_share, "data", "cf21B_500.xml")
+        xml_path = os.path.join(pkg_share, "data", "scene.xml")
 
         self.model = mujoco.MjModel.from_xml_path(xml_path)
         self.data = mujoco.MjData(self.model)
@@ -153,6 +188,29 @@ class CrazyfliePlant(Node):
         self.B_pinv = np.linalg.pinv(self.B)
 
         self.u = np.zeros(4, dtype=float)
+        # actuator delay / lag
+        self.declare_parameter("actuator.delay.enable", True)
+        self.declare_parameter("actuator.delay.sec", 0.0)
+        self.declare_parameter("actuator.lpf.enable", True)
+        self.declare_parameter("actuator.lpf.cutoff_hz", 0.0)
+
+        self.act_delay_enable = bool(self.get_parameter("actuator.delay.enable").value)
+        self.act_delay_sec = float(self.get_parameter("actuator.delay.sec").value)
+        self.act_lpf_enable = bool(self.get_parameter("actuator.lpf.enable").value)
+        self.act_lpf_cutoff_hz = float(self.get_parameter("actuator.lpf.cutoff_hz").value)
+
+        self.dt = 1.0 / max(1e-9, self.physics_hz)
+
+        self._f_act = np.zeros(4, dtype=float)
+
+        self._delay_steps = 0
+        if self.act_delay_enable and self.act_delay_sec > 0.0:
+            self._delay_steps = max(0, int(round(self.act_delay_sec / self.dt)))
+
+        self._f_delay_buf = deque(
+            [np.zeros(4, dtype=float) for _ in range(self._delay_steps + 1)],
+            maxlen=self._delay_steps + 1
+        )
 
         self._lock = threading.Lock()
         self._stop = False
@@ -164,11 +222,9 @@ class CrazyfliePlant(Node):
             except Exception:
                 return None
 
-        self.act_force_ids = []
-        self.act_torque_ids = []
+        self.act_ids = []
         for i in range(4):
-            self.act_force_ids.append(_act_id(f"motor{i}_force"))
-            self.act_torque_ids.append(_act_id(f"motor{i}_torque"))
+            self.act_ids.append(_act_id(f"motor{i}"))
 
         self.sub_input = self.create_subscription(
             Float32MultiArray, "/crazyflie/in/input", self.cb_input, 10
@@ -206,22 +262,49 @@ class CrazyfliePlant(Node):
         self.sim_thread.start()
 
     @staticmethod
-    def _var_to_std3(v: Union[float, Sequence[float]]) -> np.ndarray:
+    def _to_amp3(v: Union[float, Sequence[float]]) -> np.ndarray:
         if isinstance(v, (int, float)):
-            var = np.array([float(v)] * 3, dtype=float)
+            amp = np.array([float(v)] * 3, dtype=float)
         else:
             arr = np.array(list(v), dtype=float)
             if arr.size == 1:
-                var = np.array([float(arr[0])] * 3, dtype=float)
+                amp = np.array([float(arr[0])] * 3, dtype=float)
             else:
-                var = arr.reshape(3)
-        var = np.clip(var, 0.0, None)
-        return np.sqrt(var)
+                amp = arr.reshape(3)
+        amp = np.clip(amp, 0.0, None)
+        return amp
 
-    def _randn3(self, std3: np.ndarray) -> np.ndarray:
-        if (not self.noise_enable) or np.all(std3 <= 0.0):
-            return np.zeros(3, dtype=float)
-        return self.rng.normal(0.0, std3, size=3).astype(float)
+
+    def _update_noise_sine(self):
+        if not self.noise_enable:
+            self._pos_noise[:] = 0.0
+            self._vel_noise[:] = 0.0
+            self._att_noise[:] = 0.0
+            self._ang_vel_noise[:] = 0.0
+            self._ang_acc_noise[:] = 0.0
+            return
+
+        now_ns = self.get_clock().now().nanoseconds
+
+        if self._noise_t0_ns is None:
+            self._noise_t0_ns = now_ns
+
+        t = (now_ns - self._noise_t0_ns) * 1e-9
+        w = 2.0 * np.pi * self.noise_hz
+
+        self._pos_noise = self._pos_amp * np.sin(w * t + self._pos_phase)
+        self._vel_noise = self._vel_amp * np.sin(w * t + self._vel_phase)
+        self._att_noise = self._att_amp * np.sin(w * t + self._att_phase)
+        self._ang_vel_noise = self._ang_vel_amp * np.sin(w * t + self._ang_vel_phase)
+        self._ang_acc_noise = self._ang_acc_amp * np.sin(w * t + self._ang_acc_phase)
+
+    def _apply_noise_lpf(self, x: np.ndarray, x_filt: np.ndarray) -> np.ndarray:
+        if (not self.noise_lpf_enable) or self.noise_lpf_cutoff_hz <= 1e-9:
+            return x.copy()
+
+        wc = 2.0 * np.pi * self.noise_lpf_cutoff_hz
+        alpha = 1.0 - np.exp(-wc * self.dt)
+        return (1.0 - alpha) * x_filt + alpha * x
 
     def _sensor_id(self, name: str) -> Optional[int]:
         try:
@@ -256,19 +339,39 @@ class CrazyfliePlant(Node):
         tau_x, tau_y, tau_z, Fz = self.u
 
         w = np.array([tau_x, tau_y, tau_z, Fz], dtype=float)
-        f = self.B_pinv @ w
-        f_clip = np.clip(f, self.thrust_min, self.thrust_max)
+        f_cmd = self.B_pinv @ w
+        f_cmd = np.clip(f_cmd, self.thrust_min, self.thrust_max)
 
-        if all(v is not None and v >= 0 for v in self.act_force_ids):
+        # actuator dynamics
+        f_applied = self.apply_actuator_dynamics(f_cmd)
+        f_applied = np.clip(f_applied, self.thrust_min, self.thrust_max)
+
+        if all(v is not None and v >= 0 for v in self.act_ids):
             for i in range(4):
-                self.data.ctrl[self.act_force_ids[i]] = float(f_clip[i])
+                self.data.ctrl[self.act_ids[i]] = float(f_applied[i])
         else:
-            self.data.ctrl[0:4] = f_clip
+            self.data.ctrl[0:4] = f_applied
+            
+    def apply_actuator_dynamics(self, f_cmd: np.ndarray) -> np.ndarray:
+        f_in = np.array(f_cmd, dtype=float).copy()
 
-        tau_m = self.motor_dir * self.k_tau * f_clip
-        if all(v is not None and v >= 0 for v in self.act_torque_ids):
-            for i in range(4):
-                self.data.ctrl[self.act_torque_ids[i]] = float(tau_m[i])
+        # 1) pure delay
+        if self.act_delay_enable and self._delay_steps > 0:
+            self._f_delay_buf.append(f_in)
+            f_delayed = self._f_delay_buf[0].copy()
+        else:
+            f_delayed = f_in
+
+        # 2) 1st-order lag
+        if self.act_lpf_enable and self.act_lpf_cutoff_hz > 1e-9:
+            wc = 2.0 * np.pi * self.act_lpf_cutoff_hz
+            alpha = 1.0 - np.exp(-wc * self.dt)
+            self._f_act = (1.0 - alpha) * self._f_act + alpha * f_delayed
+        else:
+            self._f_act = f_delayed.copy()
+
+        return self._f_act.copy()
+    
 
     def read_state(self):
         qa = self.qpos_adr_drone
@@ -288,18 +391,32 @@ class CrazyfliePlant(Node):
         pos_W, quat_wxyz_meas, linvel_W, angvel_B_gt = self.read_state()
         quat_wxyz = quat_normalize_wxyz(quat_wxyz_meas)
 
-        pos_W_noisy = pos_W + self._randn3(self._pos_std)
+        self._update_noise_sine()
 
-        dtheta_B = self._randn3(self._att_std)
+        pos_W_noisy = pos_W + self._pos_noise
+
+        dtheta_B = self._att_noise
         dq = rotvec_to_quat_wxyz(dtheta_B)
         quat_wxyz_noisy = quat_normalize_wxyz(quat_mul_wxyz(quat_wxyz, dq))
 
         linacc_W = self.read_imu_acc_world(quat_wxyz_noisy)
 
         gyro_B = self.read_imu_gyro_body()
-        gyro_B_used = gyro_B + self._randn3(self._ang_vel_std)
+        gyro_B_used = gyro_B + self._ang_vel_noise
 
-        linvel_W_noisy = linvel_W + self._randn3(self._vel_std)
+        linvel_W_noisy = linvel_W + self._vel_noise
+
+
+        if not self._noise_lpf_initialized:
+            self._pos_filt = pos_W_noisy.copy()
+            self._vel_filt = linvel_W_noisy.copy()
+            self._ang_vel_filt = gyro_B_used.copy()
+            self._noise_lpf_initialized = True
+        else:
+            self._pos_filt = self._apply_noise_lpf(pos_W_noisy, self._pos_filt)
+            self._vel_filt = self._apply_noise_lpf(linvel_W_noisy, self._vel_filt)
+            self._ang_vel_filt = self._apply_noise_lpf(gyro_B_used, self._ang_vel_filt)
+
 
         dt = max(1e-6, float(dt_sim))
         if self._prev_gyro_used_B is None:
@@ -308,16 +425,23 @@ class CrazyfliePlant(Node):
             angacc_B = (gyro_B_used - self._prev_gyro_used_B) / dt
         self._prev_gyro_used_B = gyro_B_used.copy()
 
-        angacc_B_noisy = angacc_B + self._randn3(self._ang_acc_std)
+        angacc_B_noisy = angacc_B + self._ang_acc_noise
+
+
+        if not self._noise_lpf_initialized:
+            self._ang_acc_filt = angacc_B_noisy.copy()
+        else:
+            self._ang_acc_filt = self._apply_noise_lpf(angacc_B_noisy, self._ang_acc_filt)
+
 
         stamp = self.get_clock().now().to_msg()
 
         pose_msg = PoseStamped()
         pose_msg.header.stamp = stamp
         pose_msg.header.frame_id = "world"
-        pose_msg.pose.position.x = float(pos_W_noisy[0])
-        pose_msg.pose.position.y = float(pos_W_noisy[1])
-        pose_msg.pose.position.z = float(pos_W_noisy[2])
+        pose_msg.pose.position.x = float(self._pos_filt[0])
+        pose_msg.pose.position.y = float(self._pos_filt[1])
+        pose_msg.pose.position.z = float(self._pos_filt[2])
         q_xyzw = quat_wxyz_to_xyzw(quat_wxyz_noisy)
         pose_msg.pose.orientation.x = float(q_xyzw[0])
         pose_msg.pose.orientation.y = float(q_xyzw[1])
@@ -328,17 +452,17 @@ class CrazyfliePlant(Node):
         vel_msg = Vector3Stamped()
         vel_msg.header.stamp = stamp
         vel_msg.header.frame_id = "world"
-        vel_msg.vector.x = float(linvel_W_noisy[0])
-        vel_msg.vector.y = float(linvel_W_noisy[1])
-        vel_msg.vector.z = float(linvel_W_noisy[2])
+        vel_msg.vector.x = float(self._vel_filt[0])
+        vel_msg.vector.y = float(self._vel_filt[1])
+        vel_msg.vector.z = float(self._vel_filt[2])
         self.pub_vel.publish(vel_msg)
 
         w_msg = Vector3Stamped()
         w_msg.header.stamp = stamp
         w_msg.header.frame_id = "body"
-        w_msg.vector.x = float(gyro_B_used[0])
-        w_msg.vector.y = float(gyro_B_used[1])
-        w_msg.vector.z = float(gyro_B_used[2])
+        w_msg.vector.x = float(self._ang_vel_filt[0])
+        w_msg.vector.y = float(self._ang_vel_filt[1])
+        w_msg.vector.z = float(self._ang_vel_filt[2])
         self.pub_angvel.publish(w_msg)
 
         wgt_msg = Vector3Stamped()
@@ -360,9 +484,9 @@ class CrazyfliePlant(Node):
         a_msg = Vector3Stamped()
         a_msg.header.stamp = stamp
         a_msg.header.frame_id = "body"
-        a_msg.vector.x = float(angacc_B_noisy[0])
-        a_msg.vector.y = float(angacc_B_noisy[1])
-        a_msg.vector.z = float(angacc_B_noisy[2])
+        a_msg.vector.x = float(self._ang_acc_filt[0])
+        a_msg.vector.y = float(self._ang_acc_filt[1])
+        a_msg.vector.z = float(self._ang_acc_filt[2])
         self.pub_angacc.publish(a_msg)
 
         self.contact.update_raw_and_publish(stamp)
