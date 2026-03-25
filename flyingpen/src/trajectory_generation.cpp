@@ -26,6 +26,10 @@
 
 #include <Eigen/Dense>
 
+#include <geometry_msgs/msg/pose_stamped.hpp>
+#include <geometry_msgs/msg/vector3_stamped.hpp>
+
+
 using namespace std::chrono_literals;
 
 class TrajectoryGeneration : public rclcpp::Node
@@ -53,7 +57,19 @@ public:
       "/crazyflie/out/EE_contact_force_filt", 10,
       std::bind(&TrajectoryGeneration::contactForceCb, this, std::placeholders::_1));
 
-    // -------------------------
+    sub_pose_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
+      "/crazyflie/out/pose", 10,
+      std::bind(&TrajectoryGeneration::poseCb, this, std::placeholders::_1));
+
+    sub_vel_ = this->create_subscription<geometry_msgs::msg::Vector3Stamped>(
+      "/crazyflie/out/vel", 10,
+      std::bind(&TrajectoryGeneration::velCb, this, std::placeholders::_1));
+
+    sub_acc_ = this->create_subscription<geometry_msgs::msg::Vector3Stamped>(
+      "/crazyflie/out/acc", 10,
+      std::bind(&TrajectoryGeneration::accCb, this, std::placeholders::_1));      
+
+      // -------------------------
     // Publishers
     // -------------------------
     pub_pos_cmd_ = this->create_publisher<std_msgs::msg::Float64MultiArray>(
@@ -109,10 +125,10 @@ private:
   double normal_force_threshold_ = 0.005; // [N] below this, consider "no contact"
   double normal_lpf_alpha_       = 0.2;   // 0~1 (bigger = faster)
 
-  bool normal_vector_estimation(ContactFrame &cf_out)
+  bool estimateNormalVector_Force_directly(ContactFrame &cf_out)
   {
     // 1) get latest measured force (world frame assumed)
-    std::array<double,3> Fw_arr{0.0,0.0,0.0};
+    std::array<double,3> Fw_arr{0.0, 0.0, 0.0};
     {
       std::lock_guard<std::mutex> lk(force_mtx_);
       Fw_arr = contact_F_;
@@ -125,20 +141,137 @@ private:
       return false;
     }
 
-    // 2) estimate normal direction (flip sign here if needed)
+    // 2) estimate normal direction
     Eigen::Vector3d n_new = Fw / (Fnorm + 1e-12);
 
-    // 3) LPF the normal (optional)
+    // optional sign convention
+    if (flip_measured_force_) {
+      n_new = -n_new;
+    }
+
+    // 3) LPF the normal
     if (!cf_out.valid) {
       cf_out.n_w = n_new;
     } else {
-      cf_out.n_w = (1.0 - normal_lpf_alpha_) * cf_out.n_w + normal_lpf_alpha_ * n_new;
+      cf_out.n_w =
+        (1.0 - normal_lpf_alpha_) * cf_out.n_w +
+        normal_lpf_alpha_ * n_new;
+
       const double nn = cf_out.n_w.norm();
-      if (nn > 1e-9) cf_out.n_w /= nn;
-      else cf_out.n_w = n_new;
+      if (nn > 1e-9) {
+        cf_out.n_w /= nn;
+      } else {
+        cf_out.n_w = n_new;
+      }
     }
 
-    // 4) build contact frame axes
+    return true;
+  }
+
+  bool estimateNormalVector_KROC(ContactFrame &cf_out)
+  {
+    // ----------------------------------------
+    // 1) get latest measured contact force
+    // ----------------------------------------
+    std::array<double,3> Fw_arr{0.0, 0.0, 0.0};
+    {
+      std::lock_guard<std::mutex> lk(force_mtx_);
+      Fw_arr = contact_F_;
+    }
+    Eigen::Vector3d nf(Fw_arr[0], Fw_arr[1], Fw_arr[2]);
+
+    const double Fnorm = nf.norm();
+    if (Fnorm < normal_force_threshold_) {
+      cf_out.valid = false;
+      return false;
+    }
+
+    // ----------------------------------------
+    // 2) get current EE/world velocity
+    //    (for now, use vel_w_ directly)
+    // ----------------------------------------
+    std::array<double,3> vel_arr{0.0, 0.0, 0.0};
+    bool vel_ok = false;
+    {
+      std::lock_guard<std::mutex> lk(state_mtx_);
+      vel_arr = vel_w_;
+      vel_ok = vel_received_;
+    }
+
+    Eigen::Vector3d vEE(vel_arr[0], vel_arr[1], vel_arr[2]);
+    const double vnorm_sq = vEE.squaredNorm();
+
+    // ----------------------------------------
+    // 3) estimate normal vector
+    //
+    // Idea:
+    //   measured contact force nf = normal part + friction part
+    //   friction part assumed aligned with tangential motion
+    //   => remove velocity-direction component from nf
+    //
+    //   n_est = nf - proj_v(nf)
+    //         = nf - ((nf·v)/(||v||^2)) v
+    //
+    // If velocity is too small, fall back to direct-force method.
+    // ----------------------------------------
+    Eigen::Vector3d n_new = nf;
+
+    const double vel_eps_sq = 1e-8;
+    if (vel_ok && vnorm_sq > vel_eps_sq) {
+      const double alpha = nf.dot(vEE) / vnorm_sq;
+      n_new = nf - alpha * vEE;
+    } else {
+      // fallback: direct-force normal
+      n_new = nf;
+    }
+
+    const double n_norm = n_new.norm();
+    if (n_norm < 1e-9) {
+      cf_out.valid = false;
+      return false;
+    }
+    n_new /= n_norm;
+
+    // optional sign convention
+    if (flip_measured_force_) {
+      n_new = -n_new;
+    }
+
+    // ----------------------------------------
+    // 4) LPF the normal
+    // ----------------------------------------
+    if (!cf_out.valid) {
+      cf_out.n_w = n_new;
+    } else {
+      // avoid sudden sign flip due to normalization ambiguity
+      if (cf_out.n_w.dot(n_new) < 0.0) {
+        n_new = -n_new;
+      }
+
+      cf_out.n_w =
+        (1.0 - normal_lpf_alpha_) * cf_out.n_w +
+        normal_lpf_alpha_ * n_new;
+
+      const double nn = cf_out.n_w.norm();
+      if (nn > 1e-9) {
+        cf_out.n_w /= nn;
+      } else {
+        cf_out.n_w = n_new;
+      }
+    }
+
+    return true;
+  }
+
+  bool buildContactFrameFromNormal(ContactFrame &cf_out)
+  {
+    const double n_norm = cf_out.n_w.norm();
+    if (n_norm < 1e-9) {
+      cf_out.valid = false;
+      return false;
+    }
+
+    // x_c aligned with contact normal
     const Eigen::Vector3d x_c = cf_out.n_w.normalized();
 
     // world gravity axis reference (z-up). If NED, use (0,0,-1)
@@ -151,9 +284,13 @@ private:
     // fallback if parallel
     if (y_norm < 1e-6) {
       Eigen::Vector3d a = Eigen::Vector3d::UnitY();
-      if (std::abs(x_c.dot(a)) > 0.9) a = Eigen::Vector3d::UnitX();
+      if (std::abs(x_c.dot(a)) > 0.9) {
+        a = Eigen::Vector3d::UnitX();
+      }
+
       y_c = x_c.cross(a);
       y_norm = y_c.norm();
+
       if (y_norm < 1e-9) {
         cf_out.valid = false;
         return false;
@@ -161,7 +298,7 @@ private:
     }
     y_c /= (y_norm + 1e-12);
 
-    // ✅ flip y-axis direction (as requested)
+    // requested convention
     y_c = -y_c;
 
     // z_c = x_c × y_c
@@ -173,12 +310,27 @@ private:
     }
     z_c /= z_norm;
 
-    // 5) R_C = [x_c y_c z_c]
+    // R_C = [x_c y_c z_c]
     cf_out.R_C.col(0) = x_c;
     cf_out.R_C.col(1) = y_c;
     cf_out.R_C.col(2) = z_c;
 
     cf_out.valid = true;
+    return true;
+  }
+
+  bool updateContactFrame(ContactFrame &cf_out)
+  {
+    if (!estimateNormalVector_Force_directly(cf_out)) {
+      cf_out.valid = false;
+      return false;
+    }
+
+    if (!buildContactFrameFromNormal(cf_out)) {
+      cf_out.valid = false;
+      return false;
+    }
+
     return true;
   }
 
@@ -236,6 +388,40 @@ private:
     f_ext_received_ = true;
   }
 
+  void poseCb(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
+  {
+    std::lock_guard<std::mutex> lk(state_mtx_);
+
+    pose_w_[0] = msg->pose.position.x;
+    pose_w_[1] = msg->pose.position.y;
+    pose_w_[2] = msg->pose.position.z;
+
+    // yaw 추출
+    const auto &q = msg->pose.orientation;
+    const double siny_cosp = 2.0 * (q.w * q.z + q.x * q.y);
+    const double cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z);
+    yaw_w_ = std::atan2(siny_cosp, cosy_cosp);
+
+    pose_received_ = true;
+  }
+
+  void velCb(const geometry_msgs::msg::Vector3Stamped::SharedPtr msg)
+  {
+    std::lock_guard<std::mutex> lk(state_mtx_);
+    vel_w_[0] = msg->vector.x;
+    vel_w_[1] = msg->vector.y;
+    vel_w_[2] = msg->vector.z;
+    vel_received_ = true;
+  }
+
+  void accCb(const geometry_msgs::msg::Vector3Stamped::SharedPtr msg)
+  {
+    std::lock_guard<std::mutex> lk(state_mtx_);
+    acc_w_[0] = msg->vector.x;
+    acc_w_[1] = msg->vector.y;
+    acc_w_[2] = msg->vector.z;
+    acc_received_ = true;
+  }  
   // =========================
   // Force update (admittance helper)
   // =========================
@@ -286,9 +472,9 @@ void forceUpdate()
     Fw = -Fw;
   }
 
-  // Update contact frame estimate using the same normal estimator
+  // Update contact frame estimate
   ContactFrame cf_local = cf_;
-  const bool cf_ok = normal_vector_estimation(cf_local);
+  const bool cf_ok = updateContactFrame(cf_local);
   if (!(cf_ok && cf_local.valid)) {
     // frame not reliable -> don't update force controller
     eF_state_initialized_ = false;
@@ -441,7 +627,7 @@ void forceUpdate()
       Eigen::Vector3d v_w = v_c; // fallback: treat cmd as world vel
 
       ContactFrame cf_local = cf_;
-      const bool cf_ok = normal_vector_estimation(cf_local);
+      const bool cf_ok = updateContactFrame(cf_local);
       if (cf_ok && cf_local.valid) {
         v_w = cf_local.R_C * v_c;
         cf_ = cf_local;
@@ -497,6 +683,9 @@ void forceUpdate()
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr            sub_use_vel_mode_;
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr            sub_cmd_force_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_contact_force_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr    sub_pose_;
+  rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_vel_;
+  rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_acc_;
 
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr     pub_pos_cmd_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr     pub_force_lpf_;
@@ -545,6 +734,18 @@ void forceUpdate()
 
   rclcpp::Time eF_last_time_;
   rclcpp::Time last_time_;
+
+
+  std::mutex state_mtx_;
+
+  std::array<double,3> pose_w_{0.0, 0.0, 0.0};
+  std::array<double,3> vel_w_{0.0, 0.0, 0.0};
+  std::array<double,3> acc_w_{0.0, 0.0, 0.0};
+  double yaw_w_{0.0};
+
+  bool pose_received_{false};
+  bool vel_received_{false};
+  bool acc_received_{false};  
 };
 
 int main(int argc, char **argv)
