@@ -86,6 +86,8 @@ lpf_force_raw = col(44); lpf_force_filter = col(45);
 
 mask = uint32(col(46));
 
+set(groot,'defaultFigureRenderer','painters');
+
 %% ---- convenience: unwrap yaw for nicer plots ----
 yaw_u    = unwrap(yaw);
 cmd_yaw_u = unwrap(cmd_yaw);

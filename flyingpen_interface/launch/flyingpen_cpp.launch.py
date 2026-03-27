@@ -1,5 +1,4 @@
 from launch import LaunchDescription
-from launch.actions import ExecuteProcess
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 import os
@@ -12,8 +11,8 @@ def generate_launch_description():
     rviz_config = os.path.join(pkg_share, "config", "flyingpen.rviz")
 
     # ---------- robot_description (URDF) ----------
-    plant_share = get_package_share_directory("plant")
-    urdf_path = os.path.join(plant_share, "data", "cf_BLDC.urdf")
+    mujoco_bridge_share = get_package_share_directory("mujoco_bridge")
+    urdf_path = os.path.join(mujoco_bridge_share, "data", "cf_BLDC.urdf")
     with open(urdf_path, "r") as f:
         robot_description = f.read()
 
@@ -35,16 +34,13 @@ def generate_launch_description():
         arguments=["1.5", "0", "0", "1.57", "0", "0", "world", "wall"],
     )
 
-    # ---------- plant ----------
-    # MJ처럼 python module로 실행 (현재 venv/환경 그대로 사용)
-    plant_node = ExecuteProcess(
-        cmd=[
-            "python3", "-m", "plant.plant",
-            "--ros-args",
-            "-r", "__node:=plant",
-            "--params-file", params,
-        ],
+    # ---------- mujoco_bridge ----------
+    mujoco_bridge_node = Node(
+        package="mujoco_bridge",
+        executable="mujoco_bridge_node",
+        name="plant",
         output="screen",
+        parameters=[params],
     )
 
     # ---------- controller ----------
@@ -62,7 +58,7 @@ def generate_launch_description():
         executable="trajectory_generation",
         name="trajectory_generation",
         output="screen",
-        parameters=[params],   # ✅ MJ처럼 params 적용
+        parameters=[params],
     )
 
     # ---------- wrench_observer ----------
@@ -71,7 +67,7 @@ def generate_launch_description():
         executable="wrench_observer",
         name="wrench_observer",
         output="screen",
-        parameters=[params],   # ✅ MJ처럼 params 적용
+        parameters=[params],
     )
 
     # ---------- rviz_visual ----------
@@ -100,7 +96,7 @@ def generate_launch_description():
         output="screen",
         arguments=["-d", rviz_config],
     )
-    
+
     # ---------- fk_ik_transform ----------
     fk_ik_transform_node = Node(
         package="flyingpen_interface",
@@ -108,24 +104,23 @@ def generate_launch_description():
         name="fk_ik_transform",
         output="screen",
         parameters=[params],
-    )    
-    
-    # ---------- fk_ik_transform ----------
+    )
+
+    # ---------- data_logging_python ----------
     data_logging_python_node = Node(
         package="flyingpen_plotter",
         executable="data_logging_python",
         name="data_logging_python",
         output="screen",
         parameters=[params],
-    )    
-
+    )
 
     return LaunchDescription([
         robot_state_publisher_node,
         world_to_wall_tf_node,
-        plant_node,
+        mujoco_bridge_node,
         controller_node,
-        fk_ik_transform_node,        
+        fk_ik_transform_node,
         data_logging_python_node,
         trajectory_generation_node,
         wrench_observer_node,
@@ -133,4 +128,3 @@ def generate_launch_description():
         data_logger_node,
         rviz2_node,
     ])
-
