@@ -202,7 +202,8 @@ class CrazyfliePlant(Node):
         self.dt = 1.0 / max(1e-9, self.physics_hz)
 
         self._f_act = np.zeros(4, dtype=float)
-
+        self.last_motor_thrust = np.zeros(4, dtype=float)
+        
         self._delay_steps = 0
         if self.act_delay_enable and self.act_delay_sec > 0.0:
             self._delay_steps = max(0, int(round(self.act_delay_sec / self.dt)))
@@ -236,7 +237,9 @@ class CrazyfliePlant(Node):
         self.pub_acc = self.create_publisher(Vector3Stamped, "/crazyflie/out/acc", 10)
         self.pub_angacc = self.create_publisher(Vector3Stamped, "/crazyflie/out/ang_acc", 10)
         self.pub_angvel_gt = self.create_publisher(Vector3Stamped, "/crazyflie/out/ang_vel_gt", 10)
-
+        self.pub_motor_thrust = self.create_publisher(
+            Float32MultiArray, "/crazyflie/out/motor_thrust", 10
+        )
         self.pub_contact_force = self.create_publisher(
             __import__("geometry_msgs.msg", fromlist=["WrenchStamped"]).WrenchStamped,
             "/crazyflie/out/EE_contact_force",
@@ -345,6 +348,8 @@ class CrazyfliePlant(Node):
         # actuator dynamics
         f_applied = self.apply_actuator_dynamics(f_cmd)
         f_applied = np.clip(f_applied, self.thrust_min, self.thrust_max)
+
+        self.last_motor_thrust = f_applied.copy()
 
         if all(v is not None and v >= 0 for v in self.act_ids):
             for i in range(4):
@@ -488,6 +493,10 @@ class CrazyfliePlant(Node):
         a_msg.vector.y = float(self._ang_acc_filt[1])
         a_msg.vector.z = float(self._ang_acc_filt[2])
         self.pub_angacc.publish(a_msg)
+
+        motor_msg = Float32MultiArray()
+        motor_msg.data = self.last_motor_thrust.astype(np.float32).tolist()
+        self.pub_motor_thrust.publish(motor_msg)
 
         self.contact.update_raw_and_publish(stamp)
 

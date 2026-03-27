@@ -28,7 +28,7 @@
 
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/vector3_stamped.hpp>
-
+#include <limits>
 
 using namespace std::chrono_literals;
 
@@ -80,6 +80,9 @@ public:
 
     pub_contact_quat_ = this->create_publisher<geometry_msgs::msg::QuaternionStamped>(
       "/estimated_contact_frame_quat", 10);
+
+    pub_contact_force_x_ = this->create_publisher<std_msgs::msg::Float32>(
+      "/su/contact_force_x", 10);
 
     // -------------------------
     // Update loops
@@ -263,6 +266,240 @@ private:
     return true;
   }
 
+  bool estimateNormalVector_ActionNormal_0326(ContactFrame &cf_out)
+  {
+    // ------------------------------------------------------------
+    // Action-normal generation by local constrained search
+    //
+    // Current practical implementation:
+    //   1) Build nominal normal from measured contact force
+    //   2) Build local tangent basis around nominal normal
+    //   3) Search candidate normals near nominal normal
+    //   4) Minimize a surrogate control-oriented cost:
+    //        J = w_tau * tau_z^2
+    //          + w_f   * F_n_leak^2
+    //          + w_a   * a_t_int^2
+    //
+    // Notes:
+    //   - Since the exact PPT definitions of tau_z / leakage / interference
+    //     are not encoded elsewhere in this file, this function uses
+    //     practical surrogates consistent with your stated intent:
+    //
+    //     * tau_z    : yaw-related penalty from horizontal misalignment
+    //                  between candidate normal and tangential motion
+    //     * F_n_leak : tangential component magnitude of measured force
+    //                  w.r.t. candidate normal
+    //     * a_t_int  : tangential component magnitude of acceleration
+    //                  w.r.t. candidate normal
+    //
+    //   - Contact feasibility is treated as a hard filter:
+    //       * candidate must stay close to nominal normal
+    //       * commanded/measured normal force must remain compressive
+    // ------------------------------------------------------------
+
+    // ----------------------------
+    // 1) Snapshot shared states
+    // ----------------------------
+    std::array<double,3> Fw_arr{0.0, 0.0, 0.0};
+    std::array<double,3> vel_arr{0.0, 0.0, 0.0};
+    std::array<double,3> acc_arr{0.0, 0.0, 0.0};
+    bool vel_ok = false;
+    bool acc_ok = false;
+
+    {
+      std::lock_guard<std::mutex> lk(force_mtx_);
+      Fw_arr = contact_F_;
+    }
+    {
+      std::lock_guard<std::mutex> lk(state_mtx_);
+      vel_arr = vel_w_;
+      acc_arr = acc_w_;
+      vel_ok = vel_received_;
+      acc_ok = acc_received_;
+    }
+
+    Eigen::Vector3d Fw(Fw_arr[0], Fw_arr[1], Fw_arr[2]);
+    Eigen::Vector3d vw(vel_arr[0], vel_arr[1], vel_arr[2]);
+    Eigen::Vector3d aw(acc_arr[0], acc_arr[1], acc_arr[2]);
+
+    if (flip_measured_force_) {
+      Fw = -Fw;
+    }
+
+    const double Fnorm = Fw.norm();
+    if (Fnorm < normal_force_threshold_) {
+      cf_out.valid = false;
+      return false;
+    }
+
+    // ----------------------------
+    // 2) Nominal normal from force
+    // ----------------------------
+    Eigen::Vector3d n_nom = Fw / (Fnorm + 1e-12);
+
+    // Sign continuity w.r.t. previous estimate
+    if (cf_out.valid && cf_out.n_w.dot(n_nom) < 0.0) {
+      n_nom = -n_nom;
+    }
+
+      // Yaw-only perturbation direction:
+      // rotate nominal normal around world z-axis
+      Eigen::Vector3d ez = Eigen::Vector3d::UnitZ();
+      Eigen::Vector3d t1 = ez.cross(n_nom);
+
+      if (t1.norm() < 1e-6) {
+        // n_nom is almost parallel to z, so yaw is not meaningful
+        t1 = Eigen::Vector3d::UnitX();
+      } else {
+        t1.normalize();
+      }
+
+      Eigen::Vector3d t2 = n_nom.cross(t1).normalized();  // kept only for compatibility
+
+    // ----------------------------
+    // 4) Optimization settings
+    // ----------------------------
+    const double w_tau = 1.0;
+    const double w_f   = 1.0;
+    const double w_a   = 0.2;
+
+    // bounded deviation from nominal normal
+    const double theta_max = 20.0 * M_PI / 180.0;  // [rad]
+    const double delta_max = std::tan(theta_max);
+
+    // grid search resolution
+    const int N = 9;  // odd number recommended
+
+    // small epsilons
+    const double eps = 1e-9;
+    const double vel_xy_eps = 1e-6;
+
+    // ----------------------------
+    // 5) Search best candidate
+    // ----------------------------
+    double best_J = std::numeric_limits<double>::infinity();
+    Eigen::Vector3d n_best = n_nom;
+    bool found = false;
+
+      for (int i = 0; i < N; ++i) {
+        const double d1 = -delta_max + 2.0 * delta_max * static_cast<double>(i) / static_cast<double>(N - 1);
+
+        // pitch-side perturbation disabled
+        const double d2 = 0.0;
+
+        Eigen::Vector3d n_cand_unnorm = n_nom + d1 * t1;
+        const double nn = n_cand_unnorm.norm();
+        if (nn < eps) {
+          continue;
+        }
+
+        Eigen::Vector3d n_cand = n_cand_unnorm / nn;
+
+        // keep in same hemisphere as nominal
+        if (n_cand.dot(n_nom) < 0.0) {
+          n_cand = -n_cand;
+        }
+
+        // ------------------------
+        // Hard feasibility filters
+        // ------------------------
+
+        // (a) bounded deviation from nominal normal
+        if (n_cand.dot(n_nom) < std::cos(theta_max)) {
+          continue;
+        }
+
+        // (b) unilateral/compressive contact:
+        // measured force should remain aligned with candidate normal
+        const double F_normal = Fw.dot(n_cand);
+        if (F_normal <= normal_force_threshold_) {
+          continue;
+        }
+
+        // ------------------------
+        // Cost terms (surrogates)
+        // ------------------------
+
+        // 1) normal-force leakage:
+        //    tangential part of measured force wrt candidate normal
+        const Eigen::Vector3d F_tan = Fw - F_normal * n_cand;
+        const double F_n_leak = F_tan.norm();
+
+        // 2) tangential interference acceleration:
+        //    tangential component of measured/estimated acceleration
+        double a_t_int = 0.0;
+        if (acc_ok) {
+          const Eigen::Vector3d a_tan = aw - n_cand * (n_cand.dot(aw));
+          a_t_int = a_tan.norm();
+        }
+
+        // 3) yaw-related penalty:
+        //    penalize horizontal mismatch between candidate normal and
+        //    tangential motion direction (surrogate for yaw burden)
+        double tau_z = 0.0;
+        if (vel_ok) {
+          Eigen::Vector3d v_tan = vw - n_cand * (n_cand.dot(vw));
+          Eigen::Vector2d n_xy(n_cand.x(), n_cand.y());
+          Eigen::Vector2d v_xy(v_tan.x(), v_tan.y());
+
+          const double nxy = n_xy.norm();
+          const double vxy = v_xy.norm();
+
+          if (nxy > vel_xy_eps && vxy > vel_xy_eps) {
+            n_xy /= nxy;
+            v_xy /= vxy;
+
+            // 2D cross-product magnitude in xy plane
+            // bigger -> more yaw-inducing mismatch
+            tau_z = std::abs(n_xy.x() * v_xy.y() - n_xy.y() * v_xy.x());
+          } else {
+            tau_z = 0.0;
+          }
+        }
+
+        const double J =
+          w_tau * tau_z * tau_z +
+          w_f   * F_n_leak * F_n_leak +
+          w_a   * a_t_int * a_t_int;
+
+        if (J < best_J) {
+          best_J = J;
+          n_best = n_cand;
+          found = true;
+        }
+      }
+
+    if (!found) {
+      // fallback to nominal force-based normal
+      n_best = n_nom;
+    }
+
+    // ----------------------------
+    // 6) LPF + sign continuity
+    // ----------------------------
+    if (!cf_out.valid) {
+      cf_out.n_w = n_best;
+    } else {
+      if (cf_out.n_w.dot(n_best) < 0.0) {
+        n_best = -n_best;
+      }
+
+      cf_out.n_w =
+        (1.0 - normal_lpf_alpha_) * cf_out.n_w +
+        normal_lpf_alpha_ * n_best;
+
+      const double nlp = cf_out.n_w.norm();
+      if (nlp > 1e-9) {
+        cf_out.n_w /= nlp;
+      } else {
+        cf_out.n_w = n_best;
+      }
+    }
+
+    return true;
+  }
+
+
   bool buildContactFrameFromNormal(ContactFrame &cf_out)
   {
     const double n_norm = cf_out.n_w.norm();
@@ -390,6 +627,7 @@ private:
 
   void poseCb(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
   {
+    // world frame 기준 data
     std::lock_guard<std::mutex> lk(state_mtx_);
 
     pose_w_[0] = msg->pose.position.x;
@@ -407,6 +645,7 @@ private:
 
   void velCb(const geometry_msgs::msg::Vector3Stamped::SharedPtr msg)
   {
+    // world frame 기준 data
     std::lock_guard<std::mutex> lk(state_mtx_);
     vel_w_[0] = msg->vector.x;
     vel_w_[1] = msg->vector.y;
@@ -416,6 +655,7 @@ private:
 
   void accCb(const geometry_msgs::msg::Vector3Stamped::SharedPtr msg)
   {
+    // world frame 기준 data
     std::lock_guard<std::mutex> lk(state_mtx_);
     acc_w_[0] = msg->vector.x;
     acc_w_[1] = msg->vector.y;
@@ -476,7 +716,10 @@ void forceUpdate()
   ContactFrame cf_local = cf_;
   const bool cf_ok = updateContactFrame(cf_local);
   if (!(cf_ok && cf_local.valid)) {
-    // frame not reliable -> don't update force controller
+    std_msgs::msg::Float32 fcx_msg;
+    fcx_msg.data = std::numeric_limits<float>::quiet_NaN();
+    pub_contact_force_x_->publish(fcx_msg);
+
     eF_state_initialized_ = false;
     return;
   }
@@ -484,7 +727,11 @@ void forceUpdate()
 
   // world -> contact
   const Eigen::Vector3d Fc = cf_local.R_C.transpose() * Fw;
-  const double Fcx = Fc.x();   // ✅ normal force measurement
+  const double Fcx = Fc.x();   // normal force measurement
+
+  std_msgs::msg::Float32 fcx_msg;
+  fcx_msg.data = static_cast<float>(Fcx);
+  pub_contact_force_x_->publish(fcx_msg);
 
   // -----------------------------
   // 2) force error uses ONLY normal axis
@@ -617,7 +864,7 @@ void forceUpdate()
       }
 
       // admittance (x only)
-      const double K_p = 3.0;
+      const double K_p = 5.0;
       const double K_d = 0.005;
       const double vel_adm_x = K_p * eF[0] + K_d * eF_dot_filt[0];
       vx_cmd += vel_adm_x;
@@ -690,7 +937,8 @@ void forceUpdate()
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr     pub_pos_cmd_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr     pub_force_lpf_;
   rclcpp::Publisher<geometry_msgs::msg::QuaternionStamped>::SharedPtr pub_contact_quat_;
-
+  
+  rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr pub_contact_force_x_;
   rclcpp::TimerBase::SharedPtr timer_;
   rclcpp::TimerBase::SharedPtr force_timer_;
 

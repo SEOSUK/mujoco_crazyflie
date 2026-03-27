@@ -94,7 +94,7 @@ public:
       std::bind(&RvizVisual::cb_mob_wrench, this, std::placeholders::_1));
 
     sub_contact_force_ = this->create_subscription<geometry_msgs::msg::WrenchStamped>(
-      "/crazyflie/out/EE_contact_force", 10,
+      "/crazyflie/out/EE_contact_force_filt", 10,
       std::bind(&RvizVisual::cb_contact_force, this, std::placeholders::_1));
 
     // ✅ estimated contact frame quaternion (R_C as quat)

@@ -14,8 +14,8 @@ plant:
       enable: true
       seed: 0
       hz: 30.0
-      pos_amp: [1e-4, 1e-4, 1e-4]
-      vel_amp: [1e-5, 1e-5, 1e-5]
+      pos_amp: [1e-3, 1e-3, 1e-3]
+      vel_amp: [1e-4, 1e-4, 1e-4]
       att_amp: [1e-5, 1e-5, 1e-5]
       ang_vel_amp: [4e-6, 4e-6, 4e-6]
       ang_acc_amp: [1e-2, 1e-2, 1e-2]

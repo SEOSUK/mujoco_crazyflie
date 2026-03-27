@@ -1,0 +1,32 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "${default}",
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "includePath": [
+        "/home/seosuk/mujoco_crazyflie/install/mujoco_bridge/include/**",
+        "/home/seosuk/sitl_ws/install/px4_ros_com/include/**",
+        "/home/seosuk/sitl_ws/install/px4_msgs/include/**",
+        "/home/seosuk/sitl_ws/install/dynamixel_workbench_toolbox/include/**",
+        "/home/seosuk/sitl_ws/install/dynamixel_workbench_msgs/include/**",
+        "/home/seosuk/sitl_ws/install/dynamixel_sdk_custom_interfaces/include/**",
+        "/home/seosuk/sitl_ws/install/dynamixel_sdk/include/**",
+        "/home/seosuk/sitl_ws/install/crazyflie_interfaces/include/**",
+        "/opt/ros/humble/include/**",
+        "/home/seosuk/mujoco_crazyflie/src/flyingpen/include/**",
+        "/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/include/**",
+        "/home/seosuk/mujoco_crazyflie/src/low_level_controller/include/**",
+        "/home/seosuk/mujoco_crazyflie/src/mujoco_bridge/include/**",
+        "/usr/include/**"
+      ],
+      "name": "ROS",
+      "intelliSenseMode": "gcc-x64",
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "gnu11",
+      "cppStandard": "c++14"
+    }
+  ],
+  "version": 4
+}

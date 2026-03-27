@@ -1,0 +1,61 @@
+<?xml version="1.0"?>
+<robot name="cf_rviz">
+
+  <!-- Crazyflie Link -->
+  <link name="crazyflie">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://plant/data/assets/cf21B/cf21B_full.stl"
+              scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="light_gray">
+        <color rgba="0.7 0.7 0.7 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+
+  <!-- End-effector Link -->
+  <link name="EE">
+    <visual>
+      <origin xyz="-0.087 0 -0.088" rpy="0 0 1.5708"/>
+      <geometry>
+        <mesh filename="package://plant/data/assets/cf21B/cf21B_end_effector.stl"
+              scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="light_yellow">
+        <color rgba="1.0 0.95 0.7 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- End-effector Joint -->
+  <joint name="crazyflie_to_end_effector" type="fixed">
+    <parent link="crazyflie"/>
+    <child link="EE"/>
+    <origin xyz="0.087 0 0.088" rpy="0 0 0"/>
+  </joint>
+
+
+  <!-- Sensor Link -->
+  <link name="cf21B_ft_sensor">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="0.005"/>
+      </geometry>
+      <material name="red">
+        <color rgba="1 0 0 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- Sensor Joint -->
+  <joint name="end_effector_to_ft_sensor" type="fixed">
+    <parent link="EE"/>
+    <child link="cf21B_ft_sensor"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+</robot>
