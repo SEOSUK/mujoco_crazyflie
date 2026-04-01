@@ -113,8 +113,8 @@ def generate_launch_description():
     # ---------- fk_ik_transform ----------
     data_logging_python_node = Node(
         package="flyingpen_plotter",
-        executable="data_logging_python",
-        name="data_logging_python",
+        executable="data_logging_drone_states",
+        name="data_logging_drone_states",
         output="screen",
         parameters=[params],
     )    

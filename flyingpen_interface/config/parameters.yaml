@@ -1,3 +1,13 @@
+trajectory_generation:
+  ros__parameters:
+    reference_object: "drone" # "drone" or "end_effector"
+    normal_estimator_method: "direct"
+    end_effector_offset: [0.09, 0.0, 0.085]
+
+fk_ik_transform:
+  ros__parameters:
+    end_effector_offset: [0.09, 0.0, 0.085]
+
 plant:
   ros__parameters:
     physics_hz: 1000.0
@@ -18,11 +28,13 @@ plant:
       vel_amp: [1e-4, 1e-4, 1e-4]
       att_amp: [1e-5, 1e-5, 1e-5]
       ang_vel_amp: [4e-6, 4e-6, 4e-6]
-      ang_acc_amp: [1e-2, 1e-2, 1e-2]
+#      ang_acc_amp: [1e-2, 1e-2, 1e-2]
       lpf:
         enable: false
         cutoff_hz: 30.0
-
+      ang_acc_lpf:
+        enable: true
+        cutoff_hz: 1.0
         
     actuator:
       delay:

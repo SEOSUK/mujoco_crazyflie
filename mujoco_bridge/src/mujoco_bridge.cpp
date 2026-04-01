@@ -179,8 +179,16 @@ struct ViewerContext
   bool button_left{false};
   bool button_middle{false};
   bool button_right{false};
+
   double last_x{0.0};
   double last_y{0.0};
+
+  double orbit_sensitivity{1.0};
+  double pan_sensitivity{1.0};
+  double zoom_sensitivity{1.0};
+
+  double min_distance{0.08};
+  double max_distance{20.0};
 };
 
 }  // namespace
@@ -257,10 +265,21 @@ private:
     declare_parameter("noise.lpf.enable", false);
     declare_parameter("noise.lpf.cutoff_hz", 30.0);
 
+    declare_parameter("ang_acc_lpf.enable", true);
+    declare_parameter("ang_acc_lpf.cutoff_hz", 10.0);
+
     declare_parameter("actuator.delay.enable", true);
     declare_parameter("actuator.delay.sec", 0.0);
     declare_parameter("actuator.lpf.enable", true);
     declare_parameter("actuator.lpf.cutoff_hz", 0.0);
+
+    declare_parameter("viewer.orbit_sensitivity", 1.0);
+    declare_parameter("viewer.pan_sensitivity", 1.2);
+    declare_parameter("viewer.zoom_sensitivity", 1.0);
+    declare_parameter("viewer.min_distance", 0.05);
+    declare_parameter("viewer.max_distance", 30.0);
+    declare_parameter("viewer.znear", 0.0002);
+    declare_parameter("viewer.zfar", 200.0);
   }
 
   void load_parameters()
@@ -287,6 +306,9 @@ private:
     noise_lpf_enable_ = get_parameter("noise.lpf.enable").as_bool();
     noise_lpf_cutoff_hz_ = get_parameter("noise.lpf.cutoff_hz").as_double();
 
+    ang_acc_lpf_enable_ = get_parameter("ang_acc_lpf.enable").as_bool();
+    ang_acc_lpf_cutoff_hz_ = get_parameter("ang_acc_lpf.cutoff_hz").as_double();
+
     pos_amp_ = to_amp3(get_parameter("noise.pos_amp").as_double_array());
     vel_amp_ = to_amp3(get_parameter("noise.vel_amp").as_double_array());
     att_amp_ = to_amp3(get_parameter("noise.att_amp").as_double_array());
@@ -297,6 +319,14 @@ private:
     act_delay_sec_ = get_parameter("actuator.delay.sec").as_double();
     act_lpf_enable_ = get_parameter("actuator.lpf.enable").as_bool();
     act_lpf_cutoff_hz_ = get_parameter("actuator.lpf.cutoff_hz").as_double();
+
+    viewer_orbit_sensitivity_ = get_parameter("viewer.orbit_sensitivity").as_double();
+    viewer_pan_sensitivity_ = get_parameter("viewer.pan_sensitivity").as_double();
+    viewer_zoom_sensitivity_ = get_parameter("viewer.zoom_sensitivity").as_double();
+    viewer_min_distance_ = get_parameter("viewer.min_distance").as_double();
+    viewer_max_distance_ = get_parameter("viewer.max_distance").as_double();
+    viewer_znear_ = get_parameter("viewer.znear").as_double();
+    viewer_zfar_ = get_parameter("viewer.zfar").as_double();
   }
 
   void load_model()
@@ -631,8 +661,8 @@ private:
     prev_gyro_used_b_ = gyro_noisy;
 
     const auto angacc_noisy = add3(angacc_b, ang_acc_noise_);
-    if (noise_lpf_enable_) {
-      ang_acc_filt_ = lpf3(angacc_noisy, ang_acc_filt_, dt_, noise_lpf_cutoff_hz_);
+    if (ang_acc_lpf_enable_) {
+      ang_acc_filt_ = lpf3(angacc_noisy, ang_acc_filt_, dt_, ang_acc_lpf_cutoff_hz_);
     } else {
       ang_acc_filt_ = angacc_noisy;
     }
@@ -731,6 +761,34 @@ private:
     }
   }
 
+  void apply_viewer_clipping()
+  {
+    if (!model_) {
+      return;
+    }
+    model_->vis.map.znear = std::max(1e-6, viewer_znear_);
+    model_->vis.map.zfar = std::max(viewer_znear_ * 10.0, viewer_zfar_);
+  }
+
+  static double clamp_double(double v, double lo, double hi)
+  {
+    return std::max(lo, std::min(hi, v));
+  }
+
+  static void update_button_state(GLFWwindow* window, ViewerContext& v)
+  {
+    v.button_left   = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT)   == GLFW_PRESS);
+    v.button_middle = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_MIDDLE) == GLFW_PRESS);
+    v.button_right  = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT)  == GLFW_PRESS);
+  }
+
+  static bool is_shift_pressed(GLFWwindow* window)
+  {
+    return
+      (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT)  == GLFW_PRESS) ||
+      (glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS);
+  }
+
   static void mouse_button_callback(GLFWwindow* window, int button, int act, int mods)
   {
     (void)button;
@@ -743,10 +801,7 @@ private:
     }
 
     ViewerContext& v = *self->viewer_ctx_;
-    v.button_left   = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT)   == GLFW_PRESS);
-    v.button_middle = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_MIDDLE) == GLFW_PRESS);
-    v.button_right  = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT)  == GLFW_PRESS);
-
+    update_button_state(window, v);
     glfwGetCursorPos(window, &v.last_x, &v.last_y);
   }
 
@@ -758,11 +813,12 @@ private:
     }
 
     ViewerContext& v = *self->viewer_ctx_;
-
     const double dx = xpos - v.last_x;
     const double dy = ypos - v.last_y;
     v.last_x = xpos;
     v.last_y = ypos;
+
+    update_button_state(window, v);
 
     if (!v.button_left && !v.button_middle && !v.button_right) {
       return;
@@ -770,30 +826,77 @@ private:
 
     int width = 0, height = 0;
     glfwGetWindowSize(window, &width, &height);
-    if (height <= 0) {
+    if (width <= 0 || height <= 0) {
       return;
     }
 
-    const bool shift =
-      (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT)  == GLFW_PRESS) ||
-      (glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS);
+    const bool shift = is_shift_pressed(window);
 
-    mjtMouse action;
-    if (v.button_right) {
-      action = shift ? mjMOUSE_MOVE_H : mjMOUSE_MOVE_V;
-    } else if (v.button_left) {
-      action = shift ? mjMOUSE_ROTATE_H : mjMOUSE_ROTATE_V;
-    } else {
-      action = mjMOUSE_ZOOM;
+    if (v.button_right && !shift) {
+      mjv_moveCamera(
+        self->model_,
+        mjMOUSE_MOVE_H,
+        v.pan_sensitivity * dx / static_cast<double>(height),
+        0.0,
+        &v.scn,
+        &v.cam);
+
+      mjv_moveCamera(
+        self->model_,
+        mjMOUSE_MOVE_V,
+        0.0,
+        v.pan_sensitivity * dy / static_cast<double>(height),
+        &v.scn,
+        &v.cam);
+      return;
     }
 
-    mjv_moveCamera(
-      self->model_,
-      action,
-      dx / static_cast<double>(height),
-      dy / static_cast<double>(height),
-      &v.scn,
-      &v.cam);
+    if (v.button_right && shift) {
+      const double scale = std::exp(v.zoom_sensitivity * 0.01 * dy);
+      v.cam.distance = clamp_double(
+        v.cam.distance * scale,
+        v.min_distance,
+        v.max_distance);
+      return;
+    }
+
+    if ((v.button_left && !shift) || v.button_middle) {
+      mjv_moveCamera(
+        self->model_,
+        mjMOUSE_ROTATE_H,
+        v.orbit_sensitivity * dx / static_cast<double>(height),
+        0.0,
+        &v.scn,
+        &v.cam);
+
+      mjv_moveCamera(
+        self->model_,
+        mjMOUSE_ROTATE_V,
+        0.0,
+        v.orbit_sensitivity * dy / static_cast<double>(height),
+        &v.scn,
+        &v.cam);
+      return;
+    }
+
+    if (v.button_left && shift) {
+      mjv_moveCamera(
+        self->model_,
+        mjMOUSE_MOVE_H,
+        v.pan_sensitivity * dx / static_cast<double>(height),
+        0.0,
+        &v.scn,
+        &v.cam);
+
+      mjv_moveCamera(
+        self->model_,
+        mjMOUSE_MOVE_V,
+        0.0,
+        v.pan_sensitivity * dy / static_cast<double>(height),
+        &v.scn,
+        &v.cam);
+      return;
+    }
   }
 
   static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
@@ -807,13 +910,13 @@ private:
 
     ViewerContext& v = *self->viewer_ctx_;
 
-    mjv_moveCamera(
-      self->model_,
-      mjMOUSE_ZOOM,
-      0.0,
-      0.05 * yoffset,
-      &v.scn,
-      &v.cam);
+    const double zoom_gain = 0.90;
+    const double scale = std::pow(zoom_gain, v.zoom_sensitivity * yoffset);
+
+    v.cam.distance = clamp_double(
+      v.cam.distance * scale,
+      v.min_distance,
+      v.max_distance);
   }
 
   static void key_callback(GLFWwindow* window, int key, int scancode, int act, int mods)
@@ -847,6 +950,12 @@ private:
     ViewerContext v;
     viewer_ctx_ = &v;
 
+    v.orbit_sensitivity = viewer_orbit_sensitivity_;
+    v.pan_sensitivity = viewer_pan_sensitivity_;
+    v.zoom_sensitivity = viewer_zoom_sensitivity_;
+    v.min_distance = viewer_min_distance_;
+    v.max_distance = viewer_max_distance_;
+
     mjv_defaultCamera(&v.cam);
     mjv_defaultOption(&v.opt);
     mjv_defaultScene(&v.scn);
@@ -869,6 +978,8 @@ private:
     glfwSetCursorPosCallback(v.window, cursor_pos_callback);
     glfwSetScrollCallback(v.window, scroll_callback);
     glfwSetKeyCallback(v.window, key_callback);
+
+    apply_viewer_clipping();
 
     mjv_makeScene(model_, &v.scn, 2000);
     mjr_makeContext(model_, &v.con, mjFONTSCALE_150);
@@ -1005,6 +1116,17 @@ private:
   double noise_hz_{30.0};
   bool noise_lpf_enable_{false};
   double noise_lpf_cutoff_hz_{30.0};
+
+  bool ang_acc_lpf_enable_{true};
+  double ang_acc_lpf_cutoff_hz_{10.0};
+
+  double viewer_orbit_sensitivity_{1.0};
+  double viewer_pan_sensitivity_{1.2};
+  double viewer_zoom_sensitivity_{1.0};
+  double viewer_min_distance_{0.05};
+  double viewer_max_distance_{30.0};
+  double viewer_znear_{0.0002};
+  double viewer_zfar_{200.0};
 
   std::array<double, 3> pos_amp_{{0.0, 0.0, 0.0}};
   std::array<double, 3> vel_amp_{{0.0, 0.0, 0.0}};
