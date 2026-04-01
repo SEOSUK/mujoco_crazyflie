@@ -28,5 +28,7 @@
         "/home/seosuk/Desktop/crazyflie-firmware/build",
         "/opt/ros/humble/lib/python3.10/site-packages",
         "/opt/ros/humble/local/lib/python3.10/dist-packages"
-    ]
+    ],
+    "cmake.sourceDirectory": "/home/seosuk/mujoco_crazyflie/src/flyingpen",
+    "chatgpt.openOnStartup": true
 }

@@ -109,8 +109,8 @@ def generate_launch_description():
     # ---------- data_logging_python ----------
     data_logging_python_node = Node(
         package="flyingpen_plotter",
-        executable="data_logging_python",
-        name="data_logging_python",
+        executable="data_logging_chat_frame",
+        name="data_logging_chat_frame",
         output="screen",
         parameters=[params],
     )

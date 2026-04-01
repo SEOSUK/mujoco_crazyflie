@@ -26,6 +26,11 @@ setup(
         'console_scripts': [
             'realtime_plotter = flyingpen_plotter.realtime_plotter:main',
             'data_logging_python = flyingpen_plotter.data_logging_python:main',
+            'data_logging_drone_states = flyingpen_plotter.data_logging_drone_states:main',            
+            'data_logging_arrow_pwm = flyingpen_plotter.data_logging_arrow_pwm:main',                        
+            'data_logging_rpy_acceleration = flyingpen_plotter.data_logging_rpy_acceleration:main',
+            'data_logging_chat_frame = flyingpen_plotter.data_logging_chat_frame:main',
+
         ],
     },
 )
