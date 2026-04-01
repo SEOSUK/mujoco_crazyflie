@@ -13,7 +13,7 @@ import rclpy
 from rclpy.node import Node
 
 from PyQt5.QtCore import QTimer
-from PyQt5.QtWidgets import QApplication, QGridLayout, QLabel, QMainWindow, QVBoxLayout, QWidget, QFrame
+from PyQt5.QtWidgets import QApplication, QGridLayout, QMainWindow, QVBoxLayout, QWidget, QFrame, QLabel
 
 import pyqtgraph as pg
 
@@ -57,6 +57,7 @@ class ROSDataBuffer(Node):
             "vel_z_cmd", "vel_z_act",
             "force_x_cmd", "force_x_act",
             "thrust1", "thrust2", "thrust3", "thrust4",
+            "tau_x_des", "tau_y_des", "tau_z_des",
         ]
 
         self.data: Dict[str, deque] = {"t": deque(maxlen=self.maxlen)}
@@ -72,6 +73,9 @@ class ROSDataBuffer(Node):
         self.create_subscription(Float32, "su/cmd_force", self.cb_force_cmd, 10)
         self.create_subscription(Float32, "/su/contact_force_x", self.cb_force_x_actual, 10)
         self.create_subscription(Float32MultiArray, "/crazyflie/out/motor_thrust", self.cb_motor_thrust, 10)
+
+        # torque desired from PID output input topic: [tau_x, tau_y, tau_z, Fz]
+        self.create_subscription(Float32MultiArray, "/crazyflie/in/input", self.cb_input_cmd, 10)
 
         self.timer = self.create_timer(1.0 / self.update_hz, self.log_snapshot)
 
@@ -108,6 +112,14 @@ class ROSDataBuffer(Node):
             self.latest_scalar["thrust3"] = float(msg.data[2])
             self.latest_scalar["thrust4"] = float(msg.data[3])
 
+    def cb_input_cmd(self, msg: Float32MultiArray) -> None:
+        if len(msg.data) < 3:
+            return
+        with self.lock:
+            self.latest_scalar["tau_x_des"] = float(msg.data[0])
+            self.latest_scalar["tau_y_des"] = float(msg.data[1])
+            self.latest_scalar["tau_z_des"] = float(msg.data[2])
+
     def log_snapshot(self) -> None:
         t = self.get_clock().now().nanoseconds * 1e-9 - self.t0
         with self.lock:
@@ -134,9 +146,6 @@ class PlotWindow(QMainWindow):
         root.setContentsMargins(8, 8, 8, 8)
         root.setSpacing(8)
 
-        self.info_label = QLabel("contact frame: y,z velocity and x force")
-        root.addWidget(self.info_label)
-
         grid = QGridLayout()
         grid.setHorizontalSpacing(8)
         grid.setVerticalSpacing(8)
@@ -154,16 +163,31 @@ class PlotWindow(QMainWindow):
 
         self.thrust_plot, self.thrust1_curve, self.thrust2_curve, self.thrust3_curve, self.thrust4_curve = self.make_thrust_plot()
 
-        grid.addWidget(self.vel_y_plot, 0, 0)
-        grid.addWidget(self.vel_z_plot, 0, 1)
+        self.tau_x_plot, self.tau_x_curve = self.make_single_plot(
+            "Torque desired X", "torque [N·m]", "tau_x_des", (220, 50, 50)
+        )
+        self.tau_y_plot, self.tau_y_curve = self.make_single_plot(
+            "Torque desired Y", "torque [N·m]", "tau_y_des", (50, 160, 70)
+        )
+        self.tau_z_plot, self.tau_z_curve = self.make_single_plot(
+            "Torque desired Z", "torque [N·m]", "tau_z_des", (40, 90, 220)
+        )
+
+        grid.addWidget(self.vel_y_plot,   0, 0)
+        grid.addWidget(self.vel_z_plot,   0, 1)
         grid.addWidget(self.force_x_plot, 0, 2)
-        grid.addWidget(self.thrust_plot, 1, 0, 1, 3)
+
+        grid.addWidget(self.thrust_plot,  1, 0, 1, 3)
+
+        grid.addWidget(self.tau_x_plot,   2, 0)
+        grid.addWidget(self.tau_y_plot,   2, 1)
+        grid.addWidget(self.tau_z_plot,   2, 2)
 
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_all)
         self.timer.start(100)
 
-        self.resize(1300, 700)
+        self.resize(1300, 980)
 
     def make_group_frame(self, title: str) -> QFrame:
         frame = QFrame()
@@ -205,7 +229,7 @@ class PlotWindow(QMainWindow):
 
         plot = pg.PlotWidget()
         plot.setBackground("w")
-        plot.setMinimumHeight(280)
+        plot.setMinimumHeight(240)
         pi = plot.getPlotItem()
         pi.showGrid(x=True, y=True, alpha=0.25)
         pi.setLabel("left", "thrust")
@@ -223,6 +247,28 @@ class PlotWindow(QMainWindow):
         c4 = plot.plot(name="thrust4", pen=pg.mkPen((180, 120, 40), width=2))
         layout.addWidget(plot)
         return frame, c1, c2, c3, c4
+
+    def make_single_plot(self, title: str, ylabel: str, legend_name: str, color):
+        frame = self.make_group_frame(title)
+        layout = frame.layout()
+
+        plot = pg.PlotWidget()
+        plot.setBackground("w")
+        plot.setMinimumHeight(220)
+        pi = plot.getPlotItem()
+        pi.showGrid(x=True, y=True, alpha=0.25)
+        pi.setLabel("left", ylabel)
+        pi.setLabel("bottom", "time [s]")
+        pi.getAxis("left").setPen(pg.mkPen("k"))
+        pi.getAxis("bottom").setPen(pg.mkPen("k"))
+        pi.getAxis("left").setTextPen(pg.mkPen("k"))
+        pi.getAxis("bottom").setTextPen(pg.mkPen("k"))
+        legend = pi.addLegend()
+        legend.anchor(itemPos=(1, 0), parentPos=(1, 0), offset=(-10, 10))
+
+        curve = plot.plot(name=legend_name, pen=pg.mkPen(color, width=2))
+        layout.addWidget(plot)
+        return frame, curve
 
     def update_all(self) -> None:
         arr = self.rosbuf.get_arrays()
@@ -252,17 +298,27 @@ class PlotWindow(QMainWindow):
         self.thrust3_curve.setData(t_win, arr["thrust3"][mask])
         self.thrust4_curve.setData(t_win, arr["thrust4"][mask])
 
+        self.tau_x_curve.setData(t_win, arr["tau_x_des"][mask])
+        self.tau_y_curve.setData(t_win, arr["tau_y_des"][mask])
+        self.tau_z_curve.setData(t_win, arr["tau_z_des"][mask])
+
         x_left = max(0.0, tmax - window)
         x_right = tmax if tmax >= window else window
 
-        for widget in [self.vel_y_plot, self.vel_z_plot, self.force_x_plot, self.thrust_plot]:
+        for widget in [
+            self.vel_y_plot, self.vel_z_plot, self.force_x_plot,
+            self.thrust_plot,
+            self.tau_x_plot, self.tau_y_plot, self.tau_z_plot
+        ]:
             widget.layout().itemAt(1).widget().setXRange(x_left, x_right, padding=0.0)
 
-        self.info_label.setText(
-            f"latest | vy_cmd={arr['vel_y_cmd'][-1]:.3f}, vy_act={arr['vel_y_act'][-1]:.3f}, "
-            f"vz_cmd={arr['vel_z_cmd'][-1]:.3f}, vz_act={arr['vel_z_act'][-1]:.3f}, "
-            f"fx_cmd={arr['force_x_cmd'][-1]:.3f}, fx_act={arr['force_x_act'][-1]:.3f}"
-        )
+        self.vel_y_plot.layout().itemAt(1).widget().setYRange(-0.5, 0.5, padding=0.0)
+        self.vel_z_plot.layout().itemAt(1).widget().setYRange(-0.5, 0.5, padding=0.0)
+        self.force_x_plot.layout().itemAt(1).widget().setYRange(0.0, 0.1, padding=0.0)
+
+        self.tau_x_plot.layout().itemAt(1).widget().setYRange(-0.01, 0.01, padding=0.0)
+        self.tau_y_plot.layout().itemAt(1).widget().setYRange(-0.01, 0.01, padding=0.0)
+        self.tau_z_plot.layout().itemAt(1).widget().setYRange(-0.01, 0.01, padding=0.0)
 
 
 def main() -> int:

@@ -18,7 +18,7 @@
             condim="3"
             contype="2"
             conaffinity="8"
-            friction="0.2 0 0"
+            friction="0.3 0 0"
             mass="0"/>
     </body>
   </worldbody>
