@@ -1,0 +1,33 @@
+normal_vector_estimation:
+  ros__parameters:
+    reference_object: "drone" # "drone" or "end_effector"
+    normal_estimator_method: "new_normal" # "None", "direct", "kroc", "action_normal", "new_normal"
+    publish_hz: 100.0
+
+    flip_measured_force: false
+    normal_force_threshold: 0.005 # minimum force magnitude [N] required to accept/update a normal estimate
+    normal_lpf_alpha: 0.2
+
+    force_observation_source: "mob" # "contact_force", "contact_force_filt", "mob", "mob_2nd", "mob_2nd_tau"
+
+    new_normal:
+      velocity_epsilon: 0.015
+      velocity_gate: 0.05
+      beta_v: 4.0
+      sigma_v: 4.0
+
+      slip_blend_velocity: 0.04
+      force_epsilon: 0.004
+      force_gate: 0.02
+      beta_f: 8.0
+      sigma_f: 8.0
+
+      c_v: 0.08
+      eps_lambda: 1.0e-4
+      c_f: 0.015
+      eta_tau: 0.4
+      sigma_tau: 0.004
+
+      eps_alpha: 1.0e-6
+      eps_l: 1.0e-6
+      min_confidence: 0.08
