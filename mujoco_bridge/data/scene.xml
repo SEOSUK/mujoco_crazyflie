@@ -1,6 +1,6 @@
 <mujoco model="cf21B_scene">
   <include file="cf21B_500.xml"/>
-  <include file="wall.xml"/>
+  <include file="cylinder.xml"/>
 
   <asset>
     <texture

@@ -9,6 +9,7 @@ def generate_launch_description():
     # ---------- params.yaml ----------
     pkg_share = get_package_share_directory("flyingpen_interface")
     params = os.path.join(pkg_share, "config", "parameters.yaml")
+    normal_params = os.path.join(pkg_share, "config", "normal_vector_estimation.yaml")
     rviz_config = os.path.join(pkg_share, "config", "flyingpen.rviz")
 
     # ---------- robot_description (URDF) ----------
@@ -63,6 +64,14 @@ def generate_launch_description():
         name="trajectory_generation",
         output="screen",
         parameters=[params],   # ✅ MJ처럼 params 적용
+    )
+
+    normal_vector_estimation_node = Node(
+        package="flyingpen",
+        executable="normal_vector_estimation",
+        name="normal_vector_estimation",
+        output="screen",
+        parameters=[params, normal_params],
     )
 
     # ---------- wrench_observer ----------
@@ -127,10 +136,10 @@ def generate_launch_description():
         controller_node,
         fk_ik_transform_node,        
         data_logging_python_node,
+        normal_vector_estimation_node,
         trajectory_generation_node,
         wrench_observer_node,
         rviz_visual_node,
         data_logger_node,
         rviz2_node,
     ])
-

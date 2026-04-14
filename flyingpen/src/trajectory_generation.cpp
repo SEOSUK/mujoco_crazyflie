@@ -3,7 +3,6 @@
 #include <std_msgs/msg/float32.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
 
-#include <geometry_msgs/msg/wrench_stamped.hpp>
 #include <geometry_msgs/msg/quaternion_stamped.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/vector3_stamped.hpp>
@@ -33,23 +32,11 @@ public:
     reference_object_ = this->declare_parameter<std::string>(
       "reference_object", "drone");   // "drone" or "end_effector"
 
-    normal_estimator_method_ = this->declare_parameter<std::string>(
-      "normal_estimator_method", "direct"); // "direct", "kroc", "action_normal", "None"
-
-    flip_measured_force_ = this->declare_parameter<bool>(
-      "flip_measured_force", false);
-
     yaw_align_kp_ = this->declare_parameter<double>(
       "yaw_align_kp", 3.0);
 
     normal_xy_min_ = this->declare_parameter<double>(
       "normal_xy_min", 1e-3);
-
-    normal_force_threshold_ = this->declare_parameter<double>(
-      "normal_force_threshold", 0.005);
-
-    normal_lpf_alpha_ = this->declare_parameter<double>(
-      "normal_lpf_alpha", 0.2);
 
     force_adm_kp_ = this->declare_parameter<double>(
       "force_adm_kp", 5.0);
@@ -81,8 +68,10 @@ public:
     ee_acc_topic_ = this->declare_parameter<std::string>(
       "ee_acc_topic", "/crazyflie/out/EE_acceleration");
 
-    contact_force_topic_ = this->declare_parameter<std::string>(
-      "contact_force_topic", "/crazyflie/out/EE_contact_force_filt");
+    contact_frame_quat_topic_ = this->declare_parameter<std::string>(
+      "contact_frame_quat_topic", "/estimated_contact_frame_quat");
+    contact_force_x_topic_ = this->declare_parameter<std::string>(
+      "contact_force_x_topic", "/su/contact_force_x");
 
     // --------------------------------------------------
     // Subscribers
@@ -99,9 +88,12 @@ public:
       "su/cmd_force", 10,
       std::bind(&TrajectoryGeneration::cmdForceCb, this, std::placeholders::_1));
 
-    sub_contact_force_ = this->create_subscription<geometry_msgs::msg::WrenchStamped>(
-      contact_force_topic_, 10,
-      std::bind(&TrajectoryGeneration::contactForceCb, this, std::placeholders::_1));
+    sub_contact_frame_quat_ = this->create_subscription<geometry_msgs::msg::QuaternionStamped>(
+      contact_frame_quat_topic_, 10,
+      std::bind(&TrajectoryGeneration::contactFrameQuatCb, this, std::placeholders::_1));
+    sub_contact_force_x_ = this->create_subscription<std_msgs::msg::Float32>(
+      contact_force_x_topic_, 10,
+      std::bind(&TrajectoryGeneration::contactForceXCb, this, std::placeholders::_1));
 
     sub_pose_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
       pose_topic_, 10,
@@ -136,12 +128,6 @@ public:
     pub_force_lpf_ = this->create_publisher<std_msgs::msg::Float64MultiArray>(
       "/su/force_lpf", 10);
 
-    pub_contact_quat_ = this->create_publisher<geometry_msgs::msg::QuaternionStamped>(
-      "/estimated_contact_frame_quat", 10);
-
-    pub_contact_force_x_ = this->create_publisher<std_msgs::msg::Float32>(
-      "/su/contact_force_x", 10);
-
     pub_contact_vel_cmd_ = this->create_publisher<geometry_msgs::msg::Vector3Stamped>(
       "/su/debug/contact_vel_cmd", 10);
 
@@ -169,7 +155,6 @@ public:
 
     RCLCPP_INFO(this->get_logger(), "trajectory_generation started");
     RCLCPP_INFO(this->get_logger(), "reference_object = %s", reference_object_.c_str());
-    RCLCPP_INFO(this->get_logger(), "normal_estimator_method = %s", normal_estimator_method_.c_str());
     RCLCPP_INFO(this->get_logger(), "EE offset d_B = [%.4f %.4f %.4f]",
                 d_B_.x(), d_B_.y(), d_B_.z());
   }
@@ -242,353 +227,6 @@ private:
     ref.yaw_w = yaw_w_;
     ref.valid = true;
     return ref;
-  }
-
-  // ==================================================
-  // Contact frame estimation
-  // ==================================================
-  struct ContactFrame
-  {
-    Eigen::Vector3d n_w = Eigen::Vector3d::UnitX();
-    Eigen::Matrix3d R_C = Eigen::Matrix3d::Identity(); // contact -> world
-    bool valid = false;
-  };
-
-  bool estimateNormalVector_Force_directly(
-    ContactFrame &cf_out,
-    const ReferenceState & /*ref*/)
-  {
-    std::array<double,3> Fw_arr{0.0, 0.0, 0.0};
-    {
-      std::lock_guard<std::mutex> lk(force_mtx_);
-      Fw_arr = contact_F_;
-    }
-
-    Eigen::Vector3d Fw(Fw_arr[0], Fw_arr[1], Fw_arr[2]);
-    const double Fnorm = Fw.norm();
-
-    if (Fnorm < normal_force_threshold_) {
-      cf_out.valid = false;
-      return false;
-    }
-
-    Eigen::Vector3d n_new = Fw / (Fnorm + 1e-12);
-
-    if (flip_measured_force_) {
-      n_new = -n_new;
-    }
-
-    if (!cf_out.valid) {
-      cf_out.n_w = n_new;
-    } else {
-      cf_out.n_w =
-        (1.0 - normal_lpf_alpha_) * cf_out.n_w +
-        normal_lpf_alpha_ * n_new;
-
-      const double nn = cf_out.n_w.norm();
-      if (nn > 1e-9) {
-        cf_out.n_w /= nn;
-      } else {
-        cf_out.n_w = n_new;
-      }
-    }
-
-    return true;
-  }
-
-  bool estimateNormalVector_KROC(
-    ContactFrame &cf_out,
-    const ReferenceState &ref)
-  {
-    std::array<double,3> Fw_arr{0.0, 0.0, 0.0};
-    {
-      std::lock_guard<std::mutex> lk(force_mtx_);
-      Fw_arr = contact_F_;
-    }
-
-    Eigen::Vector3d nf(Fw_arr[0], Fw_arr[1], Fw_arr[2]);
-    const double Fnorm = nf.norm();
-    if (Fnorm < normal_force_threshold_) {
-      cf_out.valid = false;
-      return false;
-    }
-
-    Eigen::Vector3d v_ref = ref.vel_w;
-    const double vnorm_sq = v_ref.squaredNorm();
-
-    Eigen::Vector3d n_new = nf;
-    const double vel_eps_sq = 1e-8;
-    if (ref.valid && vnorm_sq > vel_eps_sq) {
-      const double alpha = nf.dot(v_ref) / vnorm_sq;
-      n_new = nf - alpha * v_ref;
-    }
-
-    const double n_norm = n_new.norm();
-    if (n_norm < 1e-9) {
-      cf_out.valid = false;
-      return false;
-    }
-    n_new /= n_norm;
-
-    if (flip_measured_force_) {
-      n_new = -n_new;
-    }
-
-    if (!cf_out.valid) {
-      cf_out.n_w = n_new;
-    } else {
-      if (cf_out.n_w.dot(n_new) < 0.0) {
-        n_new = -n_new;
-      }
-
-      cf_out.n_w =
-        (1.0 - normal_lpf_alpha_) * cf_out.n_w +
-        normal_lpf_alpha_ * n_new;
-
-      const double nn = cf_out.n_w.norm();
-      if (nn > 1e-9) {
-        cf_out.n_w /= nn;
-      } else {
-        cf_out.n_w = n_new;
-      }
-    }
-
-    return true;
-  }
-
-  bool estimateNormalVector_ActionNormal_0326(
-    ContactFrame &cf_out,
-    const ReferenceState &ref)
-  {
-    std::array<double,3> Fw_arr{0.0, 0.0, 0.0};
-    {
-      std::lock_guard<std::mutex> lk(force_mtx_);
-      Fw_arr = contact_F_;
-    }
-
-    Eigen::Vector3d Fw(Fw_arr[0], Fw_arr[1], Fw_arr[2]);
-    Eigen::Vector3d vw = ref.vel_w;
-    Eigen::Vector3d aw = ref.acc_w;
-
-    if (flip_measured_force_) {
-      Fw = -Fw;
-    }
-
-    const double Fnorm = Fw.norm();
-    if (Fnorm < normal_force_threshold_) {
-      cf_out.valid = false;
-      return false;
-    }
-
-    Eigen::Vector3d n_nom = Fw / (Fnorm + 1e-12);
-
-    if (cf_out.valid && cf_out.n_w.dot(n_nom) < 0.0) {
-      n_nom = -n_nom;
-    }
-
-    Eigen::Vector3d ez = Eigen::Vector3d::UnitZ();
-    Eigen::Vector3d t1 = ez.cross(n_nom);
-    if (t1.norm() < 1e-6) {
-      t1 = Eigen::Vector3d::UnitX();
-    } else {
-      t1.normalize();
-    }
-
-    const double w_tau = 1.0;
-    const double w_f   = 1.0;
-    const double w_a   = 0.2;
-
-    const double theta_max = 20.0 * M_PI / 180.0;
-    const double delta_max = std::tan(theta_max);
-
-    const int N = 9;
-    const double vel_xy_eps = 1e-6;
-    const double eps = 1e-9;
-
-    double best_J = std::numeric_limits<double>::infinity();
-    Eigen::Vector3d n_best = n_nom;
-    bool found = false;
-
-    for (int i = 0; i < N; ++i) {
-      const double d1 = -delta_max + 2.0 * delta_max * static_cast<double>(i) / static_cast<double>(N - 1);
-
-      Eigen::Vector3d n_cand_unnorm = n_nom + d1 * t1;
-      const double nn = n_cand_unnorm.norm();
-      if (nn < eps) {
-        continue;
-      }
-
-      Eigen::Vector3d n_cand = n_cand_unnorm / nn;
-
-      if (n_cand.dot(n_nom) < 0.0) {
-        n_cand = -n_cand;
-      }
-
-      if (n_cand.dot(n_nom) < std::cos(theta_max)) {
-        continue;
-      }
-
-      const double F_normal = Fw.dot(n_cand);
-      if (F_normal <= normal_force_threshold_) {
-        continue;
-      }
-
-      const Eigen::Vector3d F_tan = Fw - F_normal * n_cand;
-      const double F_n_leak = F_tan.norm();
-
-      double a_t_int = 0.0;
-      if (ref.valid) {
-        const Eigen::Vector3d a_tan = aw - n_cand * (n_cand.dot(aw));
-        a_t_int = a_tan.norm();
-      }
-
-      double tau_z = 0.0;
-      if (ref.valid) {
-        Eigen::Vector3d v_tan = vw - n_cand * (n_cand.dot(vw));
-        Eigen::Vector2d n_xy(n_cand.x(), n_cand.y());
-        Eigen::Vector2d v_xy(v_tan.x(), v_tan.y());
-
-        const double nxy = n_xy.norm();
-        const double vxy = v_xy.norm();
-
-        if (nxy > vel_xy_eps && vxy > vel_xy_eps) {
-          n_xy /= nxy;
-          v_xy /= vxy;
-          tau_z = std::abs(n_xy.x() * v_xy.y() - n_xy.y() * v_xy.x());
-        }
-      }
-
-      const double J =
-        w_tau * tau_z * tau_z +
-        w_f   * F_n_leak * F_n_leak +
-        w_a   * a_t_int * a_t_int;
-
-      if (J < best_J) {
-        best_J = J;
-        n_best = n_cand;
-        found = true;
-      }
-    }
-
-    if (!found) {
-      n_best = n_nom;
-    }
-
-    if (!cf_out.valid) {
-      cf_out.n_w = n_best;
-    } else {
-      if (cf_out.n_w.dot(n_best) < 0.0) {
-        n_best = -n_best;
-      }
-
-      cf_out.n_w =
-        (1.0 - normal_lpf_alpha_) * cf_out.n_w +
-        normal_lpf_alpha_ * n_best;
-
-      const double nlp = cf_out.n_w.norm();
-      if (nlp > 1e-9) {
-        cf_out.n_w /= nlp;
-      } else {
-        cf_out.n_w = n_best;
-      }
-    }
-
-    return true;
-  }
-
-  bool buildContactFrameFromNormal(ContactFrame &cf_out)
-  {
-    const double n_norm = cf_out.n_w.norm();
-    if (n_norm < 1e-9) {
-      cf_out.valid = false;
-      return false;
-    }
-
-    const Eigen::Vector3d x_c = cf_out.n_w.normalized();
-    const Eigen::Vector3d g_axis = Eigen::Vector3d::UnitZ();
-
-    Eigen::Vector3d y_c = x_c.cross(g_axis);
-    double y_norm = y_c.norm();
-
-    if (y_norm < 1e-6) {
-      Eigen::Vector3d a = Eigen::Vector3d::UnitY();
-      if (std::abs(x_c.dot(a)) > 0.9) {
-        a = Eigen::Vector3d::UnitX();
-      }
-
-      y_c = x_c.cross(a);
-      y_norm = y_c.norm();
-
-      if (y_norm < 1e-9) {
-        cf_out.valid = false;
-        return false;
-      }
-    }
-    y_c /= (y_norm + 1e-12);
-    y_c = -y_c;
-
-    Eigen::Vector3d z_c = x_c.cross(y_c);
-    const double z_norm = z_c.norm();
-    if (z_norm < 1e-9) {
-      cf_out.valid = false;
-      return false;
-    }
-    z_c /= z_norm;
-
-    cf_out.R_C.col(0) = x_c;
-    cf_out.R_C.col(1) = y_c;
-    cf_out.R_C.col(2) = z_c;
-    cf_out.valid = true;
-    return true;
-  }
-
-  bool updateContactFrame(ContactFrame &cf_out, const ReferenceState &ref)
-  {
-    if (
-      normal_estimator_method_ == "None" ||
-      normal_estimator_method_ == "none" ||
-      normal_estimator_method_ == "NONE")
-    {
-      cf_out.valid = false;
-      return false;
-    }
-
-    bool ok = false;
-
-    if (normal_estimator_method_ == "kroc") {
-      ok = estimateNormalVector_KROC(cf_out, ref);
-    } else if (normal_estimator_method_ == "action_normal") {
-      ok = estimateNormalVector_ActionNormal_0326(cf_out, ref);
-    } else {
-      ok = estimateNormalVector_Force_directly(cf_out, ref);
-    }
-
-    if (!ok) {
-      cf_out.valid = false;
-      return false;
-    }
-
-    if (!buildContactFrameFromNormal(cf_out)) {
-      cf_out.valid = false;
-      return false;
-    }
-
-    return true;
-  }
-
-  void publishContactQuat(const Eigen::Matrix3d &R_C, const rclcpp::Time &stamp)
-  {
-    Eigen::Quaterniond q(R_C);
-    q.normalize();
-
-    geometry_msgs::msg::QuaternionStamped msg;
-    msg.header.stamp = stamp;
-    msg.header.frame_id = "world";
-    msg.quaternion.w = q.w();
-    msg.quaternion.x = q.x();
-    msg.quaternion.y = q.y();
-    msg.quaternion.z = q.z();
-    pub_contact_quat_->publish(msg);
   }
 
   // ==================================================
@@ -683,13 +321,20 @@ private:
     su_cmd_fx_ = msg->data;
   }
 
-  void contactForceCb(const geometry_msgs::msg::WrenchStamped::SharedPtr msg)
+  void contactFrameQuatCb(const geometry_msgs::msg::QuaternionStamped::SharedPtr msg)
   {
     std::lock_guard<std::mutex> lk(force_mtx_);
-    contact_F_[0] = msg->wrench.force.x;
-    contact_F_[1] = msg->wrench.force.y;
-    contact_F_[2] = msg->wrench.force.z;
-    f_ext_received_ = true;
+    const Eigen::Quaterniond q_wc = quatMsgToEigen(msg->quaternion).normalized();
+    contact_R_C_ = q_wc.toRotationMatrix();
+    contact_n_w_ = contact_R_C_.col(0);
+    contact_frame_received_ = true;
+  }
+
+  void contactForceXCb(const std_msgs::msg::Float32::SharedPtr msg)
+  {
+    std::lock_guard<std::mutex> lk(force_mtx_);
+    contact_force_x_ = static_cast<double>(msg->data);
+    contact_force_x_received_ = true;
   }
 
   void poseCb(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
@@ -824,17 +469,18 @@ private:
     }
 
     float su_cmd_fx_local = 0.0f;
-    std::array<double,3> contact_F_local{0.0,0.0,0.0};
+    double contact_force_x_local = 0.0;
+    bool contact_force_x_ok = false;
     {
       std::lock_guard<std::mutex> lk(force_mtx_);
       su_cmd_fx_local = su_cmd_fx_;
-      contact_F_local = contact_F_;
+      contact_force_x_local = contact_force_x_;
+      contact_force_x_ok = contact_force_x_received_;
     }
 
-    ReferenceState ref;
-    {
-      std::lock_guard<std::mutex> lk(state_mtx_);
-      ref = getReferenceStateLocked();
+    if (!contact_force_x_ok) {
+      eF_state_initialized_ = false;
+      return;
     }
 
     const rclcpp::Time now = this->now();
@@ -849,26 +495,8 @@ private:
       return;
     }
 
-    Eigen::Vector3d Fw(contact_F_local[0], contact_F_local[1], contact_F_local[2]);
-    if (flip_measured_force_) {
-      Fw = -Fw;
-    }
-
-    ContactFrame cf_local = cf_;
-    const bool cf_ok = updateContactFrame(cf_local, ref);
-    double Fcx = 0.0;
-    if (cf_ok && cf_local.valid) {
-      cf_ = cf_local;
-      const Eigen::Vector3d Fc = cf_local.R_C.transpose() * Fw;
-      Fcx = Fc.x();
-    }
-
-    std_msgs::msg::Float32 fcx_msg;
-    fcx_msg.data = static_cast<float>(Fcx);
-    pub_contact_force_x_->publish(fcx_msg);
-
     std::array<double,3> eF{0.0,0.0,0.0};
-    eF[0] = static_cast<double>(su_cmd_fx_local) - Fcx;
+    eF[0] = static_cast<double>(su_cmd_fx_local) - contact_force_x_local;
 
     if (!eF_state_initialized_) {
       eF_prev_ = eF;
@@ -1021,15 +649,20 @@ private:
       Eigen::Vector3d v_c(vx_cmd, vy_cmd, vz_cmd);
       Eigen::Vector3d v_w = v_c;
 
-      ContactFrame cf_local = cf_;
-      const bool cf_ok = updateContactFrame(cf_local, ref);
-      if (cf_ok && cf_local.valid) {
-        v_w = cf_local.R_C * v_c;
-        cf_ = cf_local;
-        publishContactQuat(cf_local.R_C, now);
+      Eigen::Matrix3d contact_rotation = Eigen::Matrix3d::Identity();
+      Eigen::Vector3d contact_normal = Eigen::Vector3d::UnitX();
+      bool contact_frame_ok = false;
+      {
+        std::lock_guard<std::mutex> lk(force_mtx_);
+        contact_rotation = contact_R_C_;
+        contact_normal = contact_n_w_;
+        contact_frame_ok = contact_frame_received_;
+      }
 
+      if (contact_frame_ok) {
+        v_w = contact_rotation * v_c;
         Eigen::Vector3d v_act_w = ref.valid ? ref.vel_w : Eigen::Vector3d::Zero();
-        Eigen::Vector3d v_act_c = cf_local.R_C.transpose() * v_act_w;
+        Eigen::Vector3d v_act_c = contact_rotation.transpose() * v_act_w;
         publishContactVelocityDebug(v_c, v_act_c, now);
       } else {
         geometry_msgs::msg::Vector3Stamped nan_msg;
@@ -1046,9 +679,10 @@ private:
       su_int_ref_pos_[1] += v_w.y() * dt;
       su_int_ref_pos_[2] += v_w.z() * dt;
 
-      double yaw_next = su_int_ref_yaw_;
-      if (cf_ok && cf_local.valid) {
-        const Eigen::Vector3d n_w = cf_local.n_w;
+      double yaw_next = su_int_ref_yaw_ + vyaw_cmd * dt;
+      const bool manual_yaw_cmd_active = std::abs(vyaw_cmd) > 1e-6;
+      if (contact_frame_ok && !manual_yaw_cmd_active) {
+        const Eigen::Vector3d n_w = contact_normal;
         const double nxy = std::hypot(n_w.x(), n_w.y());
 
         if (nxy > normal_xy_min_) {
@@ -1056,11 +690,7 @@ private:
           const double e_yaw = wrap_pi(psi_align - su_int_ref_yaw_);
           const double psi_dot = yaw_align_kp_ * e_yaw;
           yaw_next = su_int_ref_yaw_ + psi_dot * dt;
-        } else {
-          yaw_next = su_int_ref_yaw_ + vyaw_cmd * dt;
         }
-      } else {
-        yaw_next = su_int_ref_yaw_ + vyaw_cmd * dt;
       }
       su_int_ref_yaw_ = yaw_next;
     }
@@ -1074,7 +704,8 @@ private:
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_keyboard_;
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_use_vel_mode_;
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_cmd_force_;
-  rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_contact_force_;
+  rclcpp::Subscription<geometry_msgs::msg::QuaternionStamped>::SharedPtr sub_contact_frame_quat_;
+  rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_contact_force_x_;
 
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_pose_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_vel_;
@@ -1086,8 +717,6 @@ private:
 
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr pub_pos_cmd_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr pub_force_lpf_;
-  rclcpp::Publisher<geometry_msgs::msg::QuaternionStamped>::SharedPtr pub_contact_quat_;
-  rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr pub_contact_force_x_;
   rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr pub_contact_vel_cmd_;
   rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr pub_contact_vel_actual_;
 
@@ -1102,13 +731,8 @@ private:
   // Parameters / config
   // ==================================================
   std::string reference_object_;
-  std::string normal_estimator_method_;
-
-  bool flip_measured_force_{false};
   double yaw_align_kp_{3.0};
   double normal_xy_min_{1e-3};
-  double normal_force_threshold_{0.005};
-  double normal_lpf_alpha_{0.2};
 
   double force_adm_kp_{5.0};
   double force_adm_kd_{0.005};
@@ -1121,12 +745,8 @@ private:
   std::string ee_pose_topic_;
   std::string ee_vel_topic_;
   std::string ee_acc_topic_;
-  std::string contact_force_topic_;
-
-  // ==================================================
-  // Internal state
-  // ==================================================
-  ContactFrame cf_;
+  std::string contact_frame_quat_topic_;
+  std::string contact_force_x_topic_;
 
   std::array<double, 3> sp_in_{0.0, 0.0, 0.0};
   double sp_in_yaw_{0.0};
@@ -1144,15 +764,17 @@ private:
   std::mutex force_mtx_;
   float su_cmd_use_vel_mode_{0.0f};
   float su_cmd_fx_{0.0f};
+  Eigen::Matrix3d contact_R_C_{Eigen::Matrix3d::Identity()};
+  Eigen::Vector3d contact_n_w_{Eigen::Vector3d::UnitX()};
+  double contact_force_x_{0.0};
+  bool contact_frame_received_{false};
+  bool contact_force_x_received_{false};
 
   std::array<double,3> eF_{0.0, 0.0, 0.0};
   std::array<double,3> eF_dot_filt_{0.0, 0.0, 0.0};
   std::array<double,3> eF_prev_{0.0, 0.0, 0.0};
   std::array<double,3> eF_dot_filt_prev_{0.0, 0.0, 0.0};
-
-  std::array<double,3> contact_F_{0.0, 0.0, 0.0};
   bool eF_state_initialized_{false};
-  bool f_ext_received_{false};
 
   rclcpp::Time eF_last_time_;
   rclcpp::Time last_time_;

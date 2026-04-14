@@ -7,13 +7,16 @@
 #include <geometry_msgs/msg/transform_stamped.hpp>
 
 #include <visualization_msgs/msg/marker.hpp>
+#include <visualization_msgs/msg/marker_array.hpp>
 
+#include <tf2/LinearMath/Matrix3x3.h>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2_ros/transform_broadcaster.h>
 
 #include <mutex>
 #include <array>
 #include <chrono>
+#include <deque>
 #include <string>
 #include <algorithm>
 
@@ -22,6 +25,19 @@ using namespace std::chrono_literals;
 class RvizVisual : public rclcpp::Node
 {
 public:
+  struct HistorySample
+  {
+    rclcpp::Time stamp{0, 0, RCL_ROS_TIME};
+    geometry_msgs::msg::Point origin;
+    geometry_msgs::msg::Quaternion orientation;
+  };
+
+  struct TrajectorySample
+  {
+    rclcpp::Time stamp{0, 0, RCL_ROS_TIME};
+    geometry_msgs::msg::Point point;
+  };
+
   RvizVisual()
   : Node("rviz_visual")
   {
@@ -66,8 +82,28 @@ public:
     est_contact_frame_ = this->declare_parameter<std::string>(
       "est_contact_frame", "estimated_contact_frame");
 
+    cylinder_marker_topic_ = this->declare_parameter<std::string>(
+      "cylinder_marker_topic", "/rviz/environment_cylinder");
+    cylinder_pos_x_ = this->declare_parameter<double>("cylinder.pos.x", 1.5);
+    cylinder_pos_y_ = this->declare_parameter<double>("cylinder.pos.y", 0.0);
+    cylinder_pos_z_ = this->declare_parameter<double>("cylinder.pos.z", 0.0);
+    cylinder_radius_ = this->declare_parameter<double>("cylinder.radius", 1.0);
+    cylinder_half_height_ = this->declare_parameter<double>("cylinder.half_height", 10.0);
+    cylinder_rgba_ = this->declare_parameter<std::vector<double>>(
+      "cylinder.rgba", std::vector<double>{0.75, 0.93, 0.75, 0.85});
+    if (cylinder_rgba_.size() != 4) {
+      RCLCPP_WARN(
+        this->get_logger(),
+        "cylinder.rgba must have size 4. Falling back to [0.75, 0.93, 0.75, 0.85].");
+      cylinder_rgba_ = {0.75, 0.93, 0.75, 0.85};
+    }
+
     force_scale_         = this->declare_parameter<double>("force_scale", 10.0);
     contact_force_scale_ = this->declare_parameter<double>("contact_force_scale", 10.0);
+    normal_scale_        = this->declare_parameter<double>("normal_scale", 0.2);
+    history_axis_scale_  = this->declare_parameter<double>("history_axis_scale", 0.08);
+    history_sample_period_ = this->declare_parameter<double>("history_sample_period", 1.0);
+    history_duration_    = this->declare_parameter<double>("history_duration", 15.0);
 
     drone_vel_scale_ = this->declare_parameter<double>("drone_vel_scale", 1.0);
     drone_acc_scale_ = this->declare_parameter<double>("drone_acc_scale", 1.0);
@@ -156,6 +192,10 @@ public:
 
     pub_contact_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
       "/rviz/EE_contact_force", 10);
+    pub_estimated_normal_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
+      "/rviz/estimated_contact_normal", 10);
+    pub_contact_history_markers_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
+      "/rviz/contact_frame_history", 10);
 
     pub_drone_vel_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
       "/rviz/drone_velocity", 10);
@@ -168,6 +208,8 @@ public:
 
     pub_ee_acc_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
       "/rviz/EE_acceleration", 10);
+    pub_cylinder_marker_ = this->create_publisher<visualization_msgs::msg::Marker>(
+      cylinder_marker_topic_, 10);
 
     // -------------------------
     // Timer
@@ -342,6 +384,305 @@ private:
     return mk;
   }
 
+  visualization_msgs::msg::Marker make_delete_marker(
+    const std::string & ns,
+    int id,
+    const std::string & frame_id,
+    const rclcpp::Time & stamp) const
+  {
+    visualization_msgs::msg::Marker mk;
+    mk.header.stamp = stamp;
+    mk.header.frame_id = frame_id;
+    mk.ns = ns;
+    mk.id = id;
+    mk.action = visualization_msgs::msg::Marker::DELETE;
+    return mk;
+  }
+
+  visualization_msgs::msg::Marker make_line_list_marker(
+    const std::string & ns,
+    int id,
+    const std::string & frame_id,
+    const rclcpp::Time & stamp) const
+  {
+    visualization_msgs::msg::Marker mk;
+    mk.header.stamp = stamp;
+    mk.header.frame_id = frame_id;
+    mk.ns = ns;
+    mk.id = id;
+    mk.type = visualization_msgs::msg::Marker::LINE_LIST;
+    mk.action = visualization_msgs::msg::Marker::ADD;
+    mk.scale.x = 0.004;
+    mk.color.a = 1.0;
+    return mk;
+  }
+
+  visualization_msgs::msg::Marker make_line_strip_marker(
+    const std::string & ns,
+    int id,
+    const std::string & frame_id,
+    const rclcpp::Time & stamp) const
+  {
+    visualization_msgs::msg::Marker mk;
+    mk.header.stamp = stamp;
+    mk.header.frame_id = frame_id;
+    mk.ns = ns;
+    mk.id = id;
+    mk.type = visualization_msgs::msg::Marker::LINE_STRIP;
+    mk.action = visualization_msgs::msg::Marker::ADD;
+    mk.scale.x = 0.006;
+    mk.color.a = 1.0;
+    return mk;
+  }
+
+  visualization_msgs::msg::Marker make_cylinder_marker(
+    const std::string & ns,
+    int id,
+    const std::string & frame_id,
+    const rclcpp::Time & stamp) const
+  {
+    visualization_msgs::msg::Marker mk;
+    mk.header.stamp = stamp;
+    mk.header.frame_id = frame_id;
+    mk.ns = ns;
+    mk.id = id;
+    mk.type = visualization_msgs::msg::Marker::CYLINDER;
+    mk.action = visualization_msgs::msg::Marker::ADD;
+
+    mk.pose.position.x = cylinder_pos_x_;
+    mk.pose.position.y = cylinder_pos_y_;
+    mk.pose.position.z = cylinder_pos_z_ + cylinder_half_height_;
+    mk.pose.orientation.w = 1.0;
+
+    mk.scale.x = 2.0 * cylinder_radius_;
+    mk.scale.y = 2.0 * cylinder_radius_;
+    mk.scale.z = 2.0 * cylinder_half_height_;
+
+    mk.color.r = static_cast<float>(cylinder_rgba_[0]);
+    mk.color.g = static_cast<float>(cylinder_rgba_[1]);
+    mk.color.b = static_cast<float>(cylinder_rgba_[2]);
+    mk.color.a = static_cast<float>(cylinder_rgba_[3]);
+    mk.lifetime = rclcpp::Duration::from_seconds(0.0);
+    return mk;
+  }
+
+  void pushHistorySample(
+    const geometry_msgs::msg::PoseStamped & ee_pose,
+    const geometry_msgs::msg::Quaternion & contact_q,
+    const rclcpp::Time & stamp)
+  {
+    std::lock_guard<std::mutex> lk(history_mtx_);
+    const double sample_period = std::max(1e-3, history_sample_period_);
+    const double keep_duration = std::max(sample_period, history_duration_);
+
+    while (!contact_frame_history_.empty()) {
+      const double age = (stamp - contact_frame_history_.front().stamp).seconds();
+      if (age <= keep_duration) {
+        break;
+      }
+      contact_frame_history_.pop_front();
+    }
+
+    if (
+      last_history_sample_time_.nanoseconds() > 0 &&
+      (stamp - last_history_sample_time_).seconds() < sample_period)
+    {
+      return;
+    }
+
+    HistorySample sample;
+    sample.stamp = stamp;
+    sample.origin.x = ee_pose.pose.position.x;
+    sample.origin.y = ee_pose.pose.position.y;
+    sample.origin.z = ee_pose.pose.position.z;
+    sample.orientation = contact_q;
+
+    contact_frame_history_.push_back(sample);
+    last_history_sample_time_ = stamp;
+  }
+
+  void pushTrajectorySample(
+    const geometry_msgs::msg::PoseStamped & ee_pose,
+    const rclcpp::Time & stamp)
+  {
+    std::lock_guard<std::mutex> lk(history_mtx_);
+    const double keep_duration = std::max(1e-3, history_duration_);
+
+    while (!trajectory_history_.empty()) {
+      const double age = (stamp - trajectory_history_.front().stamp).seconds();
+      if (age <= keep_duration) {
+        break;
+      }
+      trajectory_history_.pop_front();
+    }
+
+    TrajectorySample sample;
+    sample.stamp = stamp;
+    sample.point.x = ee_pose.pose.position.x;
+    sample.point.y = ee_pose.pose.position.y;
+    sample.point.z = ee_pose.pose.position.z;
+
+    trajectory_history_.push_back(sample);
+  }
+
+  visualization_msgs::msg::MarkerArray makeContactHistoryMarkerArray(const rclcpp::Time & stamp)
+  {
+    std::deque<HistorySample> history_copy;
+    std::deque<TrajectorySample> trajectory_copy;
+    {
+      std::lock_guard<std::mutex> lk(history_mtx_);
+      history_copy = contact_frame_history_;
+      trajectory_copy = trajectory_history_;
+    }
+
+    visualization_msgs::msg::MarkerArray out;
+    if (history_copy.empty()) {
+      {
+        std::lock_guard<std::mutex> lk(history_mtx_);
+        for (size_t i = 0; i < last_contact_frame_sample_count_; ++i) {
+          out.markers.push_back(
+            make_delete_marker(
+              "contact_frame_history_x_segment", static_cast<int>(i), parent_frame_, stamp));
+          out.markers.push_back(
+            make_delete_marker(
+              "contact_frame_history_y_segment", static_cast<int>(i), parent_frame_, stamp));
+          out.markers.push_back(
+            make_delete_marker(
+              "contact_frame_history_z_segment", static_cast<int>(i), parent_frame_, stamp));
+        }
+        last_contact_frame_sample_count_ = 0;
+        if (last_trajectory_marker_published_) {
+          out.markers.push_back(
+            make_delete_marker("ee_trajectory_history", 1000, parent_frame_, stamp));
+          last_trajectory_marker_published_ = false;
+        }
+      }
+      if (trajectory_copy.empty()) {
+        return out;
+      }
+    }
+
+    const double axis_len = std::max(1e-3, history_axis_scale_);
+    size_t sample_count = 0;
+    for (const auto & sample : history_copy) {
+      tf2::Quaternion q(
+        sample.orientation.x,
+        sample.orientation.y,
+        sample.orientation.z,
+        sample.orientation.w);
+      q.normalize();
+      tf2::Matrix3x3 rot(q);
+
+      geometry_msgs::msg::Point px = sample.origin;
+      geometry_msgs::msg::Point py = sample.origin;
+      geometry_msgs::msg::Point pz = sample.origin;
+
+      const tf2::Vector3 ex = rot.getColumn(0);
+      const tf2::Vector3 ey = rot.getColumn(1);
+      const tf2::Vector3 ez = rot.getColumn(2);
+
+      px.x += axis_len * ex.x();
+      px.y += axis_len * ex.y();
+      px.z += axis_len * ex.z();
+
+      py.x += axis_len * ey.x();
+      py.y += axis_len * ey.y();
+      py.z += axis_len * ey.z();
+
+      pz.x += axis_len * ez.x();
+      pz.y += axis_len * ez.y();
+      pz.z += axis_len * ez.z();
+
+      const double age = std::max(0.0, (stamp - sample.stamp).seconds());
+      const double age_ratio = std::clamp(age / std::max(1e-3, history_duration_), 0.0, 1.0);
+      const double axis_alpha = 0.12 + 0.78 * (1.0 - age_ratio);
+
+      auto x_marker = make_line_list_marker(
+        "contact_frame_history_x_segment",
+        static_cast<int>(sample_count),
+        parent_frame_,
+        stamp);
+      auto y_marker = make_line_list_marker(
+        "contact_frame_history_y_segment",
+        static_cast<int>(sample_count),
+        parent_frame_,
+        stamp);
+      auto z_marker = make_line_list_marker(
+        "contact_frame_history_z_segment",
+        static_cast<int>(sample_count),
+        parent_frame_,
+        stamp);
+
+      x_marker.scale.x = 0.0045;
+      x_marker.color.a = static_cast<float>(axis_alpha);
+      x_marker.color.r = 1.0f;
+      x_marker.color.g = 0.2f;
+      x_marker.color.b = 0.2f;
+      x_marker.points.push_back(sample.origin);
+      x_marker.points.push_back(px);
+
+      y_marker.scale.x = 0.0035;
+      y_marker.color.a = static_cast<float>(0.9 * axis_alpha);
+      y_marker.color.r = 0.2f;
+      y_marker.color.g = 1.0f;
+      y_marker.color.b = 0.2f;
+      y_marker.points.push_back(sample.origin);
+      y_marker.points.push_back(py);
+
+      z_marker.scale.x = 0.0035;
+      z_marker.color.a = static_cast<float>(0.9 * axis_alpha);
+      z_marker.color.r = 0.2f;
+      z_marker.color.g = 0.4f;
+      z_marker.color.b = 1.0f;
+      z_marker.points.push_back(sample.origin);
+      z_marker.points.push_back(pz);
+
+      out.markers.push_back(x_marker);
+      out.markers.push_back(y_marker);
+      out.markers.push_back(z_marker);
+      ++sample_count;
+    }
+
+    if (trajectory_copy.size() >= 2) {
+      auto traj_marker = make_line_strip_marker(
+        "ee_trajectory_history", 1000, parent_frame_, stamp);
+      traj_marker.scale.x = 0.005;
+      traj_marker.color.a = 0.32f;
+      traj_marker.color.r = 1.0f;
+      traj_marker.color.g = 1.0f;
+      traj_marker.color.b = 1.0f;
+      for (const auto & sample : trajectory_copy) {
+        traj_marker.points.push_back(sample.point);
+      }
+      out.markers.push_back(traj_marker);
+    }
+
+    {
+      std::lock_guard<std::mutex> lk(history_mtx_);
+      for (size_t i = sample_count; i < last_contact_frame_sample_count_; ++i) {
+        out.markers.push_back(
+          make_delete_marker(
+            "contact_frame_history_x_segment", static_cast<int>(i), parent_frame_, stamp));
+        out.markers.push_back(
+          make_delete_marker(
+            "contact_frame_history_y_segment", static_cast<int>(i), parent_frame_, stamp));
+        out.markers.push_back(
+          make_delete_marker(
+            "contact_frame_history_z_segment", static_cast<int>(i), parent_frame_, stamp));
+      }
+      last_contact_frame_sample_count_ = sample_count;
+      if (trajectory_copy.size() >= 2) {
+        last_trajectory_marker_published_ = true;
+      } else if (last_trajectory_marker_published_) {
+        out.markers.push_back(
+          make_delete_marker("ee_trajectory_history", 1000, parent_frame_, stamp));
+        last_trajectory_marker_published_ = false;
+      }
+    }
+
+    return out;
+  }
+
   // =========================
   // Timer loop
   // =========================
@@ -402,6 +743,14 @@ private:
     }
 
     const auto stamp = this->now();
+
+    if (have_ee_pose) {
+      pushTrajectorySample(ee_pose, stamp);
+    }
+
+    if (have_ee_pose && have_contact_q) {
+      pushHistorySample(ee_pose, contact_q, stamp);
+    }
 
     // 1) TF: world -> crazyflie
     if (have_pose) {
@@ -531,7 +880,28 @@ private:
       pub_contact_arrow_->publish(mk);
     }
 
-    // 9) Marker: drone velocity
+    // 9) Marker: estimated normal vector (x-axis of estimated contact frame)
+    if (have_ee_pose && have_contact_q) {
+      tf2::Quaternion q_wc(contact_q.x, contact_q.y, contact_q.z, contact_q.w);
+      q_wc.normalize();
+
+      tf2::Matrix3x3 r_wc(q_wc);
+      tf2::Vector3 n_w = r_wc.getColumn(0);
+
+      auto mk = make_arrow_marker(
+        "estimated_contact_normal", 0, parent_frame_, stamp,
+        ee_pose.pose.position.x, ee_pose.pose.position.y, ee_pose.pose.position.z,
+        n_w.x(), n_w.y(), n_w.z(),
+        normal_scale_, 0.0, 0.9, 0.9);
+      pub_estimated_normal_arrow_->publish(mk);
+    }
+
+    pub_contact_history_markers_->publish(makeContactHistoryMarkerArray(stamp));
+
+    pub_cylinder_marker_->publish(
+      make_cylinder_marker("environment_cylinder", 0, parent_frame_, stamp));
+
+    // 10) Marker: drone velocity
     if (have_pose && have_vel) {
       auto mk = make_arrow_marker(
         "drone_velocity", 0, parent_frame_, stamp,
@@ -541,7 +911,7 @@ private:
       pub_drone_vel_arrow_->publish(mk);
     }
 
-    // 10) Marker: drone acceleration
+    // 11) Marker: drone acceleration
     if (have_pose && have_acc) {
       auto mk = make_arrow_marker(
         "drone_acceleration", 0, parent_frame_, stamp,
@@ -551,7 +921,7 @@ private:
       pub_drone_acc_arrow_->publish(mk);
     }
 
-    // 11) Marker: EE velocity
+    // 12) Marker: EE velocity
     if (have_ee_pose && have_ee_vel) {
       auto mk = make_arrow_marker(
         "ee_velocity", 0, parent_frame_, stamp,
@@ -561,7 +931,7 @@ private:
       pub_ee_vel_arrow_->publish(mk);
     }
 
-    // 12) Marker: EE acceleration
+    // 13) Marker: EE acceleration
     if (have_ee_pose && have_ee_acc) {
       auto mk = make_arrow_marker(
         "ee_acceleration", 0, parent_frame_, stamp,
@@ -600,10 +970,13 @@ private:
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_mob_2nd_order_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_mob_consistency_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_contact_arrow_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_estimated_normal_arrow_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_contact_history_markers_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_drone_vel_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_drone_acc_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_ee_vel_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_ee_acc_arrow_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_cylinder_marker_;
 
   rclcpp::TimerBase::SharedPtr timer_;
 
@@ -647,6 +1020,13 @@ private:
   geometry_msgs::msg::Quaternion contact_q_;
   bool have_contact_q_{false};
 
+  std::mutex history_mtx_;
+  std::deque<HistorySample> contact_frame_history_;
+  std::deque<TrajectorySample> trajectory_history_;
+  rclcpp::Time last_history_sample_time_{0, 0, RCL_ROS_TIME};
+  size_t last_contact_frame_sample_count_{0};
+  bool last_trajectory_marker_published_{false};
+
   // =========================
   // Params
   // =========================
@@ -675,9 +1055,14 @@ private:
   std::string contact_force_topic_;
   std::string contact_frame_quat_topic_;
   std::string est_contact_frame_;
+  std::string cylinder_marker_topic_;
 
   double force_scale_{10.0};
   double contact_force_scale_{10.0};
+  double normal_scale_{0.2};
+  double history_axis_scale_{0.08};
+  double history_sample_period_{0.5};
+  double history_duration_{15.0};
   double drone_vel_scale_{1.0};
   double drone_acc_scale_{1.0};
   double ee_vel_scale_{1.0};
@@ -687,6 +1072,12 @@ private:
   double arrow_head_diam_{0.02};
   double arrow_head_len_{0.04};
   double publish_hz_{60.0};
+  double cylinder_pos_x_{1.5};
+  double cylinder_pos_y_{0.0};
+  double cylinder_pos_z_{0.0};
+  double cylinder_radius_{1.0};
+  double cylinder_half_height_{10.0};
+  std::vector<double> cylinder_rgba_{0.75, 0.93, 0.75, 0.85};
 };
 
 int main(int argc, char** argv)

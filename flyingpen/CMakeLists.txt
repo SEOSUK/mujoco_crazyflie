@@ -60,12 +60,24 @@ ament_target_dependencies(wrench_observer
 )
 target_link_libraries(wrench_observer Eigen3::Eigen)
 
+# normal_vector_estimation node
+add_executable(normal_vector_estimation
+  src/normal_vector_estimation.cpp
+)
+ament_target_dependencies(normal_vector_estimation
+  rclcpp
+  std_msgs
+  geometry_msgs
+)
+target_link_libraries(normal_vector_estimation Eigen3::Eigen)
+
 # ---------------- install ----------------
 install(TARGETS
   trajectory8
   trajectory_step
   trajectory_generation
   wrench_observer
+  normal_vector_estimation
   DESTINATION lib/${PROJECT_NAME}
 )
 
