@@ -1,0 +1,36 @@
+[0.043s] Invoking command in '/home/seosuk/mujoco_crazyflie/src/build/flyingpen': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/seosuk/sitl_ws/install/px4_offboard:/home/seosuk/sitl_ws/install/crazyflie_py /usr/bin/cmake --build /home/seosuk/mujoco_crazyflie/src/build/flyingpen -- -j20 -l20
+[0.136s] Consolidate compiler generated dependencies of target trajectory_step
+[0.143s] Consolidate compiler generated dependencies of target trajectory8
+[0.143s] Consolidate compiler generated dependencies of target wrench_observer
+[0.144s] Consolidate compiler generated dependencies of target trajectory_generation
+[0.169s] [ 25%] Built target trajectory_step
+[0.180s] [ 37%] Building CXX object CMakeFiles/wrench_observer.dir/src/wrench_observer.cpp.o
+[0.181s] [ 62%] Built target trajectory8
+[0.184s] [ 87%] Built target trajectory_generation
+[9.025s] [100%] Linking CXX executable wrench_observer
+[9.493s] [100%] Built target wrench_observer
+[9.503s] Invoked command in '/home/seosuk/mujoco_crazyflie/src/build/flyingpen' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/seosuk/sitl_ws/install/px4_offboard:/home/seosuk/sitl_ws/install/crazyflie_py /usr/bin/cmake --build /home/seosuk/mujoco_crazyflie/src/build/flyingpen -- -j20 -l20
+[9.510s] Invoking command in '/home/seosuk/mujoco_crazyflie/src/build/flyingpen': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/seosuk/sitl_ws/install/px4_offboard:/home/seosuk/sitl_ws/install/crazyflie_py /usr/bin/cmake --install /home/seosuk/mujoco_crazyflie/src/build/flyingpen
+[9.515s] -- Install configuration: ""
+[9.516s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib/flyingpen/trajectory_generation
+[9.517s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib/flyingpen/trajectory8
+[9.517s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib/flyingpen/trajectory_step
+[9.517s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib/flyingpen/trajectory_generation
+[9.518s] -- Installing: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib/flyingpen/wrench_observer
+[9.522s] -- Set runtime path of "/home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib/flyingpen/wrench_observer" to ""
+[9.522s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/ament_index/resource_index/package_run_dependencies/flyingpen
+[9.522s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/ament_index/resource_index/parent_prefix_path/flyingpen
+[9.522s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/environment/ament_prefix_path.sh
+[9.522s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/environment/ament_prefix_path.dsv
+[9.522s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/environment/path.sh
+[9.522s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/environment/path.dsv
+[9.522s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/local_setup.bash
+[9.522s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/local_setup.sh
+[9.522s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/local_setup.zsh
+[9.522s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/local_setup.dsv
+[9.522s] -- Installing: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/package.dsv
+[9.523s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/ament_index/resource_index/packages/flyingpen
+[9.523s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/cmake/flyingpenConfig.cmake
+[9.523s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/cmake/flyingpenConfig-version.cmake
+[9.523s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/package.xml
+[9.523s] Invoked command in '/home/seosuk/mujoco_crazyflie/src/build/flyingpen' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/seosuk/sitl_ws/install/px4_offboard:/home/seosuk/sitl_ws/install/crazyflie_py /usr/bin/cmake --install /home/seosuk/mujoco_crazyflie/src/build/flyingpen

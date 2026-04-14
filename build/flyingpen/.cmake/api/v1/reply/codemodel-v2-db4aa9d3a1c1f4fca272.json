@@ -1,0 +1,106 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-.-7b45b269d3f81d1ac88b.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.12"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5
+					]
+				}
+			],
+			"name" : "",
+			"projects" : 
+			[
+				{
+					"directoryIndexes" : 
+					[
+						0
+					],
+					"name" : "flyingpen",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "flyingpen_uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-flyingpen_uninstall-3da0db8472d3a6d39f0b.json",
+					"name" : "flyingpen_uninstall",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "trajectory8::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-trajectory8-b18574ea07bde87f8f7c.json",
+					"name" : "trajectory8",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "trajectory_generation::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-trajectory_generation-7718ecc9027fed330bcc.json",
+					"name" : "trajectory_generation",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "trajectory_step::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-trajectory_step-7e3d60027ad7f9102def.json",
+					"name" : "trajectory_step",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-uninstall-9c781efd0f2be4b2c97a.json",
+					"name" : "uninstall",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "wrench_observer::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-wrench_observer-cdccd6ee8825d90b8439.json",
+					"name" : "wrench_observer",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "/home/seosuk/mujoco_crazyflie/src/build/flyingpen",
+		"source" : "/home/seosuk/mujoco_crazyflie/src/flyingpen"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 3
+	}
+}

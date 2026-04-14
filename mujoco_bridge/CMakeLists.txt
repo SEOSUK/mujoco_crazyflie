@@ -26,6 +26,7 @@ message(STATUS "MUJOCO_LIBRARY     = ${MUJOCO_LIBRARY}")
 add_executable(mujoco_bridge_node
   src/mujoco_bridge.cpp
   src/mujoco_contact.cpp
+  src/viewer_controls.cpp
 )
 
 target_include_directories(mujoco_bridge_node PUBLIC

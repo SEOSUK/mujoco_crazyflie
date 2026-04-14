@@ -4,7 +4,7 @@
   </asset>
 
   <worldbody>
-    <body name="wall" pos="1.5 0 0" quat="0.7071 0 0 0.7071">
+    <body name="wall" pos="0.2 0 0" quat="0.7071 0 0 0.7071">
       <!-- visual -->
       <geom name="wall_visual"
             type="mesh"
@@ -22,6 +22,7 @@
             condim="3"
             contype="2"
             conaffinity="8"
+            friction="0.2 0 0"
             mass="0"/>
     </body>
   </worldbody>

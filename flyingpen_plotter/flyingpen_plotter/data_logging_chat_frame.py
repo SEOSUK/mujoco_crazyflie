@@ -44,9 +44,11 @@ class ROSDataBuffer(Node):
 
         self.declare_parameter("history_sec", 8.0)
         self.declare_parameter("update_hz", 50.0)
+        self.declare_parameter("force_meas_lpf_hz", 3.0)
 
         self.history_sec = float(self.get_parameter("history_sec").value)
         self.update_hz = float(self.get_parameter("update_hz").value)
+        self.force_meas_lpf_hz = float(self.get_parameter("force_meas_lpf_hz").value)
 
         self.lock = threading.Lock()
         self.t0 = self.get_clock().now().nanoseconds * 1e-9
@@ -66,6 +68,10 @@ class ROSDataBuffer(Node):
 
         self.latest_scalar = {k: np.nan for k in keys}
         self.contact_R_C = np.eye(3, dtype=float)
+
+        # LPF state for measured force
+        self.force_x_act_filt = np.nan
+        self.force_lpf_prev_t = None
 
         self.create_subscription(QuaternionStamped, "/estimated_contact_frame_quat", self.cb_contact_quat, 10)
         self.create_subscription(Vector3Stamped, "/su/debug/contact_vel_cmd", self.cb_contact_vel_cmd, 10)
@@ -100,8 +106,24 @@ class ROSDataBuffer(Node):
             self.latest_scalar["force_x_cmd"] = float(msg.data)
 
     def cb_force_x_actual(self, msg: Float32) -> None:
+        raw = float(msg.data)
+        now = self.get_clock().now().nanoseconds * 1e-9
+
         with self.lock:
-            self.latest_scalar["force_x_act"] = float(msg.data)
+            if np.isnan(self.force_x_act_filt):
+                self.force_x_act_filt = raw
+                self.force_lpf_prev_t = now
+            else:
+                dt = 0.0 if self.force_lpf_prev_t is None else max(0.0, now - self.force_lpf_prev_t)
+                self.force_lpf_prev_t = now
+
+                fc = max(1e-6, self.force_meas_lpf_hz)
+                rc = 1.0 / (2.0 * np.pi * fc)
+                alpha = 1.0 if dt <= 0.0 else dt / (rc + dt)
+
+                self.force_x_act_filt = self.force_x_act_filt + alpha * (raw - self.force_x_act_filt)
+
+            self.latest_scalar["force_x_act"] = float(self.force_x_act_filt)
 
     def cb_motor_thrust(self, msg: Float32MultiArray) -> None:
         if len(msg.data) < 4:
@@ -316,9 +338,9 @@ class PlotWindow(QMainWindow):
         self.vel_z_plot.layout().itemAt(1).widget().setYRange(-0.5, 0.5, padding=0.0)
         self.force_x_plot.layout().itemAt(1).widget().setYRange(0.0, 0.1, padding=0.0)
 
-        self.tau_x_plot.layout().itemAt(1).widget().setYRange(-0.01, 0.01, padding=0.0)
-        self.tau_y_plot.layout().itemAt(1).widget().setYRange(-0.01, 0.01, padding=0.0)
-        self.tau_z_plot.layout().itemAt(1).widget().setYRange(-0.01, 0.01, padding=0.0)
+        self.tau_x_plot.layout().itemAt(1).widget().setYRange(-0.005, 0.005, padding=0.0)
+        self.tau_y_plot.layout().itemAt(1).widget().setYRange(-0.005, 0.005, padding=0.0)
+        self.tau_z_plot.layout().itemAt(1).widget().setYRange(-0.005, 0.005, padding=0.0)
 
 
 def main() -> int:

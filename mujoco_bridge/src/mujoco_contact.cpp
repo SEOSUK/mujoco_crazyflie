@@ -98,14 +98,16 @@ MujocoContact::MujocoContact(
   use_exp_alpha_ = node_->get_parameter("contact_filter.use_exp_alpha").as_bool();
 
   gid_tip_ = mj_name2id(model_, mjOBJ_GEOM, "ee_tip_sphere");
-  gid_box_ = mj_name2id(model_, mjOBJ_GEOM, "cylinder_collision");
 
   if (gid_tip_ < 0) {
     throw std::runtime_error("geom not found: ee_tip_sphere");
   }
-  if (gid_box_ < 0) {
-    throw std::runtime_error("geom not found: cylinder_collision");
+
+  const int tip_body_id = model_->geom_bodyid[gid_tip_];
+  if (tip_body_id < 0) {
+    throw std::runtime_error("failed to resolve body for ee_tip_sphere");
   }
+  tip_root_body_id_ = model_->body_rootid[tip_body_id];
 
   if (contact_filter_enable_) {
     const auto period = std::chrono::duration<double>(1.0 / std::max(1e-6, contact_timer_hz_));
@@ -113,6 +115,23 @@ MujocoContact::MujocoContact(
       std::chrono::duration_cast<std::chrono::nanoseconds>(period),
       std::bind(&MujocoContact::contact_filter_timer_cb, this));
   }
+}
+
+bool MujocoContact::is_external_geom(int geom_id) const
+{
+  if (geom_id < 0 || geom_id >= model_->ngeom) {
+    return false;
+  }
+  if (geom_id == gid_tip_) {
+    return false;
+  }
+
+  const int body_id = model_->geom_bodyid[geom_id];
+  if (body_id < 0 || body_id >= model_->nbody) {
+    return false;
+  }
+
+  return model_->body_rootid[body_id] != tip_root_body_id_;
 }
 
 void MujocoContact::update_raw_and_publish(const rclcpp::Time& stamp)
@@ -206,7 +225,14 @@ void MujocoContact::compute_contact_resultant_locked()
     const int g1 = con.geom1;
     const int g2 = con.geom2;
 
-    if (!((g1 == gid_tip_ && g2 == gid_box_) || (g1 == gid_box_ && g2 == gid_tip_))) {
+    const bool tip_is_g1 = (g1 == gid_tip_);
+    const bool tip_is_g2 = (g2 == gid_tip_);
+    if (!tip_is_g1 && !tip_is_g2) {
+      continue;
+    }
+
+    const int other_geom = tip_is_g1 ? g2 : g1;
+    if (!is_external_geom(other_geom)) {
       continue;
     }
 
@@ -215,7 +241,7 @@ void MujocoContact::compute_contact_resultant_locked()
       const char* name2 = mj_id2name(model_, mjOBJ_GEOM, g2);
       RCLCPP_DEBUG(
         node_->get_logger(),
-        "contact geom pair: %s / %s",
+        "contact geom pair accepted: %s / %s",
         name1 ? name1 : "(null)",
         name2 ? name2 : "(null)");
     }

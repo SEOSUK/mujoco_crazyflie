@@ -9,6 +9,7 @@
 // Note:
 // - logs "latest" values (not time-synchronized).
 // - writes one row per publish().
+// - appends MOB compare and consistency-observer debug wrench signals at the end of each row.
 
 #include <rclcpp/rclcpp.hpp>
 
@@ -199,6 +200,22 @@ public:
       "/su/force_lpf", 10,
       std::bind(&DataLogger::cb_force_lpf, this, std::placeholders::_1));
 
+    sub_mob_wrench_ = create_subscription<geometry_msgs::msg::WrenchStamped>(
+      "/crazyflie/out/mob", 10,
+      std::bind(&DataLogger::cb_mob_wrench, this, std::placeholders::_1));
+    sub_mob_wrench_2nd_order_ = create_subscription<geometry_msgs::msg::WrenchStamped>(
+      "/crazyflie/out/mob_2nd", 10,
+      std::bind(&DataLogger::cb_mob_wrench_2nd_order, this, std::placeholders::_1));
+    sub_mob_wrench_2nd_tau_ = create_subscription<geometry_msgs::msg::WrenchStamped>(
+      "/crazyflie/out/mob_2nd_tau", 10,
+      std::bind(&DataLogger::cb_mob_wrench_2nd_tau, this, std::placeholders::_1));
+    sub_mob_2nd_tau_terms_ = create_subscription<geometry_msgs::msg::WrenchStamped>(
+      "/crazyflie/out/mob_2nd_tau_terms", 10,
+      std::bind(&DataLogger::cb_mob_2nd_tau_terms, this, std::placeholders::_1));
+    sub_mob_2nd_tau_consistency_ = create_subscription<geometry_msgs::msg::WrenchStamped>(
+      "/crazyflie/out/mob_2nd_tau_consistency", 10,
+      std::bind(&DataLogger::cb_mob_2nd_tau_consistency, this, std::placeholders::_1));
+
 
     // Timer
     const auto period = std::chrono::duration<double>(1.0 / publish_hz_);
@@ -239,7 +256,14 @@ private:
       "contact_Fx_filt,contact_Fy_filt,contact_Fz_filt,"
       "cmd_force,"
       "F_error_dot_raw,F_error_dot_filt,"
-      "validity_bitmask\n";
+      "validity_bitmask,"
+      "mob_Fx,mob_Fy,mob_Fz,mob_Tx,mob_Ty,mob_Tz,"
+      "mob_2nd_order_Fx,mob_2nd_order_Fy,mob_2nd_order_Fz,mob_2nd_order_Tx,mob_2nd_order_Ty,mob_2nd_order_Tz,"
+      "mob_2nd_tau_Fx,mob_2nd_tau_Fy,mob_2nd_tau_Fz,mob_2nd_tau_Tx,mob_2nd_tau_Ty,mob_2nd_tau_Tz,"
+      "mob_2nd_tau_kfep_x,mob_2nd_tau_kfep_y,mob_2nd_tau_kfep_z,"
+      "mob_2nd_tau_consistency_x,mob_2nd_tau_consistency_y,mob_2nd_tau_consistency_z,"
+      "mob_2nd_tau_tauhat_x,mob_2nd_tau_tauhat_y,mob_2nd_tau_tauhat_z,"
+      "mob_2nd_tau_rxf_x,mob_2nd_tau_rxf_y,mob_2nd_tau_rxf_z\n";
     csv_.flush();
   }
 
@@ -365,6 +389,46 @@ private:
     have_force_lpf_ = true;
   }
 
+  void cb_mob_wrench(const geometry_msgs::msg::WrenchStamped::SharedPtr m)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    mob_force_v1_ << m->wrench.force.x, m->wrench.force.y, m->wrench.force.z;
+    mob_torque_v1_ << m->wrench.torque.x, m->wrench.torque.y, m->wrench.torque.z;
+    have_mob_wrench_ = true;
+  }
+
+  void cb_mob_wrench_2nd_order(const geometry_msgs::msg::WrenchStamped::SharedPtr m)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    mob_force_2nd_order_ << m->wrench.force.x, m->wrench.force.y, m->wrench.force.z;
+    mob_torque_2nd_order_ << m->wrench.torque.x, m->wrench.torque.y, m->wrench.torque.z;
+    have_mob_wrench_2nd_order_ = true;
+  }
+
+  void cb_mob_wrench_2nd_tau(const geometry_msgs::msg::WrenchStamped::SharedPtr m)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    mob_force_2nd_tau_ << m->wrench.force.x, m->wrench.force.y, m->wrench.force.z;
+    mob_torque_2nd_tau_ << m->wrench.torque.x, m->wrench.torque.y, m->wrench.torque.z;
+    have_mob_wrench_2nd_tau_ = true;
+  }
+
+  void cb_mob_2nd_tau_terms(const geometry_msgs::msg::WrenchStamped::SharedPtr m)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    mob_2nd_tau_kfep_ << m->wrench.force.x, m->wrench.force.y, m->wrench.force.z;
+    mob_2nd_tau_consistency_term_ << m->wrench.torque.x, m->wrench.torque.y, m->wrench.torque.z;
+    have_mob_2nd_tau_terms_ = true;
+  }
+
+  void cb_mob_2nd_tau_consistency(const geometry_msgs::msg::WrenchStamped::SharedPtr m)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    mob_2nd_tau_tauhat_world_ << m->wrench.force.x, m->wrench.force.y, m->wrench.force.z;
+    mob_2nd_tau_rxf_world_ << m->wrench.torque.x, m->wrench.torque.y, m->wrench.torque.z;
+    have_mob_2nd_tau_consistency_ = true;
+  }
+
 
 
 
@@ -373,6 +437,10 @@ private:
   void publish()
   {
     Eigen::Vector3d cmd_pos, pos, vel, w, acc, angacc, vdes, wdes, tau, contact_F_raw, contact_F_filt;
+    Eigen::Vector3d mob_force, mob_torque, mob_force_2nd_order, mob_torque_2nd_order;
+    Eigen::Vector3d mob_force_2nd_tau, mob_torque_2nd_tau;
+    Eigen::Vector3d mob_2nd_tau_kfep, mob_2nd_tau_consistency_term;
+    Eigen::Vector3d mob_2nd_tau_tauhat_world, mob_2nd_tau_rxf_world;
     double cmd_yaw, roll, pitch, yaw;
     double rolld, pitchd, yawd;
     double Fz, cmd_force, F_error_dot_raw, F_error_dot_filt;
@@ -404,6 +472,16 @@ private:
       cmd_force = cmd_force_;
       F_error_dot_raw  = F_error_dot_raw_;
       F_error_dot_filt = F_error_dot_filt_;
+      mob_force = mob_force_v1_;
+      mob_torque = mob_torque_v1_;
+      mob_force_2nd_order = mob_force_2nd_order_;
+      mob_torque_2nd_order = mob_torque_2nd_order_;
+      mob_force_2nd_tau = mob_force_2nd_tau_;
+      mob_torque_2nd_tau = mob_torque_2nd_tau_;
+      mob_2nd_tau_kfep = mob_2nd_tau_kfep_;
+      mob_2nd_tau_consistency_term = mob_2nd_tau_consistency_term_;
+      mob_2nd_tau_tauhat_world = mob_2nd_tau_tauhat_world_;
+      mob_2nd_tau_rxf_world = mob_2nd_tau_rxf_world_;
 
 
       mask = 0u;
@@ -421,13 +499,18 @@ private:
       mask |= (have_contact_filt_ ? (1u<<11) : 0u);
       mask |= (have_cmd_force_ ? (1u<<12) : 0u);
       mask |= (have_force_lpf_ ? (1u<<13) : 0u);
+      mask |= (have_mob_wrench_ ? (1u<<14) : 0u);
+      mask |= (have_mob_wrench_2nd_order_ ? (1u<<15) : 0u);
+      mask |= (have_mob_wrench_2nd_tau_ ? (1u<<16) : 0u);
+      mask |= (have_mob_2nd_tau_terms_ ? (1u<<17) : 0u);
+      mask |= (have_mob_2nd_tau_consistency_ ? (1u<<18) : 0u);
 
     }
 
     const double t = this->get_clock()->now().seconds();
 
     std_msgs::msg::Float64MultiArray msg;
-    msg.data.resize(46);
+    msg.data.resize(76);
 
     msg.data[0]  = t;
 
@@ -492,6 +575,36 @@ private:
     msg.data[44] = F_error_dot_filt;
 
     msg.data[45] = static_cast<double>(mask);
+    msg.data[46] = mob_force.x();
+    msg.data[47] = mob_force.y();
+    msg.data[48] = mob_force.z();
+    msg.data[49] = mob_torque.x();
+    msg.data[50] = mob_torque.y();
+    msg.data[51] = mob_torque.z();
+    msg.data[52] = mob_force_2nd_order.x();
+    msg.data[53] = mob_force_2nd_order.y();
+    msg.data[54] = mob_force_2nd_order.z();
+    msg.data[55] = mob_torque_2nd_order.x();
+    msg.data[56] = mob_torque_2nd_order.y();
+    msg.data[57] = mob_torque_2nd_order.z();
+    msg.data[58] = mob_force_2nd_tau.x();
+    msg.data[59] = mob_force_2nd_tau.y();
+    msg.data[60] = mob_force_2nd_tau.z();
+    msg.data[61] = mob_torque_2nd_tau.x();
+    msg.data[62] = mob_torque_2nd_tau.y();
+    msg.data[63] = mob_torque_2nd_tau.z();
+    msg.data[64] = mob_2nd_tau_kfep.x();
+    msg.data[65] = mob_2nd_tau_kfep.y();
+    msg.data[66] = mob_2nd_tau_kfep.z();
+    msg.data[67] = mob_2nd_tau_consistency_term.x();
+    msg.data[68] = mob_2nd_tau_consistency_term.y();
+    msg.data[69] = mob_2nd_tau_consistency_term.z();
+    msg.data[70] = mob_2nd_tau_tauhat_world.x();
+    msg.data[71] = mob_2nd_tau_tauhat_world.y();
+    msg.data[72] = mob_2nd_tau_tauhat_world.z();
+    msg.data[73] = mob_2nd_tau_rxf_world.x();
+    msg.data[74] = mob_2nd_tau_rxf_world.y();
+    msg.data[75] = mob_2nd_tau_rxf_world.z();
 
 
 
@@ -515,7 +628,17 @@ private:
            << msg.data[39] << "," << msg.data[40] << "," << msg.data[41] << ","
            << msg.data[42] << ","
            << msg.data[43] << "," << msg.data[44] << ","
-           << static_cast<uint64_t>(mask)
+           << static_cast<uint64_t>(mask) << ","
+           << msg.data[46] << "," << msg.data[47] << "," << msg.data[48] << ","
+           << msg.data[49] << "," << msg.data[50] << "," << msg.data[51] << ","
+           << msg.data[52] << "," << msg.data[53] << "," << msg.data[54] << ","
+           << msg.data[55] << "," << msg.data[56] << "," << msg.data[57] << ","
+           << msg.data[58] << "," << msg.data[59] << "," << msg.data[60] << ","
+           << msg.data[61] << "," << msg.data[62] << "," << msg.data[63] << ","
+           << msg.data[64] << "," << msg.data[65] << "," << msg.data[66] << ","
+           << msg.data[67] << "," << msg.data[68] << "," << msg.data[69] << ","
+           << msg.data[70] << "," << msg.data[71] << "," << msg.data[72] << ","
+           << msg.data[73] << "," << msg.data[74] << "," << msg.data[75]
            << "\n";
 
       if (++csv_line_count_ % 200 == 0) {
@@ -552,6 +675,16 @@ private:
   double cmd_force_{0.0};
   double F_error_dot_raw_{0.0};
   double F_error_dot_filt_{0.0};
+  Eigen::Vector3d mob_force_v1_{0,0,0};
+  Eigen::Vector3d mob_torque_v1_{0,0,0};
+  Eigen::Vector3d mob_force_2nd_order_{0,0,0};
+  Eigen::Vector3d mob_torque_2nd_order_{0,0,0};
+  Eigen::Vector3d mob_force_2nd_tau_{0,0,0};
+  Eigen::Vector3d mob_torque_2nd_tau_{0,0,0};
+  Eigen::Vector3d mob_2nd_tau_kfep_{0,0,0};
+  Eigen::Vector3d mob_2nd_tau_consistency_term_{0,0,0};
+  Eigen::Vector3d mob_2nd_tau_tauhat_world_{0,0,0};
+  Eigen::Vector3d mob_2nd_tau_rxf_world_{0,0,0};
 
 
   bool have_force_lpf_{false};
@@ -568,6 +701,11 @@ private:
   bool have_cmd_force_{false};
   bool have_contact_raw_{false};
   bool have_contact_filt_{false};
+  bool have_mob_wrench_{false};
+  bool have_mob_wrench_2nd_order_{false};
+  bool have_mob_wrench_2nd_tau_{false};
+  bool have_mob_2nd_tau_terms_{false};
+  bool have_mob_2nd_tau_consistency_{false};
 
   double publish_hz_{400.0};
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr pub_;
@@ -587,6 +725,11 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_contact_filt_;
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_cmd_force_;
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_force_lpf_;
+  rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_wrench_;
+  rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_wrench_2nd_order_;
+  rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_wrench_2nd_tau_;
+  rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_2nd_tau_terms_;
+  rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_2nd_tau_consistency_;
 
 
   std::string csv_dir_;

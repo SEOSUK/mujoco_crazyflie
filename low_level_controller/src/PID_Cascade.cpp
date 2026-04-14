@@ -47,9 +47,11 @@ static inline double yaw_from_quat(double x, double y, double z, double w)
 
 // ---------------- PID ----------------
 struct PID {
-  double kp{0}, kd{0};
+  double kp{0}, ki{0}, kd{0};
   double prev{0};
   bool first{true};
+  double i_state{0.0};
+  double i_limit{1e9};
 
   // 1st-order LPF for derivative term
   double d_filt{0.0};
@@ -67,6 +69,8 @@ struct PID {
 
   double step(double err, double dt) {
     if (dt <= 0) return 0;
+
+    i_state = clamp(i_state + err * dt, -i_limit, i_limit);
 
     // raw numerical derivative of error
     double raw_d = 0.0;
@@ -87,26 +91,33 @@ struct PID {
       d_filt = d_filt + a * (raw_d - d_filt);
     }
 
-    return kp*err + kd*d_filt;
+    return kp*err + ki*i_state + kd*d_filt;
   }
 
   void reset() {
     prev = 0;
     first = true;
+    i_state = 0.0;
     d_filt = 0.0;
     d_first = true;
   }
 
-  void declare(rclcpp::Node* node, const std::string& prefix, double kp_default, double kd_default)
+  void declare(
+    rclcpp::Node* node, const std::string& prefix, double kp_default, double ki_default,
+    double kd_default, double i_limit_default = 1e9)
   {
     kp = node->declare_parameter(prefix + ".kp", kp_default);
+    ki = node->declare_parameter(prefix + ".ki", ki_default);
     kd = node->declare_parameter(prefix + ".kd", kd_default);
+    i_limit = node->declare_parameter(prefix + ".i_limit", i_limit_default);
   }
 
   void refresh(rclcpp::Node* node, const std::string& prefix)
   {
     kp = node->get_parameter(prefix + ".kp").as_double();
+    ki = node->get_parameter(prefix + ".ki").as_double();
     kd = node->get_parameter(prefix + ".kd").as_double();
+    i_limit = node->get_parameter(prefix + ".i_limit").as_double();
   }
 };
 
@@ -132,21 +143,21 @@ public:
     dt_rate_ = declare_parameter("dt.rate", 0.0025);  // 400 Hz
 
     // ---------- params (PID gains) ----------
-    pos_x_.declare(this, "pos.x", 1.5, 0.0);
-    pos_y_.declare(this, "pos.y", 1.5, 0.0);
-    pos_z_.declare(this, "pos.z", 2.0, 0.0);
+    pos_x_.declare(this, "pos.x", 1.5, 0.0, 0.0);
+    pos_y_.declare(this, "pos.y", 1.5, 0.0, 0.0);
+    pos_z_.declare(this, "pos.z", 2.0, 0.0, 0.0);
 
-    vel_x_.declare(this, "vel.x", 3.0, 0.0);
-    vel_y_.declare(this, "vel.y", 3.0, 0.0);
-    vel_z_.declare(this, "vel.z", 6.0, 0.0);
+    vel_x_.declare(this, "vel.x", 3.0, 0.0, 0.0);
+    vel_y_.declare(this, "vel.y", 3.0, 0.0, 0.0);
+    vel_z_.declare(this, "vel.z", 6.0, 0.0, 0.0);
 
-    att_r_.declare(this, "att.roll", 6.0, 0.0);
-    att_p_.declare(this, "att.pitch", 6.0, 0.0);
-    att_y_.declare(this, "att.yaw", 3.0, 0.0);
+    att_r_.declare(this, "att.roll", 6.0, 0.0, 0.0, 0.5);
+    att_p_.declare(this, "att.pitch", 6.0, 0.0, 0.0, 0.5);
+    att_y_.declare(this, "att.yaw", 3.0, 0.0, 0.0, 0.5);
 
-    rate_r_.declare(this, "rate.roll", 0.002, 0.0);
-    rate_p_.declare(this, "rate.pitch", 0.002, 0.0);
-    rate_y_.declare(this, "rate.yaw", 0.001, 0.0);
+    rate_r_.declare(this, "rate.roll", 0.002, 0.0, 0.0, 1.0);
+    rate_p_.declare(this, "rate.pitch", 0.002, 0.0, 0.0, 1.0);
+    rate_y_.declare(this, "rate.yaw", 0.001, 0.0, 0.0, 1.0);
 
     // ---------- subs ----------
     sub_cmd_ = create_subscription<std_msgs::msg::Float64MultiArray>(

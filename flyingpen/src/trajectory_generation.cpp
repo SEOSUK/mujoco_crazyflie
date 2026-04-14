@@ -34,7 +34,7 @@ public:
       "reference_object", "drone");   // "drone" or "end_effector"
 
     normal_estimator_method_ = this->declare_parameter<std::string>(
-      "normal_estimator_method", "direct"); // "direct", "kroc", "action_normal"
+      "normal_estimator_method", "direct"); // "direct", "kroc", "action_normal", "None"
 
     flip_measured_force_ = this->declare_parameter<bool>(
       "flip_measured_force", false);
@@ -544,6 +544,15 @@ private:
 
   bool updateContactFrame(ContactFrame &cf_out, const ReferenceState &ref)
   {
+    if (
+      normal_estimator_method_ == "None" ||
+      normal_estimator_method_ == "none" ||
+      normal_estimator_method_ == "NONE")
+    {
+      cf_out.valid = false;
+      return false;
+    }
+
     bool ok = false;
 
     if (normal_estimator_method_ == "kroc") {
@@ -816,15 +825,11 @@ private:
 
     float su_cmd_fx_local = 0.0f;
     std::array<double,3> contact_F_local{0.0,0.0,0.0};
-    bool f_ok = false;
-
     {
       std::lock_guard<std::mutex> lk(force_mtx_);
       su_cmd_fx_local = su_cmd_fx_;
       contact_F_local = contact_F_;
-      f_ok = f_ext_received_;
     }
-    if (!f_ok) return;
 
     ReferenceState ref;
     {
@@ -851,17 +856,12 @@ private:
 
     ContactFrame cf_local = cf_;
     const bool cf_ok = updateContactFrame(cf_local, ref);
-    if (!(cf_ok && cf_local.valid)) {
-      std_msgs::msg::Float32 fcx_msg;
-      fcx_msg.data = std::numeric_limits<float>::quiet_NaN();
-      pub_contact_force_x_->publish(fcx_msg);
-      eF_state_initialized_ = false;
-      return;
+    double Fcx = 0.0;
+    if (cf_ok && cf_local.valid) {
+      cf_ = cf_local;
+      const Eigen::Vector3d Fc = cf_local.R_C.transpose() * Fw;
+      Fcx = Fc.x();
     }
-    cf_ = cf_local;
-
-    const Eigen::Vector3d Fc = cf_local.R_C.transpose() * Fw;
-    const double Fcx = Fc.x();
 
     std_msgs::msg::Float32 fcx_msg;
     fcx_msg.data = static_cast<float>(Fcx);
