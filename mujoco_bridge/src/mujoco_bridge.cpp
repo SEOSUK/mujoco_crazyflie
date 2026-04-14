@@ -1,4 +1,5 @@
 #include "mujoco_bridge/mujoco_contact.hpp"
+#include "mujoco_bridge/viewer_controls.hpp"
 
 #include <mujoco/mujoco.h>
 #include <GLFW/glfw3.h>
@@ -137,6 +138,48 @@ inline std::array<double, 3> lpf3(
   };
 }
 
+inline double lpf_alpha(const double dt, const double cutoff_hz)
+{
+  if (cutoff_hz <= 1e-9) {
+    return 1.0;
+  }
+  const double wc = 2.0 * M_PI * cutoff_hz;
+  return 1.0 - std::exp(-wc * dt);
+}
+
+inline double wrap_to_pi(double angle)
+{
+  while (angle > M_PI) {
+    angle -= 2.0 * M_PI;
+  }
+  while (angle < -M_PI) {
+    angle += 2.0 * M_PI;
+  }
+  return angle;
+}
+
+inline std::array<double, 4> quat_nlerp_wxyz(
+  const std::array<double, 4>& q_prev,
+  const std::array<double, 4>& q_curr,
+  const double alpha)
+{
+  std::array<double, 4> q_target = q_curr;
+  const double dot = q_prev[0] * q_curr[0] + q_prev[1] * q_curr[1] +
+    q_prev[2] * q_curr[2] + q_prev[3] * q_curr[3];
+  if (dot < 0.0) {
+    for (double &v : q_target) {
+      v = -v;
+    }
+  }
+
+  return quat_normalize_wxyz({
+    (1.0 - alpha) * q_prev[0] + alpha * q_target[0],
+    (1.0 - alpha) * q_prev[1] + alpha * q_target[1],
+    (1.0 - alpha) * q_prev[2] + alpha * q_target[2],
+    (1.0 - alpha) * q_prev[3] + alpha * q_target[3]
+  });
+}
+
 inline std::array<double, 3> sine3(
   const double t,
   const double hz,
@@ -175,13 +218,6 @@ struct ViewerContext
   mjvScene scn{};
   mjrContext con{};
   mjvPerturb pert{};
-
-  bool button_left{false};
-  bool button_middle{false};
-  bool button_right{false};
-
-  double last_x{0.0};
-  double last_y{0.0};
 
   double orbit_sensitivity{1.0};
   double pan_sensitivity{1.0};
@@ -265,6 +301,17 @@ private:
     declare_parameter("noise.lpf.enable", false);
     declare_parameter("noise.lpf.cutoff_hz", 30.0);
 
+    declare_parameter("state_filter.pos.enable", false);
+    declare_parameter("state_filter.pos.cutoff_hz", 10.0);
+    declare_parameter("state_filter.att.enable", false);
+    declare_parameter("state_filter.att.cutoff_hz", 10.0);
+    declare_parameter("state_filter.vel.enable", false);
+    declare_parameter("state_filter.vel.cutoff_hz", 10.0);
+    declare_parameter("state_filter.ang_vel.enable", false);
+    declare_parameter("state_filter.ang_vel.cutoff_hz", 10.0);
+    declare_parameter("state_filter.acc.enable", false);
+    declare_parameter("state_filter.acc.cutoff_hz", 10.0);
+
     declare_parameter("ang_acc_lpf.enable", true);
     declare_parameter("ang_acc_lpf.cutoff_hz", 10.0);
 
@@ -276,6 +323,8 @@ private:
     declare_parameter("viewer.orbit_sensitivity", 1.0);
     declare_parameter("viewer.pan_sensitivity", 1.2);
     declare_parameter("viewer.zoom_sensitivity", 1.0);
+    declare_parameter("viewer.prop_visual_spin.enable", true);
+    declare_parameter("viewer.prop_visual_spin_gain", 1800.0);
     declare_parameter("viewer.min_distance", 0.05);
     declare_parameter("viewer.max_distance", 30.0);
     declare_parameter("viewer.znear", 0.0002);
@@ -306,6 +355,17 @@ private:
     noise_lpf_enable_ = get_parameter("noise.lpf.enable").as_bool();
     noise_lpf_cutoff_hz_ = get_parameter("noise.lpf.cutoff_hz").as_double();
 
+    state_pos_lpf_enable_ = get_parameter("state_filter.pos.enable").as_bool();
+    state_pos_lpf_cutoff_hz_ = get_parameter("state_filter.pos.cutoff_hz").as_double();
+    state_att_lpf_enable_ = get_parameter("state_filter.att.enable").as_bool();
+    state_att_lpf_cutoff_hz_ = get_parameter("state_filter.att.cutoff_hz").as_double();
+    state_vel_lpf_enable_ = get_parameter("state_filter.vel.enable").as_bool();
+    state_vel_lpf_cutoff_hz_ = get_parameter("state_filter.vel.cutoff_hz").as_double();
+    state_ang_vel_lpf_enable_ = get_parameter("state_filter.ang_vel.enable").as_bool();
+    state_ang_vel_lpf_cutoff_hz_ = get_parameter("state_filter.ang_vel.cutoff_hz").as_double();
+    state_acc_lpf_enable_ = get_parameter("state_filter.acc.enable").as_bool();
+    state_acc_lpf_cutoff_hz_ = get_parameter("state_filter.acc.cutoff_hz").as_double();
+
     ang_acc_lpf_enable_ = get_parameter("ang_acc_lpf.enable").as_bool();
     ang_acc_lpf_cutoff_hz_ = get_parameter("ang_acc_lpf.cutoff_hz").as_double();
 
@@ -323,6 +383,8 @@ private:
     viewer_orbit_sensitivity_ = get_parameter("viewer.orbit_sensitivity").as_double();
     viewer_pan_sensitivity_ = get_parameter("viewer.pan_sensitivity").as_double();
     viewer_zoom_sensitivity_ = get_parameter("viewer.zoom_sensitivity").as_double();
+    prop_visual_spin_enable_ = get_parameter("viewer.prop_visual_spin.enable").as_bool();
+    prop_visual_spin_gain_ = get_parameter("viewer.prop_visual_spin_gain").as_double();
     viewer_min_distance_ = get_parameter("viewer.min_distance").as_double();
     viewer_max_distance_ = get_parameter("viewer.max_distance").as_double();
     viewer_znear_ = get_parameter("viewer.znear").as_double();
@@ -386,6 +448,19 @@ private:
       if (actuator_ids_[i] < 0) {
         throw std::runtime_error("Actuator not found: " + name);
       }
+
+      const std::string prop_name = "prop" + std::to_string(i);
+      prop_body_ids_[i] = mj_name2id(model_, mjOBJ_BODY, prop_name.c_str());
+      if (prop_body_ids_[i] < 0) {
+        throw std::runtime_error("Propeller body not found: " + prop_name);
+      }
+      const int qadr = 4 * prop_body_ids_[i];
+      prop_base_quat_[i] = {
+        static_cast<double>(model_->body_quat[qadr + 0]),
+        static_cast<double>(model_->body_quat[qadr + 1]),
+        static_cast<double>(model_->body_quat[qadr + 2]),
+        static_cast<double>(model_->body_quat[qadr + 3])
+      };
     }
 
     delay_steps_ = 0;
@@ -397,6 +472,7 @@ private:
     for (int i = 0; i < delay_steps_ + 1; ++i) {
       delay_buffer_.push_back({0.0, 0.0, 0.0, 0.0});
     }
+
   }
 
   int sensor_id(const std::string& name) const
@@ -496,6 +572,34 @@ private:
       const double u = std::clamp(f_applied[i], thrust_min_, thrust_max_);
       last_motor_thrust_[i] = u;
       data_->ctrl[actuator_ids_[i]] = static_cast<mjtNum>(u);
+    }
+  }
+
+  void update_propeller_visuals_locked()
+  {
+    if (!prop_visual_spin_enable_) {
+      for (int i = 0; i < 4; ++i) {
+        const int qadr = 4 * prop_body_ids_[i];
+        model_->body_quat[qadr + 0] = static_cast<mjtNum>(prop_base_quat_[i][0]);
+        model_->body_quat[qadr + 1] = static_cast<mjtNum>(prop_base_quat_[i][1]);
+        model_->body_quat[qadr + 2] = static_cast<mjtNum>(prop_base_quat_[i][2]);
+        model_->body_quat[qadr + 3] = static_cast<mjtNum>(prop_base_quat_[i][3]);
+      }
+      return;
+    }
+
+    for (int i = 0; i < 4; ++i) {
+      prop_spin_angle_[i] = wrap_to_pi(
+        prop_spin_angle_[i] + motor_dir_[i] * prop_visual_spin_gain_ * last_motor_thrust_[i] * dt_);
+      const std::array<double, 4> spin_q = {
+        std::cos(0.5 * prop_spin_angle_[i]), 0.0, 0.0, std::sin(0.5 * prop_spin_angle_[i])
+      };
+      const std::array<double, 4> q_prop = quat_mul_wxyz(prop_base_quat_[i], spin_q);
+      const int qadr = 4 * prop_body_ids_[i];
+      model_->body_quat[qadr + 0] = static_cast<mjtNum>(q_prop[0]);
+      model_->body_quat[qadr + 1] = static_cast<mjtNum>(q_prop[1]);
+      model_->body_quat[qadr + 2] = static_cast<mjtNum>(q_prop[2]);
+      model_->body_quat[qadr + 3] = static_cast<mjtNum>(q_prop[3]);
     }
   }
 
@@ -651,6 +755,47 @@ private:
       ang_vel_filt_ = gyro_noisy;
     }
 
+    if (!state_lpf_initialized_) {
+      pos_state_filt_ = pos_filt_;
+      att_state_filt_ = quat_noisy;
+      vel_state_filt_ = vel_filt_;
+      ang_vel_state_filt_ = ang_vel_filt_;
+      acc_state_filt_ = linacc_w;
+      state_lpf_initialized_ = true;
+    } else {
+      if (state_pos_lpf_enable_) {
+        pos_state_filt_ = lpf3(pos_filt_, pos_state_filt_, dt_, state_pos_lpf_cutoff_hz_);
+      } else {
+        pos_state_filt_ = pos_filt_;
+      }
+
+      if (state_att_lpf_enable_) {
+        att_state_filt_ = quat_nlerp_wxyz(
+          att_state_filt_, quat_noisy, lpf_alpha(dt_, state_att_lpf_cutoff_hz_));
+      } else {
+        att_state_filt_ = quat_noisy;
+      }
+
+      if (state_vel_lpf_enable_) {
+        vel_state_filt_ = lpf3(vel_filt_, vel_state_filt_, dt_, state_vel_lpf_cutoff_hz_);
+      } else {
+        vel_state_filt_ = vel_filt_;
+      }
+
+      if (state_ang_vel_lpf_enable_) {
+        ang_vel_state_filt_ = lpf3(
+          ang_vel_filt_, ang_vel_state_filt_, dt_, state_ang_vel_lpf_cutoff_hz_);
+      } else {
+        ang_vel_state_filt_ = ang_vel_filt_;
+      }
+
+      if (state_acc_lpf_enable_) {
+        acc_state_filt_ = lpf3(linacc_w, acc_state_filt_, dt_, state_acc_lpf_cutoff_hz_);
+      } else {
+        acc_state_filt_ = linacc_w;
+      }
+    }
+
     std::array<double, 3> angacc_b{0.0, 0.0, 0.0};
     const double dt = std::max(1e-6, dt_pub);
     if (prev_gyro_used_b_.has_value()) {
@@ -672,11 +817,11 @@ private:
     geometry_msgs::msg::PoseStamped pose_msg;
     pose_msg.header.stamp = stamp;
     pose_msg.header.frame_id = "world";
-    pose_msg.pose.position.x = pos_filt_[0];
-    pose_msg.pose.position.y = pos_filt_[1];
-    pose_msg.pose.position.z = pos_filt_[2];
+    pose_msg.pose.position.x = pos_state_filt_[0];
+    pose_msg.pose.position.y = pos_state_filt_[1];
+    pose_msg.pose.position.z = pos_state_filt_[2];
 
-    const auto q_xyzw = quat_wxyz_to_xyzw(quat_noisy);
+    const auto q_xyzw = quat_wxyz_to_xyzw(att_state_filt_);
     pose_msg.pose.orientation.x = q_xyzw[0];
     pose_msg.pose.orientation.y = q_xyzw[1];
     pose_msg.pose.orientation.z = q_xyzw[2];
@@ -686,17 +831,17 @@ private:
     geometry_msgs::msg::Vector3Stamped vel_msg;
     vel_msg.header.stamp = stamp;
     vel_msg.header.frame_id = "world";
-    vel_msg.vector.x = vel_filt_[0];
-    vel_msg.vector.y = vel_filt_[1];
-    vel_msg.vector.z = vel_filt_[2];
+    vel_msg.vector.x = vel_state_filt_[0];
+    vel_msg.vector.y = vel_state_filt_[1];
+    vel_msg.vector.z = vel_state_filt_[2];
     pub_vel_->publish(vel_msg);
 
     geometry_msgs::msg::Vector3Stamped angvel_msg;
     angvel_msg.header.stamp = stamp;
     angvel_msg.header.frame_id = "body";
-    angvel_msg.vector.x = ang_vel_filt_[0];
-    angvel_msg.vector.y = ang_vel_filt_[1];
-    angvel_msg.vector.z = ang_vel_filt_[2];
+    angvel_msg.vector.x = ang_vel_state_filt_[0];
+    angvel_msg.vector.y = ang_vel_state_filt_[1];
+    angvel_msg.vector.z = ang_vel_state_filt_[2];
     pub_angvel_->publish(angvel_msg);
 
     geometry_msgs::msg::Vector3Stamped angvel_gt_msg;
@@ -710,9 +855,9 @@ private:
     geometry_msgs::msg::Vector3Stamped acc_msg;
     acc_msg.header.stamp = stamp;
     acc_msg.header.frame_id = "world";
-    acc_msg.vector.x = linacc_w[0];
-    acc_msg.vector.y = linacc_w[1];
-    acc_msg.vector.z = linacc_w[2];
+    acc_msg.vector.x = acc_state_filt_[0];
+    acc_msg.vector.y = acc_state_filt_[1];
+    acc_msg.vector.z = acc_state_filt_[2];
     pub_acc_->publish(acc_msg);
 
     geometry_msgs::msg::Vector3Stamped angacc_msg;
@@ -746,6 +891,7 @@ private:
       {
         std::lock_guard<std::mutex> lock(scene_mtx_);
         apply_control_locked();
+        update_propeller_visuals_locked();
         mj_step(model_, data_);
       }
 
@@ -770,25 +916,6 @@ private:
     model_->vis.map.zfar = std::max(viewer_znear_ * 10.0, viewer_zfar_);
   }
 
-  static double clamp_double(double v, double lo, double hi)
-  {
-    return std::max(lo, std::min(hi, v));
-  }
-
-  static void update_button_state(GLFWwindow* window, ViewerContext& v)
-  {
-    v.button_left   = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT)   == GLFW_PRESS);
-    v.button_middle = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_MIDDLE) == GLFW_PRESS);
-    v.button_right  = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT)  == GLFW_PRESS);
-  }
-
-  static bool is_shift_pressed(GLFWwindow* window)
-  {
-    return
-      (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT)  == GLFW_PRESS) ||
-      (glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS);
-  }
-
   static void mouse_button_callback(GLFWwindow* window, int button, int act, int mods)
   {
     (void)button;
@@ -800,9 +927,9 @@ private:
       return;
     }
 
+    std::lock_guard<std::mutex> lock(self->scene_mtx_);
     ViewerContext& v = *self->viewer_ctx_;
-    update_button_state(window, v);
-    glfwGetCursorPos(window, &v.last_x, &v.last_y);
+    self->viewer_controls_.onMouseButton(window, self->model_, self->data_, &v.opt, &v.scn, &v.cam);
   }
 
   static void cursor_pos_callback(GLFWwindow* window, double xpos, double ypos)
@@ -812,91 +939,10 @@ private:
       return;
     }
 
+    std::lock_guard<std::mutex> lock(self->scene_mtx_);
     ViewerContext& v = *self->viewer_ctx_;
-    const double dx = xpos - v.last_x;
-    const double dy = ypos - v.last_y;
-    v.last_x = xpos;
-    v.last_y = ypos;
-
-    update_button_state(window, v);
-
-    if (!v.button_left && !v.button_middle && !v.button_right) {
-      return;
-    }
-
-    int width = 0, height = 0;
-    glfwGetWindowSize(window, &width, &height);
-    if (width <= 0 || height <= 0) {
-      return;
-    }
-
-    const bool shift = is_shift_pressed(window);
-
-    if (v.button_right && !shift) {
-      mjv_moveCamera(
-        self->model_,
-        mjMOUSE_MOVE_H,
-        v.pan_sensitivity * dx / static_cast<double>(height),
-        0.0,
-        &v.scn,
-        &v.cam);
-
-      mjv_moveCamera(
-        self->model_,
-        mjMOUSE_MOVE_V,
-        0.0,
-        v.pan_sensitivity * dy / static_cast<double>(height),
-        &v.scn,
-        &v.cam);
-      return;
-    }
-
-    if (v.button_right && shift) {
-      const double scale = std::exp(v.zoom_sensitivity * 0.01 * dy);
-      v.cam.distance = clamp_double(
-        v.cam.distance * scale,
-        v.min_distance,
-        v.max_distance);
-      return;
-    }
-
-    if ((v.button_left && !shift) || v.button_middle) {
-      mjv_moveCamera(
-        self->model_,
-        mjMOUSE_ROTATE_H,
-        v.orbit_sensitivity * dx / static_cast<double>(height),
-        0.0,
-        &v.scn,
-        &v.cam);
-
-      mjv_moveCamera(
-        self->model_,
-        mjMOUSE_ROTATE_V,
-        0.0,
-        v.orbit_sensitivity * dy / static_cast<double>(height),
-        &v.scn,
-        &v.cam);
-      return;
-    }
-
-    if (v.button_left && shift) {
-      mjv_moveCamera(
-        self->model_,
-        mjMOUSE_MOVE_H,
-        v.pan_sensitivity * dx / static_cast<double>(height),
-        0.0,
-        &v.scn,
-        &v.cam);
-
-      mjv_moveCamera(
-        self->model_,
-        mjMOUSE_MOVE_V,
-        0.0,
-        v.pan_sensitivity * dy / static_cast<double>(height),
-        &v.scn,
-        &v.cam);
-      return;
-    }
+    self->viewer_controls_.onCursorPos(
+      window, self->model_, self->data_, &v.opt, &v.scn, &v.cam, xpos, ypos);
   }
 
   static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
@@ -908,15 +954,9 @@ private:
       return;
     }
 
+    std::lock_guard<std::mutex> lock(self->scene_mtx_);
     ViewerContext& v = *self->viewer_ctx_;
-
-    const double zoom_gain = 0.90;
-    const double scale = std::pow(zoom_gain, v.zoom_sensitivity * yoffset);
-
-    v.cam.distance = clamp_double(
-      v.cam.distance * scale,
-      v.min_distance,
-      v.max_distance);
+    self->viewer_controls_.onScroll(window, self->model_, self->data_, &v.cam, yoffset);
   }
 
   static void key_callback(GLFWwindow* window, int key, int scancode, int act, int mods)
@@ -955,6 +995,14 @@ private:
     v.zoom_sensitivity = viewer_zoom_sensitivity_;
     v.min_distance = viewer_min_distance_;
     v.max_distance = viewer_max_distance_;
+
+    ViewerControlsConfig viewer_controls_config;
+    viewer_controls_config.orbit_sensitivity = viewer_orbit_sensitivity_;
+    viewer_controls_config.pan_sensitivity = viewer_pan_sensitivity_;
+    viewer_controls_config.zoom_sensitivity = viewer_zoom_sensitivity_;
+    viewer_controls_config.min_distance = viewer_min_distance_;
+    viewer_controls_config.max_distance = viewer_max_distance_;
+    viewer_controls_.configure(viewer_controls_config);
 
     mjv_defaultCamera(&v.cam);
     mjv_defaultOption(&v.opt);
@@ -1116,6 +1164,16 @@ private:
   double noise_hz_{30.0};
   bool noise_lpf_enable_{false};
   double noise_lpf_cutoff_hz_{30.0};
+  bool state_pos_lpf_enable_{false};
+  double state_pos_lpf_cutoff_hz_{10.0};
+  bool state_att_lpf_enable_{false};
+  double state_att_lpf_cutoff_hz_{10.0};
+  bool state_vel_lpf_enable_{false};
+  double state_vel_lpf_cutoff_hz_{10.0};
+  bool state_ang_vel_lpf_enable_{false};
+  double state_ang_vel_lpf_cutoff_hz_{10.0};
+  bool state_acc_lpf_enable_{false};
+  double state_acc_lpf_cutoff_hz_{10.0};
 
   bool ang_acc_lpf_enable_{true};
   double ang_acc_lpf_cutoff_hz_{10.0};
@@ -1123,10 +1181,21 @@ private:
   double viewer_orbit_sensitivity_{1.0};
   double viewer_pan_sensitivity_{1.2};
   double viewer_zoom_sensitivity_{1.0};
+  bool prop_visual_spin_enable_{true};
+  double prop_visual_spin_gain_{1800.0};
   double viewer_min_distance_{0.05};
   double viewer_max_distance_{30.0};
   double viewer_znear_{0.0002};
   double viewer_zfar_{200.0};
+
+  std::array<int, 4> prop_body_ids_{{-1, -1, -1, -1}};
+  std::array<std::array<double, 4>, 4> prop_base_quat_{{
+    {{1.0, 0.0, 0.0, 0.0}},
+    {{1.0, 0.0, 0.0, 0.0}},
+    {{1.0, 0.0, 0.0, 0.0}},
+    {{1.0, 0.0, 0.0, 0.0}}
+  }};
+  std::array<double, 4> prop_spin_angle_{{0.0, 0.0, 0.0, 0.0}};
 
   std::array<double, 3> pos_amp_{{0.0, 0.0, 0.0}};
   std::array<double, 3> vel_amp_{{0.0, 0.0, 0.0}};
@@ -1142,6 +1211,7 @@ private:
 
   rclcpp::Time noise_t0_{0, 0, RCL_ROS_TIME};
   bool noise_lpf_initialized_{false};
+  bool state_lpf_initialized_{false};
 
   std::array<double, 3> pos_noise_{{0.0, 0.0, 0.0}};
   std::array<double, 3> vel_noise_{{0.0, 0.0, 0.0}};
@@ -1151,6 +1221,11 @@ private:
 
   std::array<double, 3> pos_filt_{{0.0, 0.0, 0.0}};
   std::array<double, 3> vel_filt_{{0.0, 0.0, 0.0}};
+  std::array<double, 3> pos_state_filt_{{0.0, 0.0, 0.0}};
+  std::array<double, 4> att_state_filt_{{1.0, 0.0, 0.0, 0.0}};
+  std::array<double, 3> vel_state_filt_{{0.0, 0.0, 0.0}};
+  std::array<double, 3> ang_vel_state_filt_{{0.0, 0.0, 0.0}};
+  std::array<double, 3> acc_state_filt_{{0.0, 0.0, 0.0}};
   std::array<double, 3> ang_vel_filt_{{0.0, 0.0, 0.0}};
   std::array<double, 3> ang_acc_filt_{{0.0, 0.0, 0.0}};
   std::optional<std::array<double, 3>> prev_gyro_used_b_;
@@ -1169,6 +1244,7 @@ private:
   std::unique_ptr<MujocoContact> contact_manager_;
 
   ViewerContext* viewer_ctx_{nullptr};
+  ViewerControls viewer_controls_{};
 
   std::thread sim_thread_;
   std::thread viewer_thread_;

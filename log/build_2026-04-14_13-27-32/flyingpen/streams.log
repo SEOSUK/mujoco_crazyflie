@@ -1,0 +1,33 @@
+[0.013s] Invoking command in '/home/seosuk/mujoco_crazyflie/src/build/flyingpen': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/seosuk/sitl_ws/install/px4_offboard:/home/seosuk/sitl_ws/install/crazyflie_py /usr/bin/cmake --build /home/seosuk/mujoco_crazyflie/src/build/flyingpen -- -j20 -l20
+[0.056s] Consolidate compiler generated dependencies of target wrench_observer
+[0.062s] [ 25%] Built target trajectory8
+[0.065s] [ 50%] Built target trajectory_step
+[0.067s] [ 75%] Built target trajectory_generation
+[0.067s] [ 87%] Building CXX object CMakeFiles/wrench_observer.dir/src/wrench_observer.cpp.o
+[17.454s] [100%] Linking CXX executable wrench_observer
+[19.561s] [100%] Built target wrench_observer
+[19.594s] Invoked command in '/home/seosuk/mujoco_crazyflie/src/build/flyingpen' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/seosuk/sitl_ws/install/px4_offboard:/home/seosuk/sitl_ws/install/crazyflie_py /usr/bin/cmake --build /home/seosuk/mujoco_crazyflie/src/build/flyingpen -- -j20 -l20
+[19.624s] Invoking command in '/home/seosuk/mujoco_crazyflie/src/build/flyingpen': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/seosuk/sitl_ws/install/px4_offboard:/home/seosuk/sitl_ws/install/crazyflie_py /usr/bin/cmake --install /home/seosuk/mujoco_crazyflie/src/build/flyingpen
+[19.653s] -- Install configuration: ""
+[19.654s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib/flyingpen/trajectory_generation
+[19.655s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib/flyingpen/trajectory8
+[19.655s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib/flyingpen/trajectory_step
+[19.656s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib/flyingpen/trajectory_generation
+[19.657s] -- Installing: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib/flyingpen/wrench_observer
+[19.677s] -- Set runtime path of "/home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib/flyingpen/wrench_observer" to ""
+[19.678s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/ament_index/resource_index/package_run_dependencies/flyingpen
+[19.678s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/ament_index/resource_index/parent_prefix_path/flyingpen
+[19.678s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/environment/ament_prefix_path.sh
+[19.678s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/environment/ament_prefix_path.dsv
+[19.678s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/environment/path.sh
+[19.679s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/environment/path.dsv
+[19.679s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/local_setup.bash
+[19.679s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/local_setup.sh
+[19.679s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/local_setup.zsh
+[19.680s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/local_setup.dsv
+[19.682s] -- Installing: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/package.dsv
+[19.682s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/ament_index/resource_index/packages/flyingpen
+[19.682s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/cmake/flyingpenConfig.cmake
+[19.683s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/cmake/flyingpenConfig-version.cmake
+[19.683s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/package.xml
+[19.684s] Invoked command in '/home/seosuk/mujoco_crazyflie/src/build/flyingpen' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/seosuk/sitl_ws/install/px4_offboard:/home/seosuk/sitl_ws/install/crazyflie_py /usr/bin/cmake --install /home/seosuk/mujoco_crazyflie/src/build/flyingpen

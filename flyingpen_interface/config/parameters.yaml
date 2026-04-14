@@ -1,12 +1,25 @@
 trajectory_generation:
   ros__parameters:
     reference_object: "drone" # "drone" or "end_effector"
-    normal_estimator_method: "direct" # "direct", "kroc", "action_normal"
+    normal_estimator_method: "None" # "None", "direct", "kroc", "action_normal"
     end_effector_offset: [0.09, 0.0, 0.085]
 
 fk_ik_transform:
   ros__parameters:
     end_effector_offset: [0.09, 0.0, 0.085]
+
+wrench_observer:
+  ros__parameters:
+    drone_wrench_topic: "/crazyflie/out/mob"
+    drone_wrench_topic_2nd_order: "/crazyflie/out/mob_2nd"
+    drone_wrench_topic_consistency: "/crazyflie/out/mob_2nd_tau"
+    end_effector_offset: [0.09, 0.0, 0.01]
+    k_tau: 0.00569278844371417
+    g: 9.81
+    mob.Kp: 1.0
+    mob.KpTau: 1.0
+    mob.Ke: 1.0
+    mob.sigma_tau: 1.0
 
 plant:
   ros__parameters:
@@ -24,17 +37,35 @@ plant:
       enable: true
       seed: 0
       hz: 30.0
-      pos_amp: [1e-3, 1e-3, 1e-3]
-      vel_amp: [1e-4, 1e-4, 1e-4]
-      att_amp: [1e-5, 1e-5, 1e-5]
-      ang_vel_amp: [4e-6, 4e-6, 4e-6]
-#      ang_acc_amp: [1e-2, 1e-2, 1e-2]
+      pos_amp: [5e-4, 5e-4, 5e-4]
+      vel_amp: [5e-3, 5e-3, 5e-3]
+      att_amp: [2e-4, 2e-4, 2e-4]
+      ang_vel_amp: [2e-4, 2e-4, 2e-4]
+      ang_acc_amp: [5e-4, 5e-4, 5e-4]
       lpf:
         enable: false
+        cutoff_hz: 5.0
+
+    state_filter:
+      pos:
+        enable: false
+        cutoff_hz: 5.0
+      att:
+        enable: false
+        cutoff_hz: 15.0
+      vel:
+        enable: false
+        cutoff_hz: 10.0
+      ang_vel:
+        enable: false
         cutoff_hz: 30.0
-      ang_acc_lpf:
-        enable: true
-        cutoff_hz: 1.0
+      acc:
+        enable: false
+        cutoff_hz: 3.0
+
+    ang_acc_lpf:
+      enable: true
+      cutoff_hz: 1.0
         
     actuator:
       delay:
@@ -87,15 +118,15 @@ low_level_controller:
 
     # Attitude loop: (roll_d, pitch_d, yaw_d) error -> w_des
     att:
-      roll:  { kp: 8., kd: 0.1 }
-      pitch: { kp: 8., kd: 0.1 }
-      yaw:   { kp: 3., kd: 0.1 }
+      roll:  { kp: 8., ki: 1.0, kd: 0.1, i_limit: 0. }
+      pitch: { kp: 8., ki: 1.0, kd: 0.1, i_limit: 0. }
+      yaw:   { kp: 3., ki: 1.0, kd: 0.1, i_limit: 0. }
 
     # Rate loop: w error -> torque
     rate:
-      roll:  { kp: 0.005, kd: 0.00001 }
-      pitch: { kp: 0.005, kd: 0.00001 }
-      yaw:   { kp: 0.005, kd: 0.00001 }
+      roll:  { kp: 0.005, ki: 0.0005, kd: 0.00001, i_limit: 0.0 }
+      pitch: { kp: 0.005, ki: 0.0005, kd: 0.00001, i_limit: 0.0 }
+      yaw:   { kp: 0.005, ki: 0.0005, kd: 0.00001, i_limit: 0.0 }
       
 rviz_visual:
   ros__parameters:

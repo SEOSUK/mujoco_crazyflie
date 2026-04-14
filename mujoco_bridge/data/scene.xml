@@ -1,6 +1,6 @@
 <mujoco model="cf21B_scene">
   <include file="cf21B_500.xml"/>
-  <include file="cylinder.xml"/>
+  <include file="wall.xml"/>
 
   <asset>
     <texture
@@ -15,7 +15,9 @@
       name="tile_mat"
       texture="tile_tex"
       texrepeat="8 8"
-      reflectance="0.3"/>
+      reflectance="0.0"
+      shininess="0.0"
+      specular="0.0"/>
   </asset>
 
   <default>

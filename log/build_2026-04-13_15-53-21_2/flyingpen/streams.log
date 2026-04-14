@@ -1,0 +1,85 @@
+[0.007s] Invoking command in '/home/seosuk/mujoco_crazyflie/src/build/flyingpen': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/seosuk/sitl_ws/install/px4_offboard:/home/seosuk/sitl_ws/install/crazyflie_py /usr/bin/cmake /home/seosuk/mujoco_crazyflie/src/flyingpen -DCMAKE_INSTALL_PREFIX=/home/seosuk/mujoco_crazyflie/src/install/flyingpen
+[0.047s] -- The C compiler identification is GNU 11.4.0
+[0.084s] -- The CXX compiler identification is GNU 11.4.0
+[0.090s] -- Detecting C compiler ABI info
+[0.207s] -- Detecting C compiler ABI info - done
+[0.213s] -- Check for working C compiler: /usr/bin/cc - skipped
+[0.213s] -- Detecting C compile features
+[0.213s] -- Detecting C compile features - done
+[0.215s] -- Detecting CXX compiler ABI info
+[0.274s] -- Detecting CXX compiler ABI info - done
+[0.278s] -- Check for working CXX compiler: /usr/bin/c++ - skipped
+[0.278s] -- Detecting CXX compile features
+[0.279s] -- Detecting CXX compile features - done
+[0.281s] -- Found ament_cmake: 1.3.14 (/opt/ros/humble/share/ament_cmake/cmake)
+[0.547s] -- Found Python3: /usr/bin/python3 (found version "3.10.12") found components: Interpreter 
+[0.626s] -- Found rclcpp: 16.0.19 (/opt/ros/humble/share/rclcpp/cmake)
+[0.655s] -- Found rosidl_generator_c: 3.1.8 (/opt/ros/humble/share/rosidl_generator_c/cmake)
+[0.659s] -- Found rosidl_adapter: 3.1.8 (/opt/ros/humble/share/rosidl_adapter/cmake)
+[0.665s] -- Found rosidl_generator_cpp: 3.1.8 (/opt/ros/humble/share/rosidl_generator_cpp/cmake)
+[0.673s] -- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+[0.684s] -- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+[0.725s] -- Found rmw_implementation_cmake: 6.1.2 (/opt/ros/humble/share/rmw_implementation_cmake/cmake)
+[0.727s] -- Found rmw_fastrtps_cpp: 6.2.10 (/opt/ros/humble/share/rmw_fastrtps_cpp/cmake)
+[0.798s] -- Found OpenSSL: /usr/lib/x86_64-linux-gnu/libcrypto.so (found version "3.0.2")  
+[0.820s] -- Found FastRTPS: /opt/ros/humble/include  
+[0.855s] -- Using RMW implementation 'rmw_fastrtps_cpp' as default
+[0.862s] -- Looking for pthread.h
+[0.915s] -- Looking for pthread.h - found
+[0.915s] -- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+[0.969s] -- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+[0.969s] -- Found Threads: TRUE  
+[1.003s] -- Found geometry_msgs: 4.9.1 (/opt/ros/humble/share/geometry_msgs/cmake)
+[1.023s] -- Found ament_lint_auto: 0.12.15 (/opt/ros/humble/share/ament_lint_auto/cmake)
+[1.081s] -- Added test 'cppcheck' to perform static code analysis on C / C++ code
+[1.081s] -- Configured cppcheck include dirs: 
+[1.081s] -- Configured cppcheck exclude dirs and/or files: 
+[1.082s] -- Added test 'lint_cmake' to check CMake code style
+[1.082s] -- Added test 'uncrustify' to check C / C++ code style
+[1.082s] -- Configured uncrustify additional arguments: 
+[1.083s] -- Added test 'xmllint' to check XML markup files
+[1.084s] -- Configuring done
+[1.093s] -- Generating done
+[1.097s] -- Build files have been written to: /home/seosuk/mujoco_crazyflie/src/build/flyingpen
+[1.104s] Invoked command in '/home/seosuk/mujoco_crazyflie/src/build/flyingpen' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/seosuk/sitl_ws/install/px4_offboard:/home/seosuk/sitl_ws/install/crazyflie_py /usr/bin/cmake /home/seosuk/mujoco_crazyflie/src/flyingpen -DCMAKE_INSTALL_PREFIX=/home/seosuk/mujoco_crazyflie/src/install/flyingpen
+[1.105s] Invoking command in '/home/seosuk/mujoco_crazyflie/src/build/flyingpen': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/seosuk/sitl_ws/install/px4_offboard:/home/seosuk/sitl_ws/install/crazyflie_py /usr/bin/cmake --build /home/seosuk/mujoco_crazyflie/src/build/flyingpen -- -j20 -l20
+[1.147s] [ 12%] Building CXX object CMakeFiles/trajectory_step.dir/src/trajectory_step.cpp.o
+[1.148s] [ 50%] Building CXX object CMakeFiles/trajectory_generation.dir/src/trajectory_generation.cpp.o
+[1.148s] [ 50%] Building CXX object CMakeFiles/wrench_observer.dir/src/wrench_observer.cpp.o
+[1.148s] [ 50%] Building CXX object CMakeFiles/trajectory8.dir/src/trajectory8.cpp.o
+[4.103s] [ 62%] Linking CXX executable trajectory_step
+[4.247s] [ 62%] Built target trajectory_step
+[4.386s] [ 75%] Linking CXX executable trajectory8
+[4.517s] [ 75%] Built target trajectory8
+[11.145s] [ 87%] Linking CXX executable wrench_observer
+[11.664s] [ 87%] Built target wrench_observer
+[15.024s] [100%] Linking CXX executable trajectory_generation
+[15.883s] [100%] Built target trajectory_generation
+[15.895s] Invoked command in '/home/seosuk/mujoco_crazyflie/src/build/flyingpen' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/seosuk/sitl_ws/install/px4_offboard:/home/seosuk/sitl_ws/install/crazyflie_py /usr/bin/cmake --build /home/seosuk/mujoco_crazyflie/src/build/flyingpen -- -j20 -l20
+[15.913s] Invoking command in '/home/seosuk/mujoco_crazyflie/src/build/flyingpen': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/seosuk/sitl_ws/install/px4_offboard:/home/seosuk/sitl_ws/install/crazyflie_py /usr/bin/cmake --install /home/seosuk/mujoco_crazyflie/src/build/flyingpen
+[15.926s] -- Install configuration: ""
+[15.926s] -- Installing: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib/flyingpen/trajectory_generation
+[15.937s] -- Set runtime path of "/home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib/flyingpen/trajectory_generation" to ""
+[15.937s] -- Installing: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib/flyingpen/trajectory8
+[15.938s] -- Set runtime path of "/home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib/flyingpen/trajectory8" to ""
+[15.938s] -- Installing: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib/flyingpen/trajectory_step
+[15.939s] -- Set runtime path of "/home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib/flyingpen/trajectory_step" to ""
+[15.939s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib/flyingpen/trajectory_generation
+[15.940s] -- Installing: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib/flyingpen/wrench_observer
+[15.946s] -- Set runtime path of "/home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib/flyingpen/wrench_observer" to ""
+[15.946s] -- Installing: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/ament_index/resource_index/package_run_dependencies/flyingpen
+[15.947s] -- Installing: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/ament_index/resource_index/parent_prefix_path/flyingpen
+[15.947s] -- Installing: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/environment/ament_prefix_path.sh
+[15.947s] -- Installing: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/environment/ament_prefix_path.dsv
+[15.947s] -- Installing: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/environment/path.sh
+[15.947s] -- Installing: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/environment/path.dsv
+[15.947s] -- Installing: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/local_setup.bash
+[15.947s] -- Installing: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/local_setup.sh
+[15.947s] -- Installing: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/local_setup.zsh
+[15.948s] -- Installing: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/local_setup.dsv
+[15.948s] -- Installing: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/package.dsv
+[15.948s] -- Installing: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/ament_index/resource_index/packages/flyingpen
+[15.948s] -- Installing: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/cmake/flyingpenConfig.cmake
+[15.948s] -- Installing: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/cmake/flyingpenConfig-version.cmake
+[15.948s] -- Installing: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/package.xml
+[15.950s] Invoked command in '/home/seosuk/mujoco_crazyflie/src/build/flyingpen' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/seosuk/sitl_ws/install/px4_offboard:/home/seosuk/sitl_ws/install/crazyflie_py /usr/bin/cmake --install /home/seosuk/mujoco_crazyflie/src/build/flyingpen

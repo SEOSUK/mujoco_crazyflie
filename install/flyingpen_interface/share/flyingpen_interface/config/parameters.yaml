@@ -1,0 +1,140 @@
+trajectory_generation:
+  ros__parameters:
+    reference_object: "drone" # "drone" or "end_effector"
+    normal_estimator_method: "None" # "None", "direct", "kroc", "action_normal"
+    end_effector_offset: [0.09, 0.0, 0.085]
+
+fk_ik_transform:
+  ros__parameters:
+    end_effector_offset: [0.09, 0.0, 0.085]
+
+wrench_observer:
+  ros__parameters:
+    drone_wrench_topic: "/crazyflie/out/mob"
+    drone_wrench_topic_2nd_order: "/crazyflie/out/mob_2nd"
+    drone_wrench_topic_consistency: "/crazyflie/out/mob_2nd_tau"
+    end_effector_offset: [0.09, 0.0, 0.085]
+    k_tau: 0.00569278844371417
+    g: 9.81
+    mob.Kp: 1.0
+    mob.KpTau: 1.0
+    mob.Ke: 1.0
+    mob.sigma_tau: 1.0
+
+plant:
+  ros__parameters:
+    physics_hz: 1000.0
+    pub_hz: 400.0
+    viewer_hz: 60.0
+
+    arm_xy: 0.035355
+    k_tau: 0.00569278844371417
+    motor_dir: [1.0, -1.0, 1.0, -1.0]
+    thrust_min: 0.0
+    thrust_max: 0.20
+
+    noise:
+      enable: true
+      seed: 0
+      hz: 30.0
+      pos_amp: [5e-4, 5e-4, 5e-4]
+      vel_amp: [5e-3, 5e-3, 5e-3]
+      att_amp: [2e-4, 2e-4, 2e-4]
+      ang_vel_amp: [2e-4, 2e-4, 2e-4]
+      ang_acc_amp: [5e-4, 5e-4, 5e-4]
+      lpf:
+        enable: false
+        cutoff_hz: 5.0
+
+    state_filter:
+      pos:
+        enable: false
+        cutoff_hz: 5.0
+      att:
+        enable: false
+        cutoff_hz: 15.0
+      vel:
+        enable: false
+        cutoff_hz: 10.0
+      ang_vel:
+        enable: false
+        cutoff_hz: 30.0
+      acc:
+        enable: false
+        cutoff_hz: 3.0
+
+    ang_acc_lpf:
+      enable: true
+      cutoff_hz: 1.0
+        
+    actuator:
+      delay:
+        enable: true
+        sec: 0.0005
+      lpf:
+        enable: false
+        cutoff_hz: 100.0
+
+    # ---- contact numerical diff + LPF params ----
+    contact_filter:
+      enable: true
+      cutoff_hz: 5.0    # 지만 rad/s로 대입할 것
+      timer_hz: 100.0       # 수치미분/필터 전용 콜백 주기
+      use_exp_alpha: true
+
+low_level_controller:
+  ros__parameters:
+    # ---------------- system ----------------
+    mass: 0.04338
+    g: 9.81
+
+    # limits
+    max_tilt_rad: 0.6108652382 #0.6108652382   # 35 deg
+    max_rate: 8. #8.0                # rad/s
+    max_tau: 1. #0.02              # 어차피 thrust선에서 컷 나니까 상관 x
+    max_thrust: 1.0 #               # 나중에 제대로 바꾸길 검토
+
+    # ---------------- loop dt ----------------
+    # NOTE: timer period(코드)과 dt_* 파라미터(제어식 dt)는 "동일하게" 맞춰야 함
+    dt:
+      pos: 0.01       # 100 Hz
+      vel: 0.01       # 100 Hz
+      att: 0.005      # 200 Hz
+      rate: 0.004    # 250 Hz
+
+    # ---------------- gains ----------------
+    # 반응성 높이면 좋음. 좋은게 좋은거.
+    # Position loop: pos error -> v_des
+    pos:
+      x: { kp: 3.0, kd: 0.01 }
+      y: { kp: 3.0, kd: 0.01 }
+      z: { kp: 3.0, kd: 0.01 }
+
+    # Velocity loop: vel error -> a_des
+    vel:
+      x: { kp: 5.0, kd: 0.1 }
+      y: { kp: 5.0, kd: 0.1 }
+      z: { kp: 5.0, kd: 0.1 }
+
+    # Attitude loop: (roll_d, pitch_d, yaw_d) error -> w_des
+    att:
+      roll:  { kp: 8., ki: 1.0, kd: 0.1, i_limit: 0. }
+      pitch: { kp: 8., ki: 1.0, kd: 0.1, i_limit: 0. }
+      yaw:   { kp: 3., ki: 1.0, kd: 0.1, i_limit: 0. }
+
+    # Rate loop: w error -> torque
+    rate:
+      roll:  { kp: 0.005, ki: 0.0005, kd: 0.00001, i_limit: 0.0 }
+      pitch: { kp: 0.005, ki: 0.0005, kd: 0.00001, i_limit: 0.0 }
+      yaw:   { kp: 0.005, ki: 0.0005, kd: 0.00001, i_limit: 0.0 }
+      
+rviz_visual:
+  ros__parameters:
+    mesh_resource: "package://plant/data/assets/cf21B/cf21B_full.stl"
+    mesh_scale: 0.001     
+    mesh_alpha: 1.0      
+      
+data_logger:
+  ros__parameters:
+#    csv_dir: "~/ros2_ws/src/mujoco_crazyflie/flyingpen_interface/bag" # MJ
+    csv_dir: "~/mujoco_crazyflie/src/flyingpen_interface/bag" # SU

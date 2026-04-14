@@ -56,7 +56,9 @@ add_executable(wrench_observer
 ament_target_dependencies(wrench_observer
   rclcpp
   std_msgs
+  geometry_msgs
 )
+target_link_libraries(wrench_observer Eigen3::Eigen)
 
 # ---------------- install ----------------
 install(TARGETS

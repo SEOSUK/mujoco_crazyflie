@@ -27,9 +27,9 @@ public:
       "su/cmd_force", 10);
 
     // 키보드 control step size
-    pos_delta_[0] = this->declare_parameter<double>("dx", 0.1);
-    pos_delta_[1] = this->declare_parameter<double>("dy", 0.1);
-    pos_delta_[2] = this->declare_parameter<double>("dz", 0.1);
+    pos_delta_[0] = this->declare_parameter<double>("dx", 0.05);
+    pos_delta_[1] = this->declare_parameter<double>("dy", 0.05);
+    pos_delta_[2] = this->declare_parameter<double>("dz", 0.05);
     yaw_delta_deg_ = this->declare_parameter<double>("dyaw_deg", 0.1);
     force_delta_   = this->declare_parameter<double>("df", 0.01);
 

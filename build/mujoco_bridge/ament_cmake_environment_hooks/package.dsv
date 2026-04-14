@@ -1,0 +1,4 @@
+source;share/mujoco_bridge/local_setup.bash
+source;share/mujoco_bridge/local_setup.dsv
+source;share/mujoco_bridge/local_setup.sh
+source;share/mujoco_bridge/local_setup.zsh
