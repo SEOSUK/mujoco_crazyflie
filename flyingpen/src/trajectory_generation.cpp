@@ -76,8 +76,12 @@ public:
     circle_phase_rad_ = this->declare_parameter<double>(
       "circle.phase_rad", -0.5 * M_PI);
 
-    square_side_length_ = this->declare_parameter<double>(
+    const double default_square_side_length = this->declare_parameter<double>(
       "square.side_length", 0.40);
+    square_parallel_length_ = this->declare_parameter<double>(
+      "square.parallel_length", default_square_side_length);
+    square_vertical_length_ = this->declare_parameter<double>(
+      "square.vertical_length", default_square_side_length);
     square_period_sec_ = this->declare_parameter<double>(
       "square.period_sec", 20.0);
     square_center_y_ = this->declare_parameter<double>(
@@ -288,34 +292,53 @@ private:
     }
 
     if (trajectory_type_ == "square") {
-      const double side = std::max(0.0, square_side_length_);
-      const double half = 0.5 * side;
+      const double parallel_length = std::max(0.0, square_parallel_length_);
+      const double vertical_length = std::max(0.0, square_vertical_length_);
+      const double half_parallel = 0.5 * parallel_length;
+      const double half_vertical = 0.5 * vertical_length;
       const double period = positivePeriod(square_period_sec_);
-      const double speed = 4.0 * side / period;
+      const double perimeter = 2.0 * (parallel_length + vertical_length);
+
+      if (perimeter < 1e-9) {
+        y_ref = square_center_y_;
+        z_ref = square_center_z_;
+        y_ref_dot = 0.0;
+        z_ref_dot = 0.0;
+        return;
+      }
+
+      const double speed = perimeter / period;
       double phase = std::fmod(t / period + square_phase_, 1.0);
       if (phase < 0.0) {
         phase += 1.0;
       }
 
-      const double u = 4.0 * phase;
-      if (u < 1.0) {
-        y_ref = square_center_y_ - half + side * u;
-        z_ref = square_center_z_ - half;
+      const double s = phase * perimeter;
+      const double edge0_end = parallel_length;
+      const double edge1_end = edge0_end + vertical_length;
+      const double edge2_end = edge1_end + parallel_length;
+
+      if (s < edge0_end) {
+        y_ref = square_center_y_ - half_parallel + s;
+        z_ref = square_center_z_ - half_vertical;
         y_ref_dot = speed;
         z_ref_dot = 0.0;
-      } else if (u < 2.0) {
-        y_ref = square_center_y_ + half;
-        z_ref = square_center_z_ - half + side * (u - 1.0);
+      } else if (s < edge1_end) {
+        const double edge_s = s - edge0_end;
+        y_ref = square_center_y_ + half_parallel;
+        z_ref = square_center_z_ - half_vertical + edge_s;
         y_ref_dot = 0.0;
         z_ref_dot = speed;
-      } else if (u < 3.0) {
-        y_ref = square_center_y_ + half - side * (u - 2.0);
-        z_ref = square_center_z_ + half;
+      } else if (s < edge2_end) {
+        const double edge_s = s - edge1_end;
+        y_ref = square_center_y_ + half_parallel - edge_s;
+        z_ref = square_center_z_ + half_vertical;
         y_ref_dot = -speed;
         z_ref_dot = 0.0;
       } else {
-        y_ref = square_center_y_ - half;
-        z_ref = square_center_z_ + half - side * (u - 3.0);
+        const double edge_s = s - edge2_end;
+        y_ref = square_center_y_ - half_parallel;
+        z_ref = square_center_z_ + half_vertical - edge_s;
         y_ref_dot = 0.0;
         z_ref_dot = -speed;
       }
@@ -790,7 +813,7 @@ private:
       const double ramp_sec = std::max(1e-3, trajectory_ramp_sec_);
       double trajectory_gain_dot = 0.0;
       if (trajectory_target_on) {
-        trajectory_elapsed_sec_ += dt;
+        trajectory_elapsed_sec_ = std::min(ramp_sec, trajectory_elapsed_sec_ + dt);
         smoothstepQuintic(
           trajectory_elapsed_sec_, ramp_sec, trajectory_gain_, trajectory_gain_dot);
         trajectory_phase_time_ += dt;
@@ -813,8 +836,8 @@ private:
         double z_ref_dot = 0.0;
         computeTrajectoryReference(
           trajectory_phase_time_, y_ref, z_ref, y_ref_dot, z_ref_dot);
-        vy_cmd = trajectory_gain_ * y_ref_dot + trajectory_gain_dot * y_ref;
-        vz_cmd = trajectory_gain_ * z_ref_dot + trajectory_gain_dot * z_ref;
+        vy_cmd += trajectory_gain_ * y_ref_dot + trajectory_gain_dot * y_ref;
+        vz_cmd += trajectory_gain_ * z_ref_dot + trajectory_gain_dot * z_ref;
       }
 
       std::array<double,3> eF{0.0, 0.0, 0.0};
@@ -929,7 +952,8 @@ private:
   double circle_center_y_{0.0};
   double circle_center_z_{0.0};
   double circle_phase_rad_{-0.5 * M_PI};
-  double square_side_length_{0.40};
+  double square_parallel_length_{0.40};
+  double square_vertical_length_{0.40};
   double square_period_sec_{20.0};
   double square_center_y_{0.0};
   double square_center_z_{0.0};

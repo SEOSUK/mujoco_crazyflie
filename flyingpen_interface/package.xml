@@ -10,8 +10,12 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
   
   <exec_depend>rclpy</exec_depend>
+  <exec_depend>python3-pyqt5</exec_depend>
+  <exec_depend>mujoco_bridge</exec_depend>
+  <exec_depend>flyingpen_plotter</exec_depend>
   <depend>rclcpp</depend>
   <depend>geometry_msgs</depend>
+  <depend>std_msgs</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

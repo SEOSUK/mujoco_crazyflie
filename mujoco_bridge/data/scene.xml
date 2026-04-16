@@ -18,6 +18,8 @@
       reflectance="0.0"
       shininess="0.0"
       specular="0.0"/>
+    <material name="wind_pole_mat" rgba="0.08 0.08 0.08 1"/>
+    <material name="wind_mast_mat" rgba="0.05 0.25 0.9 1"/>
   </asset>
 
   <default>
@@ -34,5 +36,70 @@
       pos="0 0 0"
       material="tile_mat"
       class="env_ground"/>
+    <body name="wind_indicator_base" pos="-0.5 0 0">
+      <geom name="wind_indicator_pole"
+            type="cylinder"
+            pos="0 0 0.08"
+            size="0.012 0.08"
+            material="wind_pole_mat"
+            contype="0"
+            conaffinity="0"
+            mass="0"/>
+      <body name="wind_mast_0" pos="0 0 0.16">
+        <joint name="wind_mast_joint_0" type="ball" damping="0.0030" stiffness="0.045"/>
+        <inertial pos="0 0 0.05" mass="0.002" diaginertia="0.000015 0.000015 0.000003"/>
+        <geom name="wind_mast_segment_0"
+              type="capsule"
+              fromto="0 0 0 0 0 0.12"
+              size="0.008"
+              material="wind_mast_mat"
+              contype="0"
+              conaffinity="0"/>
+        <body name="wind_mast_1" pos="0 0 0.12">
+          <joint name="wind_mast_joint_1" type="ball" damping="0.0024" stiffness="0.034"/>
+          <inertial pos="0 0 0.05" mass="0.0018" diaginertia="0.000012 0.000012 0.0000025"/>
+          <geom name="wind_mast_segment_1"
+                type="capsule"
+                fromto="0 0 0 0 0 0.12"
+                size="0.007"
+                material="wind_mast_mat"
+                contype="0"
+                conaffinity="0"/>
+          <body name="wind_mast_2" pos="0 0 0.12">
+            <joint name="wind_mast_joint_2" type="ball" damping="0.0020" stiffness="0.024"/>
+            <inertial pos="0 0 0.05" mass="0.0015" diaginertia="0.000009 0.000009 0.000002"/>
+            <geom name="wind_mast_segment_2"
+                  type="capsule"
+                  fromto="0 0 0 0 0 0.12"
+                  size="0.006"
+                  material="wind_mast_mat"
+                  contype="0"
+                  conaffinity="0"/>
+            <body name="wind_mast_3" pos="0 0 0.12">
+              <joint name="wind_mast_joint_3" type="ball" damping="0.0015" stiffness="0.015"/>
+              <inertial pos="0 0 0.045" mass="0.0012" diaginertia="0.000006 0.000006 0.0000015"/>
+              <geom name="wind_mast_segment_3"
+                    type="capsule"
+                    fromto="0 0 0 0 0 0.11"
+                    size="0.005"
+                    material="wind_mast_mat"
+                    contype="0"
+                    conaffinity="0"/>
+              <body name="wind_indicator_tip" pos="0 0 0.11">
+                <joint name="wind_tip_joint" type="ball" damping="0.0012" stiffness="0.008"/>
+                <inertial pos="0 0 0.015" mass="0.0008" diaginertia="0.000003 0.000003 0.000001"/>
+                <geom name="wind_mast_tip"
+                      type="sphere"
+                      pos="0 0 0.02"
+                      size="0.014"
+                      material="wind_mast_mat"
+                      contype="0"
+                      conaffinity="0"/>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
   </worldbody>
 </mujoco>

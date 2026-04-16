@@ -132,6 +132,7 @@ class ROSDataBuffer(Node):
             "m_tau", "vel_norm", "force_norm",
             "rho_v", "rho_f",
             "alpha_v", "alpha_f",
+            "tr_l_v", "tr_l_f",
             "angle_n_geo_deg", "angle_n_f_deg", "angle_force_dir_deg",
         ]
         self.data: Dict[str, deque] = {"t": deque(maxlen=self.maxlen)}
@@ -143,6 +144,8 @@ class ROSDataBuffer(Node):
 
         self.l_v_bar = np.full((3, 3), math.nan, dtype=float)
         self.l_f_bar = np.full((3, 3), math.nan, dtype=float)
+        self.l_v = np.full((3, 3), math.nan, dtype=float)
+        self.l_f = np.full((3, 3), math.nan, dtype=float)
         self.n_est = np.full(3, math.nan, dtype=float)
         self.n_geo = np.full(3, math.nan, dtype=float)
         self.n_f = np.full(3, math.nan, dtype=float)
@@ -281,6 +284,14 @@ class ROSDataBuffer(Node):
             self.latest["alpha_f"] = float(data[9])
             self.l_v_bar = np.array(data[10:19], dtype=float).reshape(3, 3)
             self.l_f_bar = np.array(data[19:28], dtype=float).reshape(3, 3)
+            if len(data) >= 52:
+                self.l_v = np.array(data[34:43], dtype=float).reshape(3, 3)
+                self.l_f = np.array(data[43:52], dtype=float).reshape(3, 3)
+                self.latest["tr_l_v"] = float(np.trace(self.l_v))
+                self.latest["tr_l_f"] = float(np.trace(self.l_f))
+            else:
+                self.latest["tr_l_v"] = float(np.trace(self.l_v_bar))
+                self.latest["tr_l_f"] = float(np.trace(self.l_f_bar))
             self.n_geo[:] = data[28:31]
             self.n_f[:] = data[31:34]
             self._update_quality_angles_locked()
@@ -469,18 +480,13 @@ class PlotWindow(QMainWindow):
         self.curve_alpha_f = self.plot_alpha.plot(name="alpha_f", pen=pg.mkPen((180, 120, 40), width=2))
         self.plot_alpha.setYRange(-0.1, 1.1, padding=0.0)
 
-        matrix_frame = self._make_group_frame("L_v_bar / L_f_bar")
-        matrix_layout = matrix_frame.layout()
-        self.matrix_label = QLabel("--")
-        self.matrix_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-        self.matrix_label.setStyleSheet("font-family: monospace; font-size: 12px; padding: 4px;")
-        self.matrix_label.setWordWrap(False)
-        self.matrix_label.setMinimumHeight(130)
-        matrix_layout.addWidget(self.matrix_label)
+        self.plot_trace = self._make_plot("trace(L_v) vs trace(L_f)", "trace", min_height=130)
+        self.curve_tr_l_v = self.plot_trace.plot(name="tr(L_v)", pen=pg.mkPen((40, 90, 220), width=2))
+        self.curve_tr_l_f = self.plot_trace.plot(name="tr(L_f)", pen=pg.mkPen((220, 50, 50), width=2))
 
         grid.addWidget(self.plot_rho, 0, 0)
         grid.addWidget(self.plot_alpha, 0, 1)
-        grid.addWidget(matrix_frame, 0, 2)
+        grid.addWidget(self.plot_trace, 0, 2)
         outer.addLayout(grid)
         return frame
 
@@ -516,13 +522,6 @@ class PlotWindow(QMainWindow):
             return "--"
         return f"{float(value):.{precision}f}"
 
-    def _fmt_matrix_pair(self, l_v_bar: np.ndarray, l_f_bar: np.ndarray) -> str:
-        if not (np.all(np.isfinite(l_v_bar)) and np.all(np.isfinite(l_f_bar))):
-            return "--"
-        l_v_lines = ["[" + " ".join(f"{v: .2f}" for v in row) + "]" for row in l_v_bar]
-        l_f_lines = ["[" + " ".join(f"{v: .2f}" for v in row) + "]" for row in l_f_bar]
-        return "L_v_bar\n" + "\n".join(l_v_lines) + "\n\nL_f_bar\n" + "\n".join(l_f_lines)
-
     def update_all(self) -> None:
         arr = self.rosbuf.get_arrays()
         latest, l_v_bar, l_f_bar = self.rosbuf.get_summary()
@@ -557,6 +556,8 @@ class PlotWindow(QMainWindow):
         self.curve_rho_f.setData(t_win, arr["rho_f"][mask])
         self.curve_alpha_v.setData(t_win, arr["alpha_v"][mask])
         self.curve_alpha_f.setData(t_win, arr["alpha_f"][mask])
+        self.curve_tr_l_v.setData(t_win, arr["tr_l_v"][mask])
+        self.curve_tr_l_f.setData(t_win, arr["tr_l_f"][mask])
 
         self.curve_ang_geo.setData(t_win, arr["angle_n_geo_deg"][mask])
         self.curve_ang_f.setData(t_win, arr["angle_n_f_deg"][mask])
@@ -567,12 +568,11 @@ class PlotWindow(QMainWindow):
         for plot in [
             self.plot_vy, self.plot_vz, self.plot_fx,
             self.plot_lambda, self.plot_mtau, self.plot_vel, self.plot_force,
-            self.plot_rho, self.plot_alpha,
+            self.plot_rho, self.plot_alpha, self.plot_trace,
             self.plot_ang_geo, self.plot_ang_f, self.plot_ang_force,
         ]:
             plot.setXRange(x_left, x_right, padding=0.0)
 
-        self.matrix_label.setText(self._fmt_matrix_pair(l_v_bar, l_f_bar))
         self.info_label.setText(
             f"vy(cmd/act)={self._fmt_scalar(latest['c_hat_vy_cmd'])}/{self._fmt_scalar(latest['c_hat_vy_act'])}   "
             f"vz(cmd/act)={self._fmt_scalar(latest['c_hat_vz_cmd'])}/{self._fmt_scalar(latest['c_hat_vz_act'])}   "

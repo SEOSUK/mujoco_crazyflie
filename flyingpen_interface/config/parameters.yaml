@@ -7,6 +7,16 @@ wrench_observer:
     end_effector_offset: [0.09, 0.0, 0.01]
     k_tau: 0.00569278844371417
     g: 9.81
+
+    # 1st-order MOB tuning
+    mob.Kf_1st_order: 5.0
+    mob.Ktau_1st_order: 5.0
+    mob.mob_alpha_1st_order: 1.0
+
+    # 2nd-order MOB tuning
+    mob.Kf_2nd_order: 5.0
+    mob.Ktau_2nd_order: 5.0
+    mob.mob_alpha_2nd_order: 1.0
     mob.Kp: 3.0
     mob.KpTau: 3.0
     mob.Ke: 5.0
@@ -66,6 +76,14 @@ plant:
         enable: false
         cutoff_hz: 100.0
 
+    wind:
+      enable: false               # Wind is applied only after /crazyflie/in/wind is received.
+      force: [0.0, 0.0, 0.0]      # Initial world-frame force [N]
+      torque: [0.0, 0.0, 0.0]     # World-frame torque [N*m]
+      indicator_force_gain: 1.0
+      indicator_flutter_gain: 0.15
+      indicator_flutter_hz: 6.0
+
     # ---- contact numerical diff + LPF params ----
     contact_filter:
       enable: true
@@ -118,16 +136,6 @@ low_level_controller:
       roll:  { kp: 0.005, ki: 0.0005, kd: 0.00001, i_limit: 0.0 }
       pitch: { kp: 0.005, ki: 0.0005, kd: 0.00001, i_limit: 0.0 }
       yaw:   { kp: 0.005, ki: 0.0005, kd: 0.00001, i_limit: 0.0 }
-      
-rviz_visual:
-  ros__parameters:
-    mesh_resource: "package://plant/data/assets/cf21B/cf21B_full.stl"
-    mesh_scale: 0.001     
-    mesh_alpha: 1.0
-    cylinder.rgba: [0.75, 0.93, 0.75, 0.25]
-    publish_hz: 20.0
-    history_sample_period: 1.5
-    history_duration: 12.0
       
 data_logger:
   ros__parameters:

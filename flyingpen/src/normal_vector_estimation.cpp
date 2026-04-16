@@ -51,8 +51,6 @@ public:
 
     new_normal_velocity_epsilon_ = this->declare_parameter<double>(
       "new_normal.velocity_epsilon", 0.015);
-    new_normal_velocity_gate_ = this->declare_parameter<double>(
-      "new_normal.velocity_gate", 0.05);
     new_normal_beta_v_ = this->declare_parameter<double>(
       "new_normal.beta_v", 4.0);
     new_normal_sigma_v_ = this->declare_parameter<double>(
@@ -62,8 +60,6 @@ public:
       "new_normal.slip_blend_velocity", 0.04);
     new_normal_force_epsilon_ = this->declare_parameter<double>(
       "new_normal.force_epsilon", 0.004);
-    new_normal_force_gate_ = this->declare_parameter<double>(
-      "new_normal.force_gate", 0.02);
     new_normal_beta_f_ = this->declare_parameter<double>(
       "new_normal.beta_f", 8.0);
     new_normal_sigma_f_ = this->declare_parameter<double>(
@@ -272,16 +268,6 @@ private:
       return Eigen::Matrix3d::Zero();
     }
     return mat / (trace + eps_trace);
-  }
-
-  static double smoothGate(double magnitude, double gate)
-  {
-    const double mag2 = magnitude * magnitude;
-    const double gate2 = gate * gate;
-    if (!(std::isfinite(mag2) && std::isfinite(gate2))) {
-      return 0.0;
-    }
-    return mag2 / (gate2 + mag2 + 1e-12);
   }
 
   static double angleDegreesBetween(const Eigen::Vector3d & a, const Eigen::Vector3d & b)
@@ -579,8 +565,6 @@ private:
     if (vel_norm > new_normal_velocity_epsilon_) {
       s_v = ref.vel_w / (vel_norm + 1e-12);
     }
-    const double vel_gate = smoothGate(vel_norm, new_normal_velocity_gate_);
-    const double force_gate = smoothGate(force_norm, new_normal_force_gate_);
     new_normal_state_.vel_norm = vel_norm;
     new_normal_state_.force_norm = force_norm;
 
@@ -609,7 +593,7 @@ private:
     if (n_f.squaredNorm() > 1e-12) {
       const Eigen::Matrix3d l_f_dot =
         -new_normal_beta_f_ * new_normal_state_.l_f +
-        new_normal_sigma_f_ * force_gate * (n_f * n_f.transpose());
+        new_normal_sigma_f_ * (n_f * n_f.transpose());
       new_normal_state_.l_f += dt * l_f_dot;
       new_normal_state_.n_f = n_f;
     } else {
@@ -794,7 +778,7 @@ private:
     std_msgs::msg::Float64MultiArray msg;
     const auto nan = std::numeric_limits<double>::quiet_NaN();
 
-    msg.data.resize(34, nan);
+    msg.data.resize(52, nan);
     msg.data[0] = new_normal_state_.lambda1;
     msg.data[1] = new_normal_state_.lambda2;
     msg.data[2] = new_normal_state_.lambda3;
@@ -823,6 +807,18 @@ private:
     msg.data[31] = new_normal_state_.n_f.x();
     msg.data[32] = new_normal_state_.n_f.y();
     msg.data[33] = new_normal_state_.n_f.z();
+
+    idx = 34;
+    for (int r = 0; r < 3; ++r) {
+      for (int c = 0; c < 3; ++c) {
+        msg.data[idx++] = new_normal_state_.l_v(r, c);
+      }
+    }
+    for (int r = 0; r < 3; ++r) {
+      for (int c = 0; c < 3; ++c) {
+        msg.data[idx++] = new_normal_state_.l_f(r, c);
+      }
+    }
 
     pub_normal_debug_metrics_->publish(msg);
   }
@@ -1034,12 +1030,10 @@ private:
   double publish_hz_{100.0};
 
   double new_normal_velocity_epsilon_{0.015};
-  double new_normal_velocity_gate_{0.05};
   double new_normal_beta_v_{4.0};
   double new_normal_sigma_v_{4.0};
   double new_normal_slip_blend_velocity_{0.04};
   double new_normal_force_epsilon_{0.004};
-  double new_normal_force_gate_{0.02};
   double new_normal_beta_f_{8.0};
   double new_normal_sigma_f_{8.0};
   double new_normal_c_v_{0.08};
