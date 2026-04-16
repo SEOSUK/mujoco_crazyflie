@@ -1,0 +1,56 @@
+[0.548s] Invoking command in '/home/seosuk/mujoco_crazyflie/src/flyingpen_plotter': PYTHONPATH=/home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/flyingpen_plotter build --build-base /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build install --record /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/install.log --single-version-externally-managed install_data
+[0.639s] /home/seosuk/.local/lib/python3.10/site-packages/setuptools/_distutils/dist.py:289: UserWarning: Unknown distribution option: 'tests_require'
+[0.639s]   warnings.warn(msg)
+[0.693s] running egg_info
+[0.708s] creating ../build/flyingpen_plotter/flyingpen_plotter.egg-info
+[0.708s] writing ../build/flyingpen_plotter/flyingpen_plotter.egg-info/PKG-INFO
+[0.709s] writing dependency_links to ../build/flyingpen_plotter/flyingpen_plotter.egg-info/dependency_links.txt
+[0.709s] writing entry points to ../build/flyingpen_plotter/flyingpen_plotter.egg-info/entry_points.txt
+[0.709s] writing requirements to ../build/flyingpen_plotter/flyingpen_plotter.egg-info/requires.txt
+[0.709s] writing top-level names to ../build/flyingpen_plotter/flyingpen_plotter.egg-info/top_level.txt
+[0.709s] writing manifest file '../build/flyingpen_plotter/flyingpen_plotter.egg-info/SOURCES.txt'
+[0.742s] reading manifest file '../build/flyingpen_plotter/flyingpen_plotter.egg-info/SOURCES.txt'
+[0.743s] writing manifest file '../build/flyingpen_plotter/flyingpen_plotter.egg-info/SOURCES.txt'
+[0.743s] running build
+[0.743s] running build_py
+[0.743s] creating /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build/lib/flyingpen_plotter
+[0.743s] copying flyingpen_plotter/data_logging_python.py -> /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build/lib/flyingpen_plotter
+[0.743s] copying flyingpen_plotter/__init__.py -> /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build/lib/flyingpen_plotter
+[0.743s] copying flyingpen_plotter/data_logging_drone_states.py -> /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build/lib/flyingpen_plotter
+[0.743s] copying flyingpen_plotter/Normal_vector_debug.py -> /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build/lib/flyingpen_plotter
+[0.744s] copying flyingpen_plotter/data_logging_chat_frame.py -> /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build/lib/flyingpen_plotter
+[0.744s] copying flyingpen_plotter/data_logging_rpy_acceleration.py -> /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build/lib/flyingpen_plotter
+[0.744s] copying flyingpen_plotter/data_logging_arrow_pwm.py -> /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build/lib/flyingpen_plotter
+[0.744s] running install
+[0.747s] running install_lib
+[0.755s] creating /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/python3.10/site-packages/flyingpen_plotter
+[0.756s] copying /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build/lib/flyingpen_plotter/data_logging_python.py -> /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/python3.10/site-packages/flyingpen_plotter
+[0.756s] copying /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build/lib/flyingpen_plotter/__init__.py -> /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/python3.10/site-packages/flyingpen_plotter
+[0.756s] copying /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build/lib/flyingpen_plotter/data_logging_drone_states.py -> /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/python3.10/site-packages/flyingpen_plotter
+[0.756s] copying /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build/lib/flyingpen_plotter/Normal_vector_debug.py -> /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/python3.10/site-packages/flyingpen_plotter
+[0.756s] copying /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build/lib/flyingpen_plotter/data_logging_chat_frame.py -> /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/python3.10/site-packages/flyingpen_plotter
+[0.756s] copying /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build/lib/flyingpen_plotter/data_logging_rpy_acceleration.py -> /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/python3.10/site-packages/flyingpen_plotter
+[0.756s] copying /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build/lib/flyingpen_plotter/data_logging_arrow_pwm.py -> /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/python3.10/site-packages/flyingpen_plotter
+[0.756s] byte-compiling /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/python3.10/site-packages/flyingpen_plotter/data_logging_python.py to data_logging_python.cpython-310.pyc
+[0.758s] byte-compiling /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/python3.10/site-packages/flyingpen_plotter/__init__.py to __init__.cpython-310.pyc
+[0.758s] byte-compiling /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/python3.10/site-packages/flyingpen_plotter/data_logging_drone_states.py to data_logging_drone_states.cpython-310.pyc
+[0.760s] byte-compiling /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/python3.10/site-packages/flyingpen_plotter/Normal_vector_debug.py to Normal_vector_debug.cpython-310.pyc
+[0.762s] byte-compiling /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/python3.10/site-packages/flyingpen_plotter/data_logging_chat_frame.py to data_logging_chat_frame.cpython-310.pyc
+[0.764s] byte-compiling /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/python3.10/site-packages/flyingpen_plotter/data_logging_rpy_acceleration.py to data_logging_rpy_acceleration.cpython-310.pyc
+[0.766s] byte-compiling /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/python3.10/site-packages/flyingpen_plotter/data_logging_arrow_pwm.py to data_logging_arrow_pwm.cpython-310.pyc
+[0.768s] running install_data
+[0.768s] creating /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/share/ament_index/resource_index/packages
+[0.768s] copying resource/flyingpen_plotter -> /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/share/ament_index/resource_index/packages
+[0.768s] copying package.xml -> /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/share/flyingpen_plotter
+[0.768s] running install_egg_info
+[0.779s] Copying ../build/flyingpen_plotter/flyingpen_plotter.egg-info to /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/python3.10/site-packages/flyingpen_plotter-0.0.0-py3.10.egg-info
+[0.779s] running install_scripts
+[0.853s] Installing data_logging_arrow_pwm script to /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/flyingpen_plotter
+[0.853s] Installing data_logging_chat_frame script to /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/flyingpen_plotter
+[0.854s] Installing data_logging_drone_states script to /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/flyingpen_plotter
+[0.854s] Installing data_logging_python script to /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/flyingpen_plotter
+[0.854s] Installing data_logging_rpy_acceleration script to /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/flyingpen_plotter
+[0.854s] Installing normal_vector_debug script to /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/flyingpen_plotter
+[0.854s] Installing realtime_plotter script to /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/flyingpen_plotter
+[0.854s] writing list of installed files to '/home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/install.log'
+[0.874s] Invoked command in '/home/seosuk/mujoco_crazyflie/src/flyingpen_plotter' returned '0': PYTHONPATH=/home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/flyingpen_plotter build --build-base /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build install --record /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/install.log --single-version-externally-managed install_data

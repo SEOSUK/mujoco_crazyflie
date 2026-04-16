@@ -1,0 +1,38 @@
+/home/seosuk/.local/lib/python3.10/site-packages/setuptools/_distutils/dist.py:289: UserWarning: Unknown distribution option: 'tests_require'
+  warnings.warn(msg)
+running egg_info
+writing ../build/flyingpen_plotter/flyingpen_plotter.egg-info/PKG-INFO
+writing dependency_links to ../build/flyingpen_plotter/flyingpen_plotter.egg-info/dependency_links.txt
+writing entry points to ../build/flyingpen_plotter/flyingpen_plotter.egg-info/entry_points.txt
+writing requirements to ../build/flyingpen_plotter/flyingpen_plotter.egg-info/requires.txt
+writing top-level names to ../build/flyingpen_plotter/flyingpen_plotter.egg-info/top_level.txt
+reading manifest file '../build/flyingpen_plotter/flyingpen_plotter.egg-info/SOURCES.txt'
+writing manifest file '../build/flyingpen_plotter/flyingpen_plotter.egg-info/SOURCES.txt'
+running build
+running build_py
+copying flyingpen_plotter/data_logging_python.py -> /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build/lib/flyingpen_plotter
+copying flyingpen_plotter/__init__.py -> /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build/lib/flyingpen_plotter
+copying flyingpen_plotter/data_logging_drone_states.py -> /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build/lib/flyingpen_plotter
+copying flyingpen_plotter/Normal_vector_debug.py -> /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build/lib/flyingpen_plotter
+copying flyingpen_plotter/data_logging_chat_frame.py -> /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build/lib/flyingpen_plotter
+copying flyingpen_plotter/data_logging_rpy_acceleration.py -> /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build/lib/flyingpen_plotter
+copying flyingpen_plotter/data_logging_arrow_pwm.py -> /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build/lib/flyingpen_plotter
+running install
+running install_lib
+copying /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build/lib/flyingpen_plotter/Normal_vector_debug.py -> /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/python3.10/site-packages/flyingpen_plotter
+byte-compiling /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/python3.10/site-packages/flyingpen_plotter/Normal_vector_debug.py to Normal_vector_debug.cpython-310.pyc
+running install_data
+copying resource/flyingpen_plotter -> /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/share/ament_index/resource_index/packages
+copying package.xml -> /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/share/flyingpen_plotter
+running install_egg_info
+removing '/home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/python3.10/site-packages/flyingpen_plotter-0.0.0-py3.10.egg-info' (and everything under it)
+Copying ../build/flyingpen_plotter/flyingpen_plotter.egg-info to /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/python3.10/site-packages/flyingpen_plotter-0.0.0-py3.10.egg-info
+running install_scripts
+Installing data_logging_arrow_pwm script to /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/flyingpen_plotter
+Installing data_logging_chat_frame script to /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/flyingpen_plotter
+Installing data_logging_drone_states script to /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/flyingpen_plotter
+Installing data_logging_python script to /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/flyingpen_plotter
+Installing data_logging_rpy_acceleration script to /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/flyingpen_plotter
+Installing normal_vector_debug script to /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/flyingpen_plotter
+Installing realtime_plotter script to /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/flyingpen_plotter
+writing list of installed files to '/home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/install.log'

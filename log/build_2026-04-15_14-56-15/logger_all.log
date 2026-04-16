@@ -1,0 +1,182 @@
+[0.063s] DEBUG:colcon:Command line arguments: ['/usr/bin/colcon', 'build', '--packages-select', 'flyingpen']
+[0.063s] DEBUG:colcon:Parsed command line arguments: Namespace(log_base=None, log_level=None, verb_name='build', build_base='build', install_base='install', merge_install=False, symlink_install=False, test_result_base=None, continue_on_error=False, executor='parallel', parallel_workers=20, event_handlers=None, ignore_user_meta=False, metas=['./colcon.meta'], base_paths=['.'], packages_ignore=None, packages_ignore_regex=None, paths=None, packages_up_to=None, packages_up_to_regex=None, packages_above=None, packages_above_and_dependencies=None, packages_above_depth=None, packages_select_by_dep=None, packages_skip_by_dep=None, packages_skip_up_to=None, packages_select_build_failed=False, packages_skip_build_finished=False, packages_select_test_failures=False, packages_skip_test_passed=False, packages_select=['flyingpen'], packages_skip=None, packages_select_regex=None, packages_skip_regex=None, packages_start=None, packages_end=None, allow_overriding=[], cmake_args=None, cmake_target=None, cmake_target_skip_unavailable=False, cmake_clean_cache=False, cmake_clean_first=False, cmake_force_configure=False, ament_cmake_args=None, catkin_cmake_args=None, catkin_skip_building_tests=False, mixin_files=None, mixin=None, verb_parser=<colcon_mixin.mixin.mixin_argument.MixinArgumentDecorator object at 0x7614f1940ca0>, verb_extension=<colcon_core.verb.build.BuildVerb object at 0x7614f1940130>, main=<bound method BuildVerb.main of <colcon_core.verb.build.BuildVerb object at 0x7614f1940130>>, mixin_verb=('build',))
+[0.087s] Level 1:colcon.colcon_core.package_discovery:discover_packages(colcon_meta) check parameters
+[0.088s] Level 1:colcon.colcon_core.package_discovery:discover_packages(recursive) check parameters
+[0.088s] Level 1:colcon.colcon_core.package_discovery:discover_packages(ignore) check parameters
+[0.088s] Level 1:colcon.colcon_core.package_discovery:discover_packages(path) check parameters
+[0.088s] Level 1:colcon.colcon_core.package_discovery:discover_packages(colcon_meta) discover
+[0.088s] Level 1:colcon.colcon_core.package_discovery:discover_packages(recursive) discover
+[0.088s] INFO:colcon.colcon_core.package_discovery:Crawling recursively for packages in '/home/seosuk/mujoco_crazyflie/src'
+[0.088s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['ignore', 'ignore_ament_install']
+[0.088s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'ignore'
+[0.088s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'ignore_ament_install'
+[0.088s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['colcon_pkg']
+[0.088s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'colcon_pkg'
+[0.088s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['colcon_meta']
+[0.088s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'colcon_meta'
+[0.088s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['ros']
+[0.088s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'ros'
+[0.096s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['cmake', 'python']
+[0.096s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'cmake'
+[0.096s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'python'
+[0.096s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['python_setup_py']
+[0.096s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'python_setup_py'
+[0.097s] Level 1:colcon.colcon_core.package_identification:_identify(build) by extensions ['ignore', 'ignore_ament_install']
+[0.097s] Level 1:colcon.colcon_core.package_identification:_identify(build) by extension 'ignore'
+[0.097s] Level 1:colcon.colcon_core.package_identification:_identify(build) ignored
+[0.097s] Level 1:colcon.colcon_core.package_identification:_identify(flyingpen) by extensions ['ignore', 'ignore_ament_install']
+[0.097s] Level 1:colcon.colcon_core.package_identification:_identify(flyingpen) by extension 'ignore'
+[0.097s] Level 1:colcon.colcon_core.package_identification:_identify(flyingpen) by extension 'ignore_ament_install'
+[0.097s] Level 1:colcon.colcon_core.package_identification:_identify(flyingpen) by extensions ['colcon_pkg']
+[0.097s] Level 1:colcon.colcon_core.package_identification:_identify(flyingpen) by extension 'colcon_pkg'
+[0.097s] Level 1:colcon.colcon_core.package_identification:_identify(flyingpen) by extensions ['colcon_meta']
+[0.097s] Level 1:colcon.colcon_core.package_identification:_identify(flyingpen) by extension 'colcon_meta'
+[0.097s] Level 1:colcon.colcon_core.package_identification:_identify(flyingpen) by extensions ['ros']
+[0.097s] Level 1:colcon.colcon_core.package_identification:_identify(flyingpen) by extension 'ros'
+[0.098s] DEBUG:colcon.colcon_core.package_identification:Package 'flyingpen' with type 'ros.ament_cmake' and name 'flyingpen'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(flyingpen_interface) by extensions ['ignore', 'ignore_ament_install']
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(flyingpen_interface) by extension 'ignore'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(flyingpen_interface) by extension 'ignore_ament_install'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(flyingpen_interface) by extensions ['colcon_pkg']
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(flyingpen_interface) by extension 'colcon_pkg'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(flyingpen_interface) by extensions ['colcon_meta']
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(flyingpen_interface) by extension 'colcon_meta'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(flyingpen_interface) by extensions ['ros']
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(flyingpen_interface) by extension 'ros'
+[0.099s] DEBUG:colcon.colcon_core.package_identification:Package 'flyingpen_interface' with type 'ros.ament_cmake' and name 'flyingpen_interface'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(flyingpen_plotter) by extensions ['ignore', 'ignore_ament_install']
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(flyingpen_plotter) by extension 'ignore'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(flyingpen_plotter) by extension 'ignore_ament_install'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(flyingpen_plotter) by extensions ['colcon_pkg']
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(flyingpen_plotter) by extension 'colcon_pkg'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(flyingpen_plotter) by extensions ['colcon_meta']
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(flyingpen_plotter) by extension 'colcon_meta'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(flyingpen_plotter) by extensions ['ros']
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(flyingpen_plotter) by extension 'ros'
+[0.100s] DEBUG:colcon.colcon_core.package_identification:Package 'flyingpen_plotter' with type 'ros.ament_python' and name 'flyingpen_plotter'
+[0.100s] Level 1:colcon.colcon_core.package_identification:_identify(install) by extensions ['ignore', 'ignore_ament_install']
+[0.100s] Level 1:colcon.colcon_core.package_identification:_identify(install) by extension 'ignore'
+[0.100s] Level 1:colcon.colcon_core.package_identification:_identify(install) ignored
+[0.100s] Level 1:colcon.colcon_core.package_identification:_identify(log) by extensions ['ignore', 'ignore_ament_install']
+[0.100s] Level 1:colcon.colcon_core.package_identification:_identify(log) by extension 'ignore'
+[0.100s] Level 1:colcon.colcon_core.package_identification:_identify(log) ignored
+[0.100s] Level 1:colcon.colcon_core.package_identification:_identify(low_level_controller) by extensions ['ignore', 'ignore_ament_install']
+[0.100s] Level 1:colcon.colcon_core.package_identification:_identify(low_level_controller) by extension 'ignore'
+[0.100s] Level 1:colcon.colcon_core.package_identification:_identify(low_level_controller) by extension 'ignore_ament_install'
+[0.100s] Level 1:colcon.colcon_core.package_identification:_identify(low_level_controller) by extensions ['colcon_pkg']
+[0.100s] Level 1:colcon.colcon_core.package_identification:_identify(low_level_controller) by extension 'colcon_pkg'
+[0.100s] Level 1:colcon.colcon_core.package_identification:_identify(low_level_controller) by extensions ['colcon_meta']
+[0.100s] Level 1:colcon.colcon_core.package_identification:_identify(low_level_controller) by extension 'colcon_meta'
+[0.100s] Level 1:colcon.colcon_core.package_identification:_identify(low_level_controller) by extensions ['ros']
+[0.100s] Level 1:colcon.colcon_core.package_identification:_identify(low_level_controller) by extension 'ros'
+[0.101s] DEBUG:colcon.colcon_core.package_identification:Package 'low_level_controller' with type 'ros.ament_cmake' and name 'low_level_controller'
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(mujoco_bridge) by extensions ['ignore', 'ignore_ament_install']
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(mujoco_bridge) by extension 'ignore'
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(mujoco_bridge) by extension 'ignore_ament_install'
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(mujoco_bridge) by extensions ['colcon_pkg']
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(mujoco_bridge) by extension 'colcon_pkg'
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(mujoco_bridge) by extensions ['colcon_meta']
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(mujoco_bridge) by extension 'colcon_meta'
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(mujoco_bridge) by extensions ['ros']
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(mujoco_bridge) by extension 'ros'
+[0.101s] DEBUG:colcon.colcon_core.package_identification:Package 'mujoco_bridge' with type 'ros.ament_cmake' and name 'mujoco_bridge'
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(plant) by extensions ['ignore', 'ignore_ament_install']
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(plant) by extension 'ignore'
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(plant) by extension 'ignore_ament_install'
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(plant) by extensions ['colcon_pkg']
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(plant) by extension 'colcon_pkg'
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(plant) by extensions ['colcon_meta']
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(plant) by extension 'colcon_meta'
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(plant) by extensions ['ros']
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(plant) by extension 'ros'
+[0.102s] DEBUG:colcon.colcon_core.package_identification:Package 'plant' with type 'ros.ament_python' and name 'plant'
+[0.102s] Level 1:colcon.colcon_core.package_discovery:discover_packages(recursive) using defaults
+[0.102s] Level 1:colcon.colcon_core.package_discovery:discover_packages(ignore) discover
+[0.102s] Level 1:colcon.colcon_core.package_discovery:discover_packages(ignore) using defaults
+[0.102s] Level 1:colcon.colcon_core.package_discovery:discover_packages(path) discover
+[0.102s] Level 1:colcon.colcon_core.package_discovery:discover_packages(path) using defaults
+[0.115s] INFO:colcon.colcon_core.package_selection:Skipping not selected package 'flyingpen_interface' in 'flyingpen_interface'
+[0.115s] INFO:colcon.colcon_core.package_selection:Skipping not selected package 'flyingpen_plotter' in 'flyingpen_plotter'
+[0.115s] INFO:colcon.colcon_core.package_selection:Skipping not selected package 'low_level_controller' in 'low_level_controller'
+[0.115s] INFO:colcon.colcon_core.package_selection:Skipping not selected package 'mujoco_bridge' in 'mujoco_bridge'
+[0.115s] INFO:colcon.colcon_core.package_selection:Skipping not selected package 'plant' in 'plant'
+[0.115s] Level 1:colcon.colcon_core.package_discovery:discover_packages(prefix_path) check parameters
+[0.115s] Level 1:colcon.colcon_core.package_discovery:discover_packages(prefix_path) discover
+[0.116s] DEBUG:colcon.colcon_installed_package_information.package_discovery:Found 3 installed packages in /home/seosuk/sitl_ws/install
+[0.116s] DEBUG:colcon.colcon_installed_package_information.package_discovery:Found 294 installed packages in /opt/ros/humble
+[0.117s] Level 1:colcon.colcon_core.package_discovery:discover_packages(prefix_path) using defaults
+[0.136s] Level 5:colcon.colcon_core.verb:set package 'flyingpen' build argument 'cmake_args' from command line to 'None'
+[0.136s] Level 5:colcon.colcon_core.verb:set package 'flyingpen' build argument 'cmake_target' from command line to 'None'
+[0.136s] Level 5:colcon.colcon_core.verb:set package 'flyingpen' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.136s] Level 5:colcon.colcon_core.verb:set package 'flyingpen' build argument 'cmake_clean_cache' from command line to 'False'
+[0.136s] Level 5:colcon.colcon_core.verb:set package 'flyingpen' build argument 'cmake_clean_first' from command line to 'False'
+[0.136s] Level 5:colcon.colcon_core.verb:set package 'flyingpen' build argument 'cmake_force_configure' from command line to 'False'
+[0.136s] Level 5:colcon.colcon_core.verb:set package 'flyingpen' build argument 'ament_cmake_args' from command line to 'None'
+[0.136s] Level 5:colcon.colcon_core.verb:set package 'flyingpen' build argument 'catkin_cmake_args' from command line to 'None'
+[0.136s] Level 5:colcon.colcon_core.verb:set package 'flyingpen' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.136s] DEBUG:colcon.colcon_core.verb:Building package 'flyingpen' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/seosuk/mujoco_crazyflie/src/build/flyingpen', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/seosuk/mujoco_crazyflie/src/install/flyingpen', 'merge_install': False, 'path': '/home/seosuk/mujoco_crazyflie/src/flyingpen', 'symlink_install': False, 'test_result_base': None}
+[0.136s] INFO:colcon.colcon_core.executor:Executing jobs using 'parallel' executor
+[0.137s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:run_until_complete
+[0.137s] INFO:colcon.colcon_ros.task.ament_cmake.build:Building ROS package in '/home/seosuk/mujoco_crazyflie/src/flyingpen' with build type 'ament_cmake'
+[0.137s] INFO:colcon.colcon_cmake.task.cmake.build:Building CMake package in '/home/seosuk/mujoco_crazyflie/src/flyingpen'
+[0.138s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_core.shell.bat': Not used on non-Windows systems
+[0.138s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.138s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[0.142s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/home/seosuk/mujoco_crazyflie/src/build/flyingpen': /usr/bin/cmake --build /home/seosuk/mujoco_crazyflie/src/build/flyingpen -- -j20 -l20
+[13.360s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/home/seosuk/mujoco_crazyflie/src/build/flyingpen' returned '0': /usr/bin/cmake --build /home/seosuk/mujoco_crazyflie/src/build/flyingpen -- -j20 -l20
+[13.374s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/home/seosuk/mujoco_crazyflie/src/build/flyingpen': /usr/bin/cmake --install /home/seosuk/mujoco_crazyflie/src/build/flyingpen
+[13.396s] Level 1:colcon.colcon_core.environment:create_environment_scripts_only(flyingpen)
+[13.396s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/home/seosuk/mujoco_crazyflie/src/build/flyingpen' returned '0': /usr/bin/cmake --install /home/seosuk/mujoco_crazyflie/src/build/flyingpen
+[13.399s] Level 1:colcon.colcon_core.environment:checking '/home/seosuk/mujoco_crazyflie/src/install/flyingpen' for CMake module files
+[13.400s] Level 1:colcon.colcon_core.environment:checking '/home/seosuk/mujoco_crazyflie/src/install/flyingpen' for CMake config files
+[13.400s] Level 1:colcon.colcon_core.shell:create_environment_hook('flyingpen', 'cmake_prefix_path')
+[13.400s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/hook/cmake_prefix_path.ps1'
+[13.401s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/hook/cmake_prefix_path.dsv'
+[13.402s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/hook/cmake_prefix_path.sh'
+[13.403s] Level 1:colcon.colcon_core.environment:checking '/home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib'
+[13.403s] Level 1:colcon.colcon_core.environment:checking '/home/seosuk/mujoco_crazyflie/src/install/flyingpen/bin'
+[13.403s] Level 1:colcon.colcon_core.environment:checking '/home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib/pkgconfig/flyingpen.pc'
+[13.403s] Level 1:colcon.colcon_core.environment:checking '/home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib/python3.10/site-packages'
+[13.404s] Level 1:colcon.colcon_core.environment:checking '/home/seosuk/mujoco_crazyflie/src/install/flyingpen/bin'
+[13.404s] INFO:colcon.colcon_core.shell:Creating package script '/home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/package.ps1'
+[13.406s] INFO:colcon.colcon_core.shell:Creating package descriptor '/home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/package.dsv'
+[13.406s] INFO:colcon.colcon_core.shell:Creating package script '/home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/package.sh'
+[13.407s] INFO:colcon.colcon_core.shell:Creating package script '/home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/package.bash'
+[13.408s] INFO:colcon.colcon_core.shell:Creating package script '/home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/package.zsh'
+[13.408s] Level 1:colcon.colcon_core.environment:create_file_with_runtime_dependencies(/home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/colcon-core/packages/flyingpen)
+[13.409s] Level 1:colcon.colcon_core.environment:create_environment_scripts_only(flyingpen)
+[13.409s] Level 1:colcon.colcon_core.environment:checking '/home/seosuk/mujoco_crazyflie/src/install/flyingpen' for CMake module files
+[13.410s] Level 1:colcon.colcon_core.environment:checking '/home/seosuk/mujoco_crazyflie/src/install/flyingpen' for CMake config files
+[13.410s] Level 1:colcon.colcon_core.shell:create_environment_hook('flyingpen', 'cmake_prefix_path')
+[13.410s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/hook/cmake_prefix_path.ps1'
+[13.411s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/hook/cmake_prefix_path.dsv'
+[13.411s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/hook/cmake_prefix_path.sh'
+[13.412s] Level 1:colcon.colcon_core.environment:checking '/home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib'
+[13.412s] Level 1:colcon.colcon_core.environment:checking '/home/seosuk/mujoco_crazyflie/src/install/flyingpen/bin'
+[13.412s] Level 1:colcon.colcon_core.environment:checking '/home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib/pkgconfig/flyingpen.pc'
+[13.412s] Level 1:colcon.colcon_core.environment:checking '/home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib/python3.10/site-packages'
+[13.412s] Level 1:colcon.colcon_core.environment:checking '/home/seosuk/mujoco_crazyflie/src/install/flyingpen/bin'
+[13.413s] INFO:colcon.colcon_core.shell:Creating package script '/home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/package.ps1'
+[13.413s] INFO:colcon.colcon_core.shell:Creating package descriptor '/home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/package.dsv'
+[13.414s] INFO:colcon.colcon_core.shell:Creating package script '/home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/package.sh'
+[13.414s] INFO:colcon.colcon_core.shell:Creating package script '/home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/package.bash'
+[13.414s] INFO:colcon.colcon_core.shell:Creating package script '/home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/package.zsh'
+[13.415s] Level 1:colcon.colcon_core.environment:create_file_with_runtime_dependencies(/home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/colcon-core/packages/flyingpen)
+[13.415s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:closing loop
+[13.415s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:loop closed
+[13.415s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:run_until_complete finished with '0'
+[13.415s] DEBUG:colcon.colcon_core.event_reactor:joining thread
+[13.418s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_notification.desktop_notification.terminal_notifier': Not used on non-Darwin systems
+[13.418s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_notification.desktop_notification.win32': Not used on non-Windows systems
+[13.418s] INFO:colcon.colcon_notification.desktop_notification:Sending desktop notification using 'notify2'
+[13.426s] DEBUG:colcon.colcon_core.event_reactor:joined thread
+[13.427s] INFO:colcon.colcon_core.shell:Creating prefix script '/home/seosuk/mujoco_crazyflie/src/install/local_setup.ps1'
+[13.428s] INFO:colcon.colcon_core.shell:Creating prefix util module '/home/seosuk/mujoco_crazyflie/src/install/_local_setup_util_ps1.py'
+[13.429s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/home/seosuk/mujoco_crazyflie/src/install/setup.ps1'
+[13.430s] INFO:colcon.colcon_core.shell:Creating prefix script '/home/seosuk/mujoco_crazyflie/src/install/local_setup.sh'
+[13.431s] INFO:colcon.colcon_core.shell:Creating prefix util module '/home/seosuk/mujoco_crazyflie/src/install/_local_setup_util_sh.py'
+[13.431s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/home/seosuk/mujoco_crazyflie/src/install/setup.sh'
+[13.432s] INFO:colcon.colcon_core.shell:Creating prefix script '/home/seosuk/mujoco_crazyflie/src/install/local_setup.bash'
+[13.433s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/home/seosuk/mujoco_crazyflie/src/install/setup.bash'
+[13.434s] INFO:colcon.colcon_core.shell:Creating prefix script '/home/seosuk/mujoco_crazyflie/src/install/local_setup.zsh'
+[13.434s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/home/seosuk/mujoco_crazyflie/src/install/setup.zsh'

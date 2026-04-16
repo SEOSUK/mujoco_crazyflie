@@ -1,0 +1,69 @@
+Consolidate compiler generated dependencies of target rviz_visual
+[ 50%] Built target command_publisher
+[ 50%] Built target fk_ik_transform
+[ 75%] Built target data_logger
+[ 87%] Building CXX object CMakeFiles/rviz_visual.dir/src/rviz_visual.cpp.o
+/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/src/rviz_visual.cpp: In member function ‘void RvizVisual::loop_publish()’:
+/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/src/rviz_visual.cpp:931:9: error: ‘thin_shaft’ was not declared in this scope
+  931 |         thin_shaft,
+      |         ^~~~~~~~~~
+/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/src/rviz_visual.cpp:932:9: error: ‘thin_head_diam’ was not declared in this scope; did you mean ‘arrow_head_diam_’?
+  932 |         thin_head_diam,
+      |         ^~~~~~~~~~~~~~
+      |         arrow_head_diam_
+/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/src/rviz_visual.cpp:933:9: error: ‘thin_head_len’ was not declared in this scope
+  933 |         thin_head_len,
+      |         ^~~~~~~~~~~~~
+/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/src/rviz_visual.cpp:946:9: error: ‘thin_shaft’ was not declared in this scope
+  946 |         thin_shaft,
+      |         ^~~~~~~~~~
+/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/src/rviz_visual.cpp:947:9: error: ‘thin_head_diam’ was not declared in this scope; did you mean ‘arrow_head_diam_’?
+  947 |         thin_head_diam,
+      |         ^~~~~~~~~~~~~~
+      |         arrow_head_diam_
+/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/src/rviz_visual.cpp:948:9: error: ‘thin_head_len’ was not declared in this scope
+  948 |         thin_head_len,
+      |         ^~~~~~~~~~~~~
+/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/src/rviz_visual.cpp:975:9: error: ‘thin_shaft’ was not declared in this scope
+  975 |         thin_shaft,
+      |         ^~~~~~~~~~
+/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/src/rviz_visual.cpp:976:9: error: ‘thin_head_diam’ was not declared in this scope; did you mean ‘arrow_head_diam_’?
+  976 |         thin_head_diam,
+      |         ^~~~~~~~~~~~~~
+      |         arrow_head_diam_
+/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/src/rviz_visual.cpp:977:9: error: ‘thin_head_len’ was not declared in this scope
+  977 |         thin_head_len,
+      |         ^~~~~~~~~~~~~
+/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/src/rviz_visual.cpp:1081:9: error: ‘thin_shaft’ was not declared in this scope
+ 1081 |         thin_shaft,
+      |         ^~~~~~~~~~
+/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/src/rviz_visual.cpp:1082:9: error: ‘thin_head_diam’ was not declared in this scope; did you mean ‘arrow_head_diam_’?
+ 1082 |         thin_head_diam,
+      |         ^~~~~~~~~~~~~~
+      |         arrow_head_diam_
+/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/src/rviz_visual.cpp:1083:9: error: ‘thin_head_len’ was not declared in this scope
+ 1083 |         thin_head_len,
+      |         ^~~~~~~~~~~~~
+/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/src/rviz_visual.cpp:1095:9: error: ‘thin_shaft’ was not declared in this scope
+ 1095 |         thin_shaft,
+      |         ^~~~~~~~~~
+/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/src/rviz_visual.cpp:1096:9: error: ‘thin_head_diam’ was not declared in this scope; did you mean ‘arrow_head_diam_’?
+ 1096 |         thin_head_diam,
+      |         ^~~~~~~~~~~~~~
+      |         arrow_head_diam_
+/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/src/rviz_visual.cpp:1097:9: error: ‘thin_head_len’ was not declared in this scope
+ 1097 |         thin_head_len,
+      |         ^~~~~~~~~~~~~
+/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/src/rviz_visual.cpp:1123:9: error: ‘thin_shaft’ was not declared in this scope
+ 1123 |         thin_shaft,
+      |         ^~~~~~~~~~
+/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/src/rviz_visual.cpp:1124:9: error: ‘thin_head_diam’ was not declared in this scope; did you mean ‘arrow_head_diam_’?
+ 1124 |         thin_head_diam,
+      |         ^~~~~~~~~~~~~~
+      |         arrow_head_diam_
+/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/src/rviz_visual.cpp:1125:9: error: ‘thin_head_len’ was not declared in this scope
+ 1125 |         thin_head_len,
+      |         ^~~~~~~~~~~~~
+gmake[2]: *** [CMakeFiles/rviz_visual.dir/build.make:76: CMakeFiles/rviz_visual.dir/src/rviz_visual.cpp.o] 오류 1
+gmake[1]: *** [CMakeFiles/Makefile2:195: CMakeFiles/rviz_visual.dir/all] 오류 2
+gmake: *** [Makefile:146: all] 오류 2

@@ -1,0 +1,118 @@
+[0.000000] (-) TimerEvent: {}
+[0.000143] (-) JobUnselected: {'identifier': 'flyingpen'}
+[0.000482] (-) JobUnselected: {'identifier': 'flyingpen_plotter'}
+[0.000546] (-) JobUnselected: {'identifier': 'low_level_controller'}
+[0.000564] (-) JobUnselected: {'identifier': 'mujoco_bridge'}
+[0.000583] (-) JobUnselected: {'identifier': 'plant'}
+[0.000608] (flyingpen_interface) JobQueued: {'identifier': 'flyingpen_interface', 'dependencies': OrderedDict()}
+[0.000626] (flyingpen_interface) JobStarted: {'identifier': 'flyingpen_interface'}
+[0.006045] (flyingpen_interface) JobProgress: {'identifier': 'flyingpen_interface', 'progress': 'cmake'}
+[0.006143] (flyingpen_interface) JobProgress: {'identifier': 'flyingpen_interface', 'progress': 'build'}
+[0.006661] (flyingpen_interface) Command: {'cmd': ['/usr/bin/cmake', '--build', '/home/seosuk/mujoco_crazyflie/src/build/flyingpen_interface', '--', '-j20', '-l20'], 'cwd': '/home/seosuk/mujoco_crazyflie/src/build/flyingpen_interface', 'env': OrderedDict([('GJS_DEBUG_TOPICS', 'JS ERROR;JS LOG'), ('LESSOPEN', '| /usr/bin/lesspipe %s'), ('VSCODE_CWD', '/home/seosuk'), ('VSCODE_ESM_ENTRYPOINT', 'vs/workbench/api/node/extensionHostProcess'), ('CODEX_CI', '1'), ('LANGUAGE', 'ko:en_US:en'), ('USER', 'seosuk'), ('LC_TIME', 'ko_KR.UTF-8'), ('CODEX_INTERNAL_ORIGINATOR_OVERRIDE', 'codex_vscode'), ('VSCODE_NLS_CONFIG', '{"userLocale":"ko","osLocale":"ko","resolvedLanguage":"en","defaultMessagesFile":"/usr/share/code/resources/app/out/nls.messages.json","locale":"ko","availableLanguages":{}}'), ('VSCODE_HANDLES_UNCAUGHT_ERRORS', 'true'), ('XDG_SESSION_TYPE', 'x11'), ('DEBUG', 'release'), ('SHLVL', '0'), ('LD_LIBRARY_PATH', '/home/seosuk/sitl_ws/install/dynamixel_sdk/lib:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib:'), ('HOME', '/home/seosuk'), ('CHROME_DESKTOP', 'code.desktop'), ('DESKTOP_SESSION', 'ubuntu-xorg'), ('VSCODE_IPC_HOOK', '/run/user/1000/vscode-ec461311-1.11-main.sock'), ('GIO_LAUNCHED_DESKTOP_FILE', '/usr/share/applications/code.desktop'), ('ROS_PYTHON_VERSION', '3'), ('GNOME_SHELL_SESSION_MODE', 'ubuntu'), ('GTK_MODULES', 'gail:atk-bridge'), ('PAGER', 'cat'), ('LC_MONETARY', 'ko_KR.UTF-8'), ('MANAGERPID', '1721'), ('LC_CTYPE', 'C.UTF-8'), ('SYSTEMD_EXEC_PID', '2158'), ('NO_COLOR', '1'), ('DBUS_SESSION_BUS_ADDRESS', 'unix:path=/run/user/1000/bus'), ('COLORTERM', ''), ('GIO_LAUNCHED_DESKTOP_FILE_PID', '4527'), ('_colcon_cd_root', '/opt/ros/humble/'), ('VSCODE_CRASH_REPORTER_PROCESS_TYPE', 'extensionHost'), ('COLCON_PREFIX_PATH', '/home/seosuk/sitl_ws/install'), ('ROS_DISTRO', 'humble'), ('GTK_IM_MODULE', 'fcitx'), ('LOGNAME', 'seosuk'), ('JOURNAL_STREAM', '8:10800'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('XDG_SESSION_CLASS', 'user'), ('RUST_LOG', 'warn'), ('USERNAME', 'seosuk'), ('TERM', 'dumb'), ('GNOME_DESKTOP_SESSION_ID', 'this-is-deprecated'), ('FC_FONTATIONS', '1'), ('ROS_LOCALHOST_ONLY', '0'), ('WINDOWPATH', '2'), ('PATH', '/home/seosuk/.local/bin:/home/seosuk/.codex/tmp/arg0/codex-arg0zZoK25:/home/seosuk/.local/bin:/home/seosuk/.local/bin:/opt/ros/humble/bin:/opt/gradle/gradle-6.9.4/bin:/home/seosuk/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin:/home/seosuk/.vscode/extensions/openai.chatgpt-26.5401.11717-linux-x64/bin/linux-x86_64'), ('SESSION_MANAGER', 'local/seosuk:@/tmp/.ICE-unix/2129,unix/seosuk:/tmp/.ICE-unix/2129'), ('INVOCATION_ID', '0bc5446f710049458fe89cb294c6fa22'), ('PAPERSIZE', 'a4'), ('XDG_MENU_PREFIX', 'gnome-'), ('LC_ADDRESS', 'ko_KR.UTF-8'), ('XDG_RUNTIME_DIR', '/run/user/1000'), ('GDK_BACKEND', 'x11'), ('DISPLAY', ':0'), ('CODEX_SANDBOX_NETWORK_DISABLED', '1'), ('LANG', 'C.UTF-8'), ('XDG_CURRENT_DESKTOP', 'ubuntu:GNOME'), ('IBUS_DISABLE_SNOOPER', '1'), ('LC_TELEPHONE', 'ko_KR.UTF-8'), ('XMODIFIERS', '@im=fcitx'), ('GH_PAGER', 'cat'), ('XDG_SESSION_DESKTOP', 'ubuntu-xorg'), ('XAUTHORITY', '/run/user/1000/gdm/Xauthority'), ('SSH_AGENT_LAUNCHER', 'gnome-keyring'), ('SSH_AUTH_SOCK', '/run/user/1000/keyring/ssh'), ('ROS_DOMAIN_ID', '15'), ('AMENT_PREFIX_PATH', '/home/seosuk/sitl_ws/install/keyboard_teleop_v3:/home/seosuk/sitl_ws/install/dynamixel_sdk:/opt/ros/humble:'), ('SHELL', '/bin/bash'), ('LC_NAME', 'ko_KR.UTF-8'), ('QT_ACCESSIBILITY', '1'), ('ELECTRON_RUN_AS_NODE', '1'), ('GDMSESSION', 'ubuntu-xorg'), ('LESSCLOSE', '/usr/bin/lesspipe %s %s'), ('CODEX_THREAD_ID', '019d8f28-3ce3-7c33-9752-483382365d80'), ('LC_MEASUREMENT', 'ko_KR.UTF-8'), ('GPG_AGENT_INFO', '/run/user/1000/gnupg/S.gpg-agent:0:1'), ('GJS_DEBUG_OUTPUT', 'stderr'), ('LC_IDENTIFICATION', 'ko_KR.UTF-8'), ('GIT_PAGER', 'cat'), ('QT_IM_MODULE', 'fcitx'), ('PWD', '/home/seosuk/mujoco_crazyflie/src/build/flyingpen_interface'), ('LC_ALL', 'C.UTF-8'), ('XDG_CONFIG_DIRS', '/etc/xdg/xdg-ubuntu-xorg:/etc/xdg'), ('VSCODE_CODE_CACHE_PATH', '/home/seosuk/.config/Code/CachedData/cfbea10c5ffb233ea9177d34726e6056e89913dc'), ('XDG_DATA_DIRS', '/usr/share/ubuntu-xorg:/usr/share/gnome:/usr/local/share/:/usr/share/:/var/lib/snapd/desktop'), ('PYTHONPATH', '/home/seosuk/Desktop/crazyflie-firmware/build:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('LC_NUMERIC', 'ko_KR.UTF-8'), ('LC_PAPER', 'ko_KR.UTF-8'), ('COLCON', '1'), ('CMAKE_PREFIX_PATH', '/home/seosuk/sitl_ws/install/keyboard_teleop_v3:/home/seosuk/sitl_ws/install/dynamixel_sdk:/opt/ros/humble:'), ('VSCODE_PID', '4527')]), 'shell': False}
+[0.042317] (flyingpen_interface) StdoutLine: {'line': b'Consolidate compiler generated dependencies of target rviz_visual\n'}
+[0.050081] (flyingpen_interface) StdoutLine: {'line': b'[ 25%] Built target fk_ik_transform\n'}
+[0.052192] (flyingpen_interface) StdoutLine: {'line': b'[ 50%] Built target command_publisher\n'}
+[0.054197] (flyingpen_interface) StdoutLine: {'line': b'[ 75%] Built target data_logger\n'}
+[0.054385] (flyingpen_interface) StdoutLine: {'line': b'[ 87%] Building CXX object CMakeFiles/rviz_visual.dir/src/rviz_visual.cpp.o\n'}
+[0.099901] (-) TimerEvent: {}
+[0.200143] (-) TimerEvent: {}
+[0.300326] (-) TimerEvent: {}
+[0.400479] (-) TimerEvent: {}
+[0.500694] (-) TimerEvent: {}
+[0.600972] (-) TimerEvent: {}
+[0.701208] (-) TimerEvent: {}
+[0.801468] (-) TimerEvent: {}
+[0.901667] (-) TimerEvent: {}
+[1.001860] (-) TimerEvent: {}
+[1.102072] (-) TimerEvent: {}
+[1.202322] (-) TimerEvent: {}
+[1.302514] (-) TimerEvent: {}
+[1.402741] (-) TimerEvent: {}
+[1.502937] (-) TimerEvent: {}
+[1.603156] (-) TimerEvent: {}
+[1.703330] (-) TimerEvent: {}
+[1.774901] (flyingpen_interface) StderrLine: {'line': b'/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/src/rviz_visual.cpp: In member function \xe2\x80\x98void RvizVisual::loop_publish()\xe2\x80\x99:\n'}
+[1.775088] (flyingpen_interface) StderrLine: {'line': b'/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/src/rviz_visual.cpp:895:9: error: \xe2\x80\x98thin_shaft\xe2\x80\x99 was not declared in this scope\n'}
+[1.775150] (flyingpen_interface) StderrLine: {'line': b'  895 |         thin_shaft,\n'}
+[1.775205] (flyingpen_interface) StderrLine: {'line': b'      |         ^~~~~~~~~~\n'}
+[1.779228] (flyingpen_interface) StderrLine: {'line': b'/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/src/rviz_visual.cpp:896:9: error: \xe2\x80\x98thin_head_diam\xe2\x80\x99 was not declared in this scope; did you mean \xe2\x80\x98arrow_head_diam_\xe2\x80\x99?\n'}
+[1.779338] (flyingpen_interface) StderrLine: {'line': b'  896 |         thin_head_diam,\n'}
+[1.779395] (flyingpen_interface) StderrLine: {'line': b'      |         ^~~~~~~~~~~~~~\n'}
+[1.779447] (flyingpen_interface) StderrLine: {'line': b'      |         arrow_head_diam_\n'}
+[1.783504] (flyingpen_interface) StderrLine: {'line': b'/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/src/rviz_visual.cpp:897:9: error: \xe2\x80\x98thin_head_len\xe2\x80\x99 was not declared in this scope\n'}
+[1.783639] (flyingpen_interface) StderrLine: {'line': b'  897 |         thin_head_len,\n'}
+[1.783696] (flyingpen_interface) StderrLine: {'line': b'      |         ^~~~~~~~~~~~~\n'}
+[1.787463] (flyingpen_interface) StderrLine: {'line': b'/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/src/rviz_visual.cpp:910:9: error: \xe2\x80\x98thin_shaft\xe2\x80\x99 was not declared in this scope\n'}
+[1.787589] (flyingpen_interface) StderrLine: {'line': b'  910 |         thin_shaft,\n'}
+[1.787648] (flyingpen_interface) StderrLine: {'line': b'      |         ^~~~~~~~~~\n'}
+[1.791873] (flyingpen_interface) StderrLine: {'line': b'/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/src/rviz_visual.cpp:911:9: error: \xe2\x80\x98thin_head_diam\xe2\x80\x99 was not declared in this scope; did you mean \xe2\x80\x98arrow_head_diam_\xe2\x80\x99?\n'}
+[1.791971] (flyingpen_interface) StderrLine: {'line': b'  911 |         thin_head_diam,\n'}
+[1.792031] (flyingpen_interface) StderrLine: {'line': b'      |         ^~~~~~~~~~~~~~\n'}
+[1.792085] (flyingpen_interface) StderrLine: {'line': b'      |         arrow_head_diam_\n'}
+[1.796321] (flyingpen_interface) StderrLine: {'line': b'/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/src/rviz_visual.cpp:912:9: error: \xe2\x80\x98thin_head_len\xe2\x80\x99 was not declared in this scope\n'}
+[1.796413] (flyingpen_interface) StderrLine: {'line': b'  912 |         thin_head_len,\n'}
+[1.796473] (flyingpen_interface) StderrLine: {'line': b'      |         ^~~~~~~~~~~~~\n'}
+[1.800140] (flyingpen_interface) StderrLine: {'line': b'/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/src/rviz_visual.cpp:925:9: error: \xe2\x80\x98thin_shaft\xe2\x80\x99 was not declared in this scope\n'}
+[1.800235] (flyingpen_interface) StderrLine: {'line': b'  925 |         thin_shaft,\n'}
+[1.800299] (flyingpen_interface) StderrLine: {'line': b'      |         ^~~~~~~~~~\n'}
+[1.803395] (-) TimerEvent: {}
+[1.804176] (flyingpen_interface) StderrLine: {'line': b'/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/src/rviz_visual.cpp:926:9: error: \xe2\x80\x98thin_head_diam\xe2\x80\x99 was not declared in this scope; did you mean \xe2\x80\x98arrow_head_diam_\xe2\x80\x99?\n'}
+[1.804280] (flyingpen_interface) StderrLine: {'line': b'  926 |         thin_head_diam,\n'}
+[1.804340] (flyingpen_interface) StderrLine: {'line': b'      |         ^~~~~~~~~~~~~~\n'}
+[1.804393] (flyingpen_interface) StderrLine: {'line': b'      |         arrow_head_diam_\n'}
+[1.808745] (flyingpen_interface) StderrLine: {'line': b'/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/src/rviz_visual.cpp:927:9: error: \xe2\x80\x98thin_head_len\xe2\x80\x99 was not declared in this scope\n'}
+[1.808924] (flyingpen_interface) StderrLine: {'line': b'  927 |         thin_head_len,\n'}
+[1.808982] (flyingpen_interface) StderrLine: {'line': b'      |         ^~~~~~~~~~~~~\n'}
+[1.812977] (flyingpen_interface) StderrLine: {'line': b'/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/src/rviz_visual.cpp:939:9: error: \xe2\x80\x98thin_shaft\xe2\x80\x99 was not declared in this scope\n'}
+[1.813065] (flyingpen_interface) StderrLine: {'line': b'  939 |         thin_shaft,\n'}
+[1.813128] (flyingpen_interface) StderrLine: {'line': b'      |         ^~~~~~~~~~\n'}
+[1.817184] (flyingpen_interface) StderrLine: {'line': b'/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/src/rviz_visual.cpp:940:9: error: \xe2\x80\x98thin_head_diam\xe2\x80\x99 was not declared in this scope; did you mean \xe2\x80\x98arrow_head_diam_\xe2\x80\x99?\n'}
+[1.817323] (flyingpen_interface) StderrLine: {'line': b'  940 |         thin_head_diam,\n'}
+[1.817382] (flyingpen_interface) StderrLine: {'line': b'      |         ^~~~~~~~~~~~~~\n'}
+[1.817435] (flyingpen_interface) StderrLine: {'line': b'      |         arrow_head_diam_\n'}
+[1.821416] (flyingpen_interface) StderrLine: {'line': b'/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/src/rviz_visual.cpp:941:9: error: \xe2\x80\x98thin_head_len\xe2\x80\x99 was not declared in this scope\n'}
+[1.821505] (flyingpen_interface) StderrLine: {'line': b'  941 |         thin_head_len,\n'}
+[1.821562] (flyingpen_interface) StderrLine: {'line': b'      |         ^~~~~~~~~~~~~\n'}
+[1.903532] (-) TimerEvent: {}
+[2.003786] (-) TimerEvent: {}
+[2.104004] (-) TimerEvent: {}
+[2.204204] (-) TimerEvent: {}
+[2.304427] (-) TimerEvent: {}
+[2.404622] (-) TimerEvent: {}
+[2.504824] (-) TimerEvent: {}
+[2.605014] (-) TimerEvent: {}
+[2.705202] (-) TimerEvent: {}
+[2.805403] (-) TimerEvent: {}
+[2.905676] (-) TimerEvent: {}
+[3.005893] (-) TimerEvent: {}
+[3.106162] (-) TimerEvent: {}
+[3.206341] (-) TimerEvent: {}
+[3.306522] (-) TimerEvent: {}
+[3.406760] (-) TimerEvent: {}
+[3.506943] (-) TimerEvent: {}
+[3.607126] (-) TimerEvent: {}
+[3.707380] (-) TimerEvent: {}
+[3.807565] (-) TimerEvent: {}
+[3.907763] (-) TimerEvent: {}
+[4.007967] (-) TimerEvent: {}
+[4.108179] (-) TimerEvent: {}
+[4.208366] (-) TimerEvent: {}
+[4.308548] (-) TimerEvent: {}
+[4.408760] (-) TimerEvent: {}
+[4.508964] (-) TimerEvent: {}
+[4.609175] (-) TimerEvent: {}
+[4.709363] (-) TimerEvent: {}
+[4.809558] (-) TimerEvent: {}
+[4.909754] (-) TimerEvent: {}
+[5.009961] (-) TimerEvent: {}
+[5.110178] (-) TimerEvent: {}
+[5.210411] (-) TimerEvent: {}
+[5.310566] (-) TimerEvent: {}
+[5.410729] (-) TimerEvent: {}
+[5.489278] (flyingpen_interface) StderrLine: {'line': b'gmake[2]: *** [CMakeFiles/rviz_visual.dir/build.make:76: CMakeFiles/rviz_visual.dir/src/rviz_visual.cpp.o] \xec\x98\xa4\xeb\xa5\x98 1\n'}
+[5.489448] (flyingpen_interface) StderrLine: {'line': b'gmake[1]: *** [CMakeFiles/Makefile2:195: CMakeFiles/rviz_visual.dir/all] \xec\x98\xa4\xeb\xa5\x98 2\n'}
+[5.489811] (flyingpen_interface) StderrLine: {'line': b'gmake: *** [Makefile:146: all] \xec\x98\xa4\xeb\xa5\x98 2\n'}
+[5.492730] (flyingpen_interface) CommandEnded: {'returncode': 2}
+[5.508074] (flyingpen_interface) JobEnded: {'identifier': 'flyingpen_interface', 'rc': 2}
+[5.510803] (-) TimerEvent: {}
+[5.518470] (-) EventReactorShutdown: {}

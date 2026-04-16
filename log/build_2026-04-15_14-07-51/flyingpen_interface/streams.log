@@ -1,0 +1,43 @@
+[0.009s] Invoking command in '/home/seosuk/mujoco_crazyflie/src/build/flyingpen_interface': /usr/bin/cmake --build /home/seosuk/mujoco_crazyflie/src/build/flyingpen_interface -- -j20 -l20
+[0.145s] Consolidate compiler generated dependencies of target rviz_visual
+[0.145s] [ 25%] Built target fk_ik_transform
+[0.145s] [ 50%] Built target data_logger
+[0.145s] [ 75%] Built target command_publisher
+[0.145s] [ 87%] Building CXX object CMakeFiles/rviz_visual.dir/src/rviz_visual.cpp.o
+[12.276s] [100%] Linking CXX executable rviz_visual
+[13.041s] [100%] Built target rviz_visual
+[13.048s] Invoked command in '/home/seosuk/mujoco_crazyflie/src/build/flyingpen_interface' returned '0': /usr/bin/cmake --build /home/seosuk/mujoco_crazyflie/src/build/flyingpen_interface -- -j20 -l20
+[13.055s] Invoking command in '/home/seosuk/mujoco_crazyflie/src/build/flyingpen_interface': /usr/bin/cmake --install /home/seosuk/mujoco_crazyflie/src/build/flyingpen_interface
+[13.061s] -- Install configuration: ""
+[13.061s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/lib/flyingpen_interface/data_logger
+[13.061s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/lib/flyingpen_interface/command_publisher
+[13.061s] -- Installing: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/lib/flyingpen_interface/rviz_visual
+[13.072s] -- Set runtime path of "/home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/lib/flyingpen_interface/rviz_visual" to ""
+[13.072s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/lib/flyingpen_interface/fk_ik_transform
+[13.073s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/launch
+[13.073s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/launch/flyingpen_cpp.launch.py
+[13.073s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/launch/flyingpen.launch.py
+[13.073s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/launch/flyingpen.launch_mj.py
+[13.073s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/launch/__pycache__
+[13.073s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/launch/__pycache__/flyingpen.launch.cpython-310.pyc
+[13.073s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/launch/__pycache__/flyingpen.launch_mj.cpython-310.pyc
+[13.073s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/launch/__pycache__/flyingpen_cpp.launch.cpython-310.pyc
+[13.073s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/config
+[13.073s] -- Installing: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/config/parameters.yaml
+[13.073s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/config/normal_vector_estimation.yaml
+[13.074s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/ament_index/resource_index/package_run_dependencies/flyingpen_interface
+[13.074s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/ament_index/resource_index/parent_prefix_path/flyingpen_interface
+[13.074s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/environment/ament_prefix_path.sh
+[13.074s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/environment/ament_prefix_path.dsv
+[13.075s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/environment/path.sh
+[13.075s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/environment/path.dsv
+[13.075s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/local_setup.bash
+[13.075s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/local_setup.sh
+[13.076s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/local_setup.zsh
+[13.077s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/local_setup.dsv
+[13.077s] -- Installing: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/package.dsv
+[13.077s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/ament_index/resource_index/packages/flyingpen_interface
+[13.077s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/cmake/flyingpen_interfaceConfig.cmake
+[13.078s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/cmake/flyingpen_interfaceConfig-version.cmake
+[13.078s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/package.xml
+[13.078s] Invoked command in '/home/seosuk/mujoco_crazyflie/src/build/flyingpen_interface' returned '0': /usr/bin/cmake --install /home/seosuk/mujoco_crazyflie/src/build/flyingpen_interface

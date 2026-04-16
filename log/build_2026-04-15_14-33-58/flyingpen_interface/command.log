@@ -1,0 +1,4 @@
+Invoking command in '/home/seosuk/mujoco_crazyflie/src/build/flyingpen_interface': /usr/bin/cmake --build /home/seosuk/mujoco_crazyflie/src/build/flyingpen_interface -- -j20 -l20
+Invoked command in '/home/seosuk/mujoco_crazyflie/src/build/flyingpen_interface' returned '0': /usr/bin/cmake --build /home/seosuk/mujoco_crazyflie/src/build/flyingpen_interface -- -j20 -l20
+Invoking command in '/home/seosuk/mujoco_crazyflie/src/build/flyingpen_interface': /usr/bin/cmake --install /home/seosuk/mujoco_crazyflie/src/build/flyingpen_interface
+Invoked command in '/home/seosuk/mujoco_crazyflie/src/build/flyingpen_interface' returned '0': /usr/bin/cmake --install /home/seosuk/mujoco_crazyflie/src/build/flyingpen_interface

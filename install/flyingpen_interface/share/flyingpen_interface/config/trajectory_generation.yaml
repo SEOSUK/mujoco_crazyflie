@@ -1,0 +1,34 @@
+trajectory_generation:
+  ros__parameters:
+    reference_object: "end_effector" # "drone" or "end_effector"
+    end_effector_offset: [0.09, 0.0, 0.085]
+
+    yaw_align_kp: 3.0
+    normal_xy_min: 0.001
+    force_adm_kp: 5.0
+    force_adm_kd: 0.005
+
+    # g key trajectory selector: "lissajous", "circle", or "square"
+    trajectory:
+      type: "lissajous"
+      ramp_sec: 2.0
+
+    lissajous:
+      amp_y: 0.40
+      amp_z: 0.20
+      period_y: 20.0
+      period_z: 10.0
+
+    circle:
+      radius: 0.30
+      period_sec: 20.0
+      center_y: 0.0
+      center_z: 0.0
+      phase_rad: -1.57079632679
+
+    square:
+      side_length: 0.40
+      period_sec: 20.0
+      center_y: 0.0
+      center_z: 0.0
+      phase: 0.0
