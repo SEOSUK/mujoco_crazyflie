@@ -1,0 +1,9 @@
+rviz_visual:
+  ros__parameters:
+    mesh_resource: "package://plant/data/assets/cf21B/cf21B_full.stl"
+    mesh_scale: 0.001
+    mesh_alpha: 1.0
+    cylinder.rgba: [0.75, 0.93, 0.75, 0.25]
+    publish_hz: 20.0
+    history_sample_period: 1.5
+    history_duration: 30.0

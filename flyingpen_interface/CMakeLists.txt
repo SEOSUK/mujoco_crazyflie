@@ -80,6 +80,11 @@ install(TARGETS
   DESTINATION lib/${PROJECT_NAME}
 )
 
+install(PROGRAMS
+  scripts/wind_joystick.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 # ---------------- Install resources ----------------
 
 install(DIRECTORY

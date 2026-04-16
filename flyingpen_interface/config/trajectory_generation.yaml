@@ -20,15 +20,16 @@ trajectory_generation:
       period_z: 10.0
 
     circle:
-      radius: 0.40
-      period_sec: 20.0
+      radius: 0.20
+      period_sec: 7.0
       center_y: 0.0
       center_z: 0.0
       phase_rad: -1.57079632679
 
     square:
-      side_length: 0.8
-      period_sec: 20.0
+      parallel_length: 2.0 # [m] y-axis direction length
+      vertical_length: 0.4 # [m] z-axis direction length
+      period_sec: 30.0
       center_y: 0.0
       center_z: 0.0
       phase: 0.0

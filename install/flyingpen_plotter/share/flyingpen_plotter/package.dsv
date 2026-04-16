@@ -1,6 +1,0 @@
-source;share/flyingpen_plotter/hook/pythonpath.ps1
-source;share/flyingpen_plotter/hook/pythonpath.dsv
-source;share/flyingpen_plotter/hook/pythonpath.sh
-source;share/flyingpen_plotter/hook/ament_prefix_path.ps1
-source;share/flyingpen_plotter/hook/ament_prefix_path.dsv
-source;share/flyingpen_plotter/hook/ament_prefix_path.sh

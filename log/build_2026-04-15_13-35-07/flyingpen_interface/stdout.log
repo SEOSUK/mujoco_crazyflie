@@ -1,5 +1,0 @@
-Consolidate compiler generated dependencies of target rviz_visual
-[ 25%] Built target fk_ik_transform
-[ 50%] Built target command_publisher
-[ 75%] Built target data_logger
-[ 87%] Building CXX object CMakeFiles/rviz_visual.dir/src/rviz_visual.cpp.o

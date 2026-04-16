@@ -5,12 +5,14 @@ import math
 import sys
 import signal
 import threading
+import argparse
 from collections import deque
 from typing import Dict, List, Tuple
 
 import numpy as np
 
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 
 from PyQt5.QtCore import Qt, QTimer
@@ -398,9 +400,16 @@ class PlotWindow(QMainWindow):
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--window-x", type=int, default=0)
+    parser.add_argument("--window-y", type=int, default=40)
+    parser.add_argument("--window-width", type=int, default=880)
+    parser.add_argument("--window-height", type=int, default=980)
+    args, ros_args = parser.parse_known_args()
+
     app = QApplication.instance()
     if app is None:
-        app = QApplication(sys.argv)
+        app = QApplication([sys.argv[0]])
 
     app.setStyleSheet("""
     QWidget { background: #ffffff; color: #111111; }
@@ -412,13 +421,21 @@ def main() -> int:
     }
     """)
 
-    rclpy.init()
+    rclpy.init(args=ros_args)
     rosbuf = ROSDataBuffer()
 
-    ros_thread = threading.Thread(target=rclpy.spin, args=(rosbuf,), daemon=True)
+    def _spin_ros():
+        try:
+            rclpy.spin(rosbuf)
+        except ExternalShutdownException:
+            pass
+
+    ros_thread = threading.Thread(target=_spin_ros, daemon=True)
     ros_thread.start()
 
     win = PlotWindow(rosbuf)
+    win.resize(args.window_width, args.window_height)
+    win.move(args.window_x, args.window_y)
     win.show()
 
     def _sigint_handler(*_args):

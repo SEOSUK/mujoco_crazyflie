@@ -66,7 +66,6 @@ public:
     dt_fixed_enable_ = declare_parameter<bool>("mob.dt_fixed_enable", true);
     dt_fixed_value_ = declare_parameter<double>("mob.dt_fixed_value", 0.004);
     dt_alpha_ = declare_parameter<double>("mob.dt_alpha", 0.2);
-    mob_alpha_ = declare_parameter<double>("mob.mob_alpha", 0.2);
     vel_lpf_enable_ = declare_parameter<bool>("mob.vel_lpf_enable", false);
     vel_lpf_cutoff_hz_ = declare_parameter<double>("mob.vel_lpf_cutoff_hz", 0.5);
 
@@ -75,12 +74,20 @@ public:
     jxx_ = declare_parameter<double>("mob.Jxx", 2.3951e-5);
     jyy_ = declare_parameter<double>("mob.Jyy", 2.3951e-5);
     jzz_ = declare_parameter<double>("mob.Jzz", 3.2347e-5);
-    kf_ = declare_parameter<double>("mob.Kf", 5.0);        // 병진 운동량 residual e_p를 외력 추정값으로 바꾸는 게인
-    ktau_ = declare_parameter<double>("mob.Ktau", 20.0);    // 회전 운동량 residual을 외토크 추정값으로 바꾸는 게인
-    kp_ = declare_parameter<double>("mob.Kp", 2.0);        // 2차 MOB의 병진 observer correction 게인
-    kptau_ = declare_parameter<double>("mob.KpTau", 10.0);  // 2차 MOB의 회전 observer correction 게인
-    ke_ = declare_parameter<double>("mob.Ke", 10.0);        // torque consistency residual e_tau를 force 보정항으로 바꾸는 게인
-    sigma_tau_ = declare_parameter<double>("mob.sigma_tau", 10.0);  // consistency residual 항의 스케일 또는 on/off 역할
+
+    // 1st-order MOB tuning
+    kf_1st_order_ = declare_parameter<double>("mob.Kf_1st_order", 5.0);
+    ktau_1st_order_ = declare_parameter<double>("mob.Ktau_1st_order", 20.0);
+    mob_alpha_1st_order_ = declare_parameter<double>("mob.mob_alpha_1st_order", 0.2);
+
+    // 2nd-order MOB tuning
+    kf_2nd_order_ = declare_parameter<double>("mob.Kf_2nd_order", 5.0);
+    ktau_2nd_order_ = declare_parameter<double>("mob.Ktau_2nd_order", 20.0);
+    mob_alpha_2nd_order_ = declare_parameter<double>("mob.mob_alpha_2nd_order", 0.2);
+    kp_ = declare_parameter<double>("mob.Kp", 2.0);
+    kptau_ = declare_parameter<double>("mob.KpTau", 10.0);
+    ke_ = declare_parameter<double>("mob.Ke", 10.0);
+    sigma_tau_ = declare_parameter<double>("mob.sigma_tau", 10.0);
 
     arm_xy_ = declare_parameter<double>("arm_xy", 0.035355);
     k_tau_motor_ = declare_parameter<double>("k_tau", 0.00569278844371417);
@@ -198,19 +205,22 @@ private:
     const Vec3 & cori_body,
     double dt,
     bool use_correction,
-    bool use_force_integration)
+    bool use_force_integration,
+    double kf,
+    double ktau,
+    double mob_alpha)
   {
     const Vec3 p_lin_residual_world = p_lin_world - state.p_lin_hat_world;
     const Vec3 p_ang_residual_body = p_ang_body - state.p_ang_hat_body;
 
     if (use_force_integration) {
-      const Vec3 force_hat_dot_world = gainMul(kf_, p_lin_residual_world);
-      const Vec3 torque_hat_dot_body = gainMul(ktau_, p_ang_residual_body);
+      const Vec3 force_hat_dot_world = gainMul(kf, p_lin_residual_world);
+      const Vec3 torque_hat_dot_body = gainMul(ktau, p_ang_residual_body);
       state.force_hat_world += dt * force_hat_dot_world;
       state.torque_hat_body += dt * torque_hat_dot_body;
     } else {
-      state.force_hat_world = gainMul(kf_, p_lin_residual_world);
-      state.torque_hat_body = gainMul(ktau_, p_ang_residual_body);
+      state.force_hat_world = gainMul(kf, p_lin_residual_world);
+      state.torque_hat_body = gainMul(ktau, p_ang_residual_body);
     }
 
     Vec3 p_lin_hat_dot_world = u_lin_world - grav_world + state.force_hat_world;
@@ -227,9 +237,9 @@ private:
 
     for (int i = 0; i < 3; ++i) {
       state.world_force_hat_ext[i] =
-        lpf1(state.world_force_hat_ext[i], -state.force_hat_world[i], mob_alpha_);
+        lpf1(state.world_force_hat_ext[i], -state.force_hat_world[i], mob_alpha);
       state.body_torque_hat_ext[i] =
-        lpf1(state.body_torque_hat_ext[i], -state.torque_hat_body[i], mob_alpha_);
+        lpf1(state.body_torque_hat_ext[i], -state.torque_hat_body[i], mob_alpha);
     }
   }
 
@@ -243,12 +253,15 @@ private:
     const Vec3 & cori_body,
     const Vec3 & ee_offset_world,
     const Eigen::Matrix3d & r_bw,
-    double dt)
+    double dt,
+    double kf,
+    double ktau,
+    double mob_alpha)
   {
     const Vec3 p_lin_residual_world = p_lin_world - state.p_lin_hat_world;
     const Vec3 p_ang_residual_body = p_ang_body - state.p_ang_hat_body;
 
-    const Vec3 torque_ext_hat_body = gainMul(ktau_, p_ang_residual_body);
+    const Vec3 torque_ext_hat_body = gainMul(ktau, p_ang_residual_body);
     state.torque_hat_body = torque_ext_hat_body;
 
     Vec3 p_ang_hat_dot_body = u_tau_body - cori_body + torque_ext_hat_body;
@@ -258,7 +271,7 @@ private:
     const Vec3 torque_ext_hat_world = r_bw * torque_ext_hat_body;
     const Vec3 e_tau_world =
       torque_ext_hat_world - ee_offset_world.cross(state.force_hat_world);
-    const Vec3 force_update_base_world = gainMul(kf_, p_lin_residual_world);
+    const Vec3 force_update_base_world = gainMul(kf, p_lin_residual_world);
     const Vec3 force_update_consistency_world =
       sigma_tau_ * ke_ * (skew(ee_offset_world).transpose() * e_tau_world);
     const Vec3 force_hat_dot_world =
@@ -275,9 +288,9 @@ private:
 
     for (int i = 0; i < 3; ++i) {
       state.world_force_hat_ext[i] =
-        lpf1(state.world_force_hat_ext[i], -state.force_hat_world[i], mob_alpha_);
+        lpf1(state.world_force_hat_ext[i], -state.force_hat_world[i], mob_alpha);
       state.body_torque_hat_ext[i] =
-        lpf1(state.body_torque_hat_ext[i], -torque_ext_hat_body[i], mob_alpha_);
+        lpf1(state.body_torque_hat_ext[i], -torque_ext_hat_body[i], mob_alpha);
     }
   }
 
@@ -460,14 +473,17 @@ private:
 
     runObserverVariant(
       observer_v1_, p_lin_world, p_ang_body, world_force_input, body_torque_input,
-      grav_world, cori_body, dt, false, false);
+      grav_world, cori_body, dt, false, false,
+      kf_1st_order_, ktau_1st_order_, mob_alpha_1st_order_);
     runObserverVariant(
       observer_v4_, p_lin_world, p_ang_body, world_force_input, body_torque_input,
-      grav_world, cori_body, dt, true, true);
+      grav_world, cori_body, dt, true, true,
+      kf_2nd_order_, ktau_2nd_order_, mob_alpha_2nd_order_);
     const Vec3 ee_offset_world = r_bw * ee_offset_body_;
     runConsistencyResidualObserver(
       observer_consistency_, p_lin_world, p_ang_body, world_force_input, body_torque_input,
-      grav_world, cori_body, ee_offset_world, r_bw, dt);
+      grav_world, cori_body, ee_offset_world, r_bw, dt,
+      kf_2nd_order_, ktau_2nd_order_, mob_alpha_2nd_order_);
 
     const Vec3 drone_force_world(
       observer_v1_.world_force_hat_ext[0],
@@ -542,7 +558,6 @@ private:
   bool dt_fixed_enable_{true};
   double dt_fixed_value_{0.004};
   double dt_alpha_{0.2};
-  double mob_alpha_{0.2};
   bool vel_lpf_enable_{true};
   double vel_lpf_cutoff_hz_{0.5};
 
@@ -551,12 +566,20 @@ private:
   double jxx_{2.3951e-5};
   double jyy_{2.3951e-5};
   double jzz_{3.2347e-5};
-  double kf_{1.0}; // 외력 추정 gain
-  double ktau_{1.0}; // 외토크 추정 게인
-  double kp_{2.0}; // 외력 correction gain
-  double kptau_{2.0}; // 외토크 correction gain
-  double ke_{1.0}; // consistency residual gain
-  double sigma_tau_{1.0}; // consistency residual enable/scale
+
+  // 1st-order MOB tuning
+  double kf_1st_order_{1.0};
+  double ktau_1st_order_{1.0};
+  double mob_alpha_1st_order_{0.2};
+
+  // 2nd-order MOB tuning
+  double kf_2nd_order_{1.0};
+  double ktau_2nd_order_{1.0};
+  double mob_alpha_2nd_order_{0.2};
+  double kp_{2.0};
+  double kptau_{2.0};
+  double ke_{1.0};
+  double sigma_tau_{1.0};
 
   double arm_xy_{0.035355};
   double k_tau_motor_{0.00569278844371417};

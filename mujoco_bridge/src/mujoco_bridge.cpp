@@ -320,6 +320,13 @@ private:
     declare_parameter("actuator.lpf.enable", true);
     declare_parameter("actuator.lpf.cutoff_hz", 0.0);
 
+    declare_parameter("wind.enable", false);
+    declare_parameter("wind.force", std::vector<double>{0.0, 0.0, 0.0});
+    declare_parameter("wind.torque", std::vector<double>{0.0, 0.0, 0.0});
+    declare_parameter("wind.indicator_force_gain", 1.0);
+    declare_parameter("wind.indicator_flutter_gain", 0.15);
+    declare_parameter("wind.indicator_flutter_hz", 6.0);
+
     declare_parameter("viewer.orbit_sensitivity", 1.0);
     declare_parameter("viewer.pan_sensitivity", 1.2);
     declare_parameter("viewer.zoom_sensitivity", 1.0);
@@ -329,6 +336,10 @@ private:
     declare_parameter("viewer.max_distance", 30.0);
     declare_parameter("viewer.znear", 0.0002);
     declare_parameter("viewer.zfar", 200.0);
+    declare_parameter("viewer.window_x", 900);
+    declare_parameter("viewer.window_y", 40);
+    declare_parameter("viewer.window_width", 1000);
+    declare_parameter("viewer.window_height", 820);
   }
 
   void load_parameters()
@@ -380,6 +391,13 @@ private:
     act_lpf_enable_ = get_parameter("actuator.lpf.enable").as_bool();
     act_lpf_cutoff_hz_ = get_parameter("actuator.lpf.cutoff_hz").as_double();
 
+    wind_enable_ = get_parameter("wind.enable").as_bool();
+    wind_force_ = vec3_from_parameter("wind.force");
+    wind_torque_ = vec3_from_parameter("wind.torque");
+    wind_indicator_force_gain_ = get_parameter("wind.indicator_force_gain").as_double();
+    wind_indicator_flutter_gain_ = get_parameter("wind.indicator_flutter_gain").as_double();
+    wind_indicator_flutter_hz_ = get_parameter("wind.indicator_flutter_hz").as_double();
+
     viewer_orbit_sensitivity_ = get_parameter("viewer.orbit_sensitivity").as_double();
     viewer_pan_sensitivity_ = get_parameter("viewer.pan_sensitivity").as_double();
     viewer_zoom_sensitivity_ = get_parameter("viewer.zoom_sensitivity").as_double();
@@ -389,6 +407,10 @@ private:
     viewer_max_distance_ = get_parameter("viewer.max_distance").as_double();
     viewer_znear_ = get_parameter("viewer.znear").as_double();
     viewer_zfar_ = get_parameter("viewer.zfar").as_double();
+    viewer_window_x_ = static_cast<int>(get_parameter("viewer.window_x").as_int());
+    viewer_window_y_ = static_cast<int>(get_parameter("viewer.window_y").as_int());
+    viewer_window_width_ = static_cast<int>(get_parameter("viewer.window_width").as_int());
+    viewer_window_height_ = static_cast<int>(get_parameter("viewer.window_height").as_int());
   }
 
   void load_model()
@@ -430,6 +452,12 @@ private:
 
     if (model_->jnt_type[jid_drone_] != mjJNT_FREE) {
       throw std::runtime_error("Body 'drone' first joint is not FREE");
+    }
+
+    bid_wind_indicator_tip_ = mj_name2id(model_, mjOBJ_BODY, "wind_indicator_tip");
+    if (bid_wind_indicator_tip_ < 0) {
+      RCLCPP_WARN(
+        get_logger(), "Body 'wind_indicator_tip' not found. Wind indicator physics disabled.");
     }
 
     imu_acc_sid_ = sensor_id("imu_acc");
@@ -480,6 +508,16 @@ private:
     return mj_name2id(model_, mjOBJ_SENSOR, name.c_str());
   }
 
+  std::array<double, 3> vec3_from_parameter(const std::string& name) const
+  {
+    const auto v = get_parameter(name).as_double_array();
+    std::array<double, 3> out{0.0, 0.0, 0.0};
+    for (size_t i = 0; i < std::min<size_t>(3, v.size()); ++i) {
+      out[i] = v[i];
+    }
+    return out;
+  }
+
   void init_allocation()
   {
     const double x[4] = {+a_, -a_, -a_, +a_};
@@ -500,6 +538,9 @@ private:
     sub_input_ = create_subscription<std_msgs::msg::Float32MultiArray>(
       "/crazyflie/in/input", 10,
       std::bind(&MujocoBridge::input_callback, this, std::placeholders::_1));
+    sub_wind_ = create_subscription<geometry_msgs::msg::Vector3Stamped>(
+      "/crazyflie/in/wind", 10,
+      std::bind(&MujocoBridge::wind_callback, this, std::placeholders::_1));
 
     pub_pose_ = create_publisher<geometry_msgs::msg::PoseStamped>("/crazyflie/out/pose", 10);
     pub_vel_ = create_publisher<geometry_msgs::msg::Vector3Stamped>("/crazyflie/out/vel", 10);
@@ -523,6 +564,17 @@ private:
     u_cmd_[1] = msg->data[1];
     u_cmd_[2] = msg->data[2];
     u_cmd_[3] = msg->data[3];
+  }
+
+  void wind_callback(const geometry_msgs::msg::Vector3Stamped::SharedPtr msg)
+  {
+    if (!msg) {
+      return;
+    }
+
+    std::lock_guard<std::mutex> lock(wind_mtx_);
+    wind_force_ = {msg->vector.x, msg->vector.y, msg->vector.z};
+    wind_topic_received_ = true;
   }
 
   std::array<double, 4> apply_actuator_dynamics(const std::array<double, 4>& f_cmd)
@@ -573,6 +625,60 @@ private:
       last_motor_thrust_[i] = u;
       data_->ctrl[actuator_ids_[i]] = static_cast<mjtNum>(u);
     }
+  }
+
+  void apply_wind_disturbance_locked()
+  {
+    std::array<double, 3> wind_force{};
+    std::array<double, 3> wind_torque{};
+    bool wind_active{false};
+    {
+      std::lock_guard<std::mutex> lock(wind_mtx_);
+      wind_force = wind_force_;
+      wind_torque = wind_torque_;
+      wind_active = wind_topic_received_;
+    }
+
+    const int drone_adr = 6 * bid_drone_;
+    for (int i = 0; i < 6; ++i) {
+      data_->xfrc_applied[drone_adr + i] = 0.0;
+    }
+    if (bid_wind_indicator_tip_ >= 0) {
+      const int indicator_adr = 6 * bid_wind_indicator_tip_;
+      for (int i = 0; i < 6; ++i) {
+        data_->xfrc_applied[indicator_adr + i] = 0.0;
+      }
+    }
+
+    if (!wind_active) {
+      return;
+    }
+
+    for (int i = 0; i < 3; ++i) {
+      data_->xfrc_applied[drone_adr + i] = static_cast<mjtNum>(wind_force[i]);
+      data_->xfrc_applied[drone_adr + 3 + i] = static_cast<mjtNum>(wind_torque[i]);
+    }
+
+    if (bid_wind_indicator_tip_ < 0) {
+      return;
+    }
+
+    const double wind_xy_norm = std::hypot(wind_force[0], wind_force[1]);
+    if (wind_xy_norm < 1e-6) {
+      return;
+    }
+
+    const double wind_x = wind_force[0] / wind_xy_norm;
+    const double wind_y = wind_force[1] / wind_xy_norm;
+    const double flutter =
+      wind_indicator_flutter_gain_ * wind_xy_norm *
+      std::sin(2.0 * M_PI * wind_indicator_flutter_hz_ * data_->time);
+
+    const int indicator_adr = 6 * bid_wind_indicator_tip_;
+    data_->xfrc_applied[indicator_adr + 0] =
+      static_cast<mjtNum>(wind_indicator_force_gain_ * wind_force[0] - flutter * wind_y);
+    data_->xfrc_applied[indicator_adr + 1] =
+      static_cast<mjtNum>(wind_indicator_force_gain_ * wind_force[1] + flutter * wind_x);
   }
 
   void update_propeller_visuals_locked()
@@ -891,6 +997,7 @@ private:
       {
         std::lock_guard<std::mutex> lock(scene_mtx_);
         apply_control_locked();
+        apply_wind_disturbance_locked();
         update_propeller_visuals_locked();
         mj_step(model_, data_);
       }
@@ -1010,13 +1117,17 @@ private:
     mjr_defaultContext(&v.con);
     mjv_defaultPerturb(&v.pert);
 
-    v.window = glfwCreateWindow(1400, 1000, "mujoco_bridge", nullptr, nullptr);
+    v.window = glfwCreateWindow(
+      std::max(320, viewer_window_width_),
+      std::max(240, viewer_window_height_),
+      "mujoco_bridge", nullptr, nullptr);
     if (!v.window) {
       viewer_ctx_ = nullptr;
       RCLCPP_WARN(get_logger(), "glfwCreateWindow failed. Viewer disabled.");
       glfwTerminate();
       return;
     }
+    glfwSetWindowPos(v.window, viewer_window_x_, viewer_window_y_);
 
     glfwMakeContextCurrent(v.window);
     glfwSwapInterval(1);
@@ -1124,6 +1235,7 @@ private:
   mjData* data_{nullptr};
 
   int bid_drone_{-1};
+  int bid_wind_indicator_tip_{-1};
   int jid_drone_{-1};
   int qpos_adr_drone_{-1};
   int qvel_adr_drone_{-1};
@@ -1148,6 +1260,7 @@ private:
 
   std::mutex scene_mtx_;
   std::mutex cmd_mtx_;
+  std::mutex wind_mtx_;
   std::array<double, 4> u_cmd_{{0.0, 0.0, 0.0, 0.0}};
 
   bool act_delay_enable_{true};
@@ -1158,6 +1271,14 @@ private:
   std::deque<std::array<double, 4>> delay_buffer_;
   std::array<double, 4> f_act_{{0.0, 0.0, 0.0, 0.0}};
   std::array<double, 4> last_motor_thrust_{{0.0, 0.0, 0.0, 0.0}};
+
+  bool wind_enable_{false};
+  bool wind_topic_received_{false};
+  std::array<double, 3> wind_force_{{0.0, 0.0, 0.0}};
+  std::array<double, 3> wind_torque_{{0.0, 0.0, 0.0}};
+  double wind_indicator_force_gain_{1.0};
+  double wind_indicator_flutter_gain_{0.15};
+  double wind_indicator_flutter_hz_{6.0};
 
   bool noise_enable_{false};
   int64_t rng_seed_{0};
@@ -1187,6 +1308,10 @@ private:
   double viewer_max_distance_{30.0};
   double viewer_znear_{0.0002};
   double viewer_zfar_{200.0};
+  int viewer_window_x_{900};
+  int viewer_window_y_{40};
+  int viewer_window_width_{1000};
+  int viewer_window_height_{820};
 
   std::array<int, 4> prop_body_ids_{{-1, -1, -1, -1}};
   std::array<std::array<double, 4>, 4> prop_base_quat_{{
@@ -1231,6 +1356,7 @@ private:
   std::optional<std::array<double, 3>> prev_gyro_used_b_;
 
   rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr sub_input_;
+  rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_wind_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pub_pose_;
   rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr pub_vel_;
   rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr pub_angvel_;

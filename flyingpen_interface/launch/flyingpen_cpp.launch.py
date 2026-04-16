@@ -1,4 +1,5 @@
 from launch import LaunchDescription
+from launch.actions import TimerAction
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 import os
@@ -10,6 +11,7 @@ def generate_launch_description():
     params = os.path.join(pkg_share, "config", "parameters.yaml")
     trajectory_params = os.path.join(pkg_share, "config", "trajectory_generation.yaml")
     normal_params = os.path.join(pkg_share, "config", "normal_vector_estimation.yaml")
+    rviz_visual_params = os.path.join(pkg_share, "config", "rviz_visual.yaml")
     rviz_config = os.path.join(pkg_share, "config", "flyingpen.rviz")
 
     # ---------- robot_description (URDF) ----------
@@ -42,7 +44,15 @@ def generate_launch_description():
         executable="mujoco_bridge_node",
         name="plant",
         output="screen",
-        parameters=[params],
+        parameters=[
+            params,
+            {
+                "viewer.window_x": 900,
+                "viewer.window_y": 40,
+                "viewer.window_width": 1000,
+                "viewer.window_height": 820,
+            },
+        ],
     )
 
     # ---------- controller ----------
@@ -94,7 +104,7 @@ def generate_launch_description():
         executable="rviz_visual",
         name="rviz_visual",
         output="screen",
-        parameters=[params],
+        parameters=[params, rviz_visual_params],
     )
 
     # ---------- data logger ----------
@@ -124,27 +134,32 @@ def generate_launch_description():
         parameters=[params],
     )
 
-    # ---------- data_logging_python ----------
-    data_logging_python_node = Node(
-        package="flyingpen_plotter",
-        executable="data_logging_chat_frame",
-        name="data_logging_chat_frame",
+    # ---------- wind joystick ----------
+    wind_joystick_node = Node(
+        package="flyingpen_interface",
+        executable="wind_joystick.py",
+        name="wind_joystick",
         output="screen",
-        parameters=[params],
+        arguments=[
+            "--window-x", "1480",
+            "--window-y", "760",
+            "--window-width", "420",
+            "--window-height", "520",
+        ],
     )
 
     return LaunchDescription([
+        rviz2_node,
         robot_state_publisher_node,
         world_to_wall_tf_node,
-        mujoco_bridge_node,
         controller_node,
         fk_ik_transform_node,
-    #    data_logging_python_node,
         normal_vector_estimation_node,
-        normal_vector_debug_node,
         trajectory_generation_node,
         wrench_observer_node,
         rviz_visual_node,
         data_logger_node,
-        rviz2_node,
+        TimerAction(period=1.5, actions=[normal_vector_debug_node]),
+        TimerAction(period=3.0, actions=[mujoco_bridge_node]),
+        TimerAction(period=4.5, actions=[wind_joystick_node]),
     ])

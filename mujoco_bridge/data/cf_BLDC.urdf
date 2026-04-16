@@ -6,7 +6,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://plant/data/assets/cf21B/cf21B_full.stl"
+        <mesh filename="package://mujoco_bridge/data/assets/cf21B/cf21B_full.stl"
               scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="light_gray">
@@ -21,7 +21,7 @@
     <visual>
       <origin xyz="-0.087 0 -0.088" rpy="0 0 1.5708"/>
       <geometry>
-        <mesh filename="package://plant/data/assets/cf21B/cf21B_end_effector.stl"
+        <mesh filename="package://mujoco_bridge/data/assets/cf21B/cf21B_end_effector.stl"
               scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="light_yellow">
