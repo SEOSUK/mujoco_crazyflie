@@ -1,0 +1,8 @@
+source;share/flyingpen/hook/cmake_prefix_path.ps1
+source;share/flyingpen/hook/cmake_prefix_path.dsv
+source;share/flyingpen/hook/cmake_prefix_path.sh
+source;share/flyingpen/local_setup.bash
+source;share/flyingpen/local_setup.dsv
+source;share/flyingpen/local_setup.ps1
+source;share/flyingpen/local_setup.sh
+source;share/flyingpen/local_setup.zsh

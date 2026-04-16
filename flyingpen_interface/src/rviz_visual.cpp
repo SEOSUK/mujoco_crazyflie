@@ -5,6 +5,7 @@
 #include <geometry_msgs/msg/wrench_stamped.hpp>
 #include <geometry_msgs/msg/quaternion_stamped.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
+#include <std_msgs/msg/float64_multi_array.hpp>
 
 #include <visualization_msgs/msg/marker.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
@@ -19,6 +20,7 @@
 #include <deque>
 #include <string>
 #include <algorithm>
+#include <cmath>
 
 using namespace std::chrono_literals;
 
@@ -78,6 +80,8 @@ public:
 
     contact_frame_quat_topic_ = this->declare_parameter<std::string>(
       "contact_frame_quat_topic", "/estimated_contact_frame_quat");
+    normal_debug_metrics_topic_ = this->declare_parameter<std::string>(
+      "normal_debug_metrics_topic", "/normal_vector/debug_metrics");
 
     est_contact_frame_ = this->declare_parameter<std::string>(
       "est_contact_frame", "estimated_contact_frame");
@@ -90,20 +94,20 @@ public:
     cylinder_radius_ = this->declare_parameter<double>("cylinder.radius", 1.0);
     cylinder_half_height_ = this->declare_parameter<double>("cylinder.half_height", 10.0);
     cylinder_rgba_ = this->declare_parameter<std::vector<double>>(
-      "cylinder.rgba", std::vector<double>{0.75, 0.93, 0.75, 0.85});
+      "cylinder.rgba", std::vector<double>{0.75, 0.93, 0.75, 0.25});
     if (cylinder_rgba_.size() != 4) {
       RCLCPP_WARN(
         this->get_logger(),
-        "cylinder.rgba must have size 4. Falling back to [0.75, 0.93, 0.75, 0.85].");
-      cylinder_rgba_ = {0.75, 0.93, 0.75, 0.85};
+        "cylinder.rgba must have size 4. Falling back to [0.75, 0.93, 0.75, 0.25].");
+      cylinder_rgba_ = {0.75, 0.93, 0.75, 0.25};
     }
 
     force_scale_         = this->declare_parameter<double>("force_scale", 10.0);
     contact_force_scale_ = this->declare_parameter<double>("contact_force_scale", 10.0);
     normal_scale_        = this->declare_parameter<double>("normal_scale", 0.2);
     history_axis_scale_  = this->declare_parameter<double>("history_axis_scale", 0.08);
-    history_sample_period_ = this->declare_parameter<double>("history_sample_period", 1.0);
-    history_duration_    = this->declare_parameter<double>("history_duration", 15.0);
+    history_sample_period_ = this->declare_parameter<double>("history_sample_period", 1.5);
+    history_duration_    = this->declare_parameter<double>("history_duration", 30.0);
 
     drone_vel_scale_ = this->declare_parameter<double>("drone_vel_scale", 1.0);
     drone_acc_scale_ = this->declare_parameter<double>("drone_acc_scale", 1.0);
@@ -114,7 +118,7 @@ public:
     arrow_head_diam_  = this->declare_parameter<double>("arrow_head_diam", 0.02);
     arrow_head_len_   = this->declare_parameter<double>("arrow_head_len", 0.04);
 
-    publish_hz_ = this->declare_parameter<double>("publish_hz", 60.0);
+    publish_hz_ = this->declare_parameter<double>("publish_hz", 20.0);
 
     // -------------------------
     // TF broadcaster
@@ -178,6 +182,9 @@ public:
     sub_contact_frame_quat_ = this->create_subscription<geometry_msgs::msg::QuaternionStamped>(
       contact_frame_quat_topic_, 10,
       std::bind(&RvizVisual::cb_contact_frame_quat, this, std::placeholders::_1));
+    sub_normal_debug_metrics_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
+      normal_debug_metrics_topic_, 10,
+      std::bind(&RvizVisual::cb_normal_debug_metrics, this, std::placeholders::_1));
 
     // -------------------------
     // Publishers (Markers)
@@ -194,6 +201,10 @@ public:
       "/rviz/EE_contact_force", 10);
     pub_estimated_normal_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
       "/rviz/estimated_contact_normal", 10);
+    pub_true_normal_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
+      "/rviz/true_contact_normal", 10);
+    pub_force_based_normal_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
+      "/rviz/force_based_normal", 10);
     pub_contact_history_markers_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
       "/rviz/contact_frame_history", 10);
 
@@ -343,6 +354,21 @@ private:
     have_contact_q_ = true;
   }
 
+  void cb_normal_debug_metrics(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
+  {
+    if (msg->data.size() < 34) {
+      return;
+    }
+
+    std::lock_guard<std::mutex> lk(mtx_);
+    force_based_normal_[0] = static_cast<float>(msg->data[31]);
+    force_based_normal_[1] = static_cast<float>(msg->data[32]);
+    force_based_normal_[2] = static_cast<float>(msg->data[33]);
+    have_force_based_normal_ = std::isfinite(msg->data[31]) &&
+      std::isfinite(msg->data[32]) &&
+      std::isfinite(msg->data[33]);
+  }
+
   // =========================
   // Marker helper
   // =========================
@@ -381,6 +407,27 @@ private:
     mk.color.b = b;
 
     mk.lifetime = rclcpp::Duration::from_seconds(0.2);
+    return mk;
+  }
+
+  visualization_msgs::msg::Marker make_arrow_marker_with_dims(
+    const std::string &ns,
+    int id,
+    const std::string &frame_id,
+    const rclcpp::Time &stamp,
+    double x0, double y0, double z0,
+    double vx, double vy, double vz,
+    double scale,
+    double shaft_diam,
+    double head_diam,
+    double head_len,
+    double r, double g, double b) const
+  {
+    auto mk = make_arrow_marker(
+      ns, id, frame_id, stamp, x0, y0, z0, vx, vy, vz, scale, r, g, b);
+    mk.scale.x = shaft_diam;
+    mk.scale.y = head_diam;
+    mk.scale.z = head_len;
     return mk;
   }
 
@@ -464,6 +511,29 @@ private:
     mk.color.a = static_cast<float>(cylinder_rgba_[3]);
     mk.lifetime = rclcpp::Duration::from_seconds(0.0);
     return mk;
+  }
+
+  bool computeTrueNormalAtEE(
+    const geometry_msgs::msg::PoseStamped & ee_pose,
+    double & nx,
+    double & ny,
+    double & nz) const
+  {
+    const double dx = ee_pose.pose.position.x - cylinder_pos_x_;
+    const double dy = ee_pose.pose.position.y - cylinder_pos_y_;
+    const double radial_norm = std::sqrt(dx * dx + dy * dy);
+    if (!(std::isfinite(radial_norm) && radial_norm > 1e-9)) {
+      nx = 0.0;
+      ny = 0.0;
+      nz = 0.0;
+      return false;
+    }
+
+    // Contact normal points from the EE-facing surface back toward the cylinder center.
+    nx = -dx / radial_norm;
+    ny = -dy / radial_norm;
+    nz = 0.0;
+    return true;
   }
 
   void pushHistorySample(
@@ -581,9 +651,9 @@ private:
       const tf2::Vector3 ey = rot.getColumn(1);
       const tf2::Vector3 ez = rot.getColumn(2);
 
-      px.x += axis_len * ex.x();
-      px.y += axis_len * ex.y();
-      px.z += axis_len * ex.z();
+      px.x += 2.0 * axis_len * ex.x();
+      px.y += 2.0 * axis_len * ex.y();
+      px.z += 2.0 * axis_len * ex.z();
 
       py.x += axis_len * ey.x();
       py.y += axis_len * ey.y();
@@ -646,11 +716,11 @@ private:
     if (trajectory_copy.size() >= 2) {
       auto traj_marker = make_line_strip_marker(
         "ee_trajectory_history", 1000, parent_frame_, stamp);
-      traj_marker.scale.x = 0.005;
-      traj_marker.color.a = 0.32f;
-      traj_marker.color.r = 1.0f;
-      traj_marker.color.g = 1.0f;
-      traj_marker.color.b = 1.0f;
+      traj_marker.scale.x = 0.010;
+      traj_marker.color.a = 0.65f;
+      traj_marker.color.r = 0.22f;
+      traj_marker.color.g = 0.22f;
+      traj_marker.color.b = 0.26f;
       for (const auto & sample : trajectory_copy) {
         traj_marker.points.push_back(sample.point);
       }
@@ -695,6 +765,7 @@ private:
     std::array<float, 3> mob_force_2nd_order;
     std::array<float, 3> mob_force_consistency;
     std::array<float, 3> Fcontact;
+    std::array<float, 3> force_based_normal;
     geometry_msgs::msg::Quaternion contact_q;
 
     bool have_pose, have_vel, have_acc;
@@ -702,6 +773,7 @@ private:
     bool have_cmd_drone_pose, have_cmd_ee_pose, have_cmd_active_pose;
     bool have_drone_ext_force, have_mob_force_2nd_order, have_mob_force_consistency;
     bool have_contact, have_contact_q;
+    bool have_force_based_normal;
     std::string contact_frame_id;
 
     {
@@ -721,6 +793,7 @@ private:
       mob_force_2nd_order = mob_force_2nd_order_;
       mob_force_consistency = mob_force_consistency_;
       Fcontact = contact_F_;
+      force_based_normal = force_based_normal_;
       contact_q = contact_q_;
 
       have_pose = have_pose_;
@@ -739,6 +812,7 @@ private:
       have_mob_force_consistency = have_mob_force_consistency_;
       have_contact = have_contact_;
       have_contact_q = have_contact_q_;
+      have_force_based_normal = have_force_based_normal_;
       contact_frame_id = contact_frame_id_;
     }
 
@@ -836,48 +910,89 @@ private:
       tf_broadcaster_->sendTransform(tf);
     }
 
+    const double source_shaft = 0.65 * arrow_shaft_diam_;
+    const double source_head_diam = 0.75 * arrow_head_diam_;
+    const double source_head_len = 0.80 * arrow_head_len_;
+    const double normal_shaft = 1.80 * arrow_shaft_diam_;
+    const double normal_head_diam = 1.80 * arrow_head_diam_;
+    const double normal_head_len = 1.60 * arrow_head_len_;
+
     // 7) Marker: drone external force
     if (have_ee_pose && have_drone_ext_force) {
-      auto mk = make_arrow_marker(
+      auto mk = make_arrow_marker_with_dims(
         "drone_external_force", 0, parent_frame_, stamp,
         ee_pose.pose.position.x, ee_pose.pose.position.y, ee_pose.pose.position.z,
         static_cast<double>(drone_ext_force[0]),
         static_cast<double>(drone_ext_force[1]),
         static_cast<double>(drone_ext_force[2]),
-        force_scale_, 1.0, 0.3, 0.3);
+        force_scale_,
+        source_shaft,
+        source_head_diam,
+        source_head_len,
+        1.0, 0.3, 0.3);
       pub_drone_ext_force_arrow_->publish(mk);
     }
 
     if (have_ee_pose && have_mob_force_2nd_order) {
-      auto mk = make_arrow_marker(
+      auto mk = make_arrow_marker_with_dims(
         "drone_external_force_mob_2nd_order", 0, parent_frame_, stamp,
         ee_pose.pose.position.x, ee_pose.pose.position.y, ee_pose.pose.position.z,
         static_cast<double>(mob_force_2nd_order[0]),
         static_cast<double>(mob_force_2nd_order[1]),
         static_cast<double>(mob_force_2nd_order[2]),
-        force_scale_, 1.0, 0.8, 0.1);
+        force_scale_,
+        source_shaft,
+        source_head_diam,
+        source_head_len,
+        1.0, 0.8, 0.1);
       pub_mob_2nd_order_arrow_->publish(mk);
     }
 
     if (have_ee_pose && have_mob_force_consistency) {
-      auto mk = make_arrow_marker(
+      auto mk = make_arrow_marker_with_dims(
         "drone_external_force_mob_2nd_tau", 0, parent_frame_, stamp,
         ee_pose.pose.position.x, ee_pose.pose.position.y, ee_pose.pose.position.z,
         static_cast<double>(mob_force_consistency[0]),
         static_cast<double>(mob_force_consistency[1]),
         static_cast<double>(mob_force_consistency[2]),
-        force_scale_, 0.7, 0.2, 1.0);
+        1.725 * force_scale_,
+        source_shaft,
+        source_head_diam,
+        source_head_len,
+        0.75, 0.20, 1.00);
       pub_mob_consistency_arrow_->publish(mk);
     }
 
     // 8) Marker: contact force
     if (have_ee_pose && have_contact) {
-      auto mk = make_arrow_marker(
+      auto mk = make_arrow_marker_with_dims(
         "contact_force", 0, parent_frame_, stamp,
         ee_pose.pose.position.x, ee_pose.pose.position.y, ee_pose.pose.position.z,
         static_cast<double>(Fcontact[0]), static_cast<double>(Fcontact[1]), static_cast<double>(Fcontact[2]),
-        contact_force_scale_, 0.3, 0.3, 1.0);
+        contact_force_scale_,
+        source_shaft,
+        source_head_diam,
+        source_head_len,
+        0.3, 0.3, 1.0);
       pub_contact_arrow_->publish(mk);
+    }
+
+    if (have_ee_pose && have_force_based_normal) {
+      auto mk = make_arrow_marker_with_dims(
+        "force_based_normal", 0, parent_frame_, stamp,
+        ee_pose.pose.position.x, ee_pose.pose.position.y, ee_pose.pose.position.z,
+        static_cast<double>(force_based_normal[0]),
+        static_cast<double>(force_based_normal[1]),
+        static_cast<double>(force_based_normal[2]),
+        0.98 * normal_scale_,
+        normal_shaft,
+        normal_head_diam,
+        normal_head_len,
+        1.00, 0.62, 0.05);
+      pub_force_based_normal_arrow_->publish(mk);
+    } else {
+      pub_force_based_normal_arrow_->publish(
+        make_delete_marker("force_based_normal", 0, parent_frame_, stamp));
     }
 
     // 9) Marker: estimated normal vector (x-axis of estimated contact frame)
@@ -888,12 +1003,38 @@ private:
       tf2::Matrix3x3 r_wc(q_wc);
       tf2::Vector3 n_w = r_wc.getColumn(0);
 
-      auto mk = make_arrow_marker(
+      auto mk = make_arrow_marker_with_dims(
         "estimated_contact_normal", 0, parent_frame_, stamp,
         ee_pose.pose.position.x, ee_pose.pose.position.y, ee_pose.pose.position.z,
         n_w.x(), n_w.y(), n_w.z(),
-        normal_scale_, 0.0, 0.9, 0.9);
+        1.00 * normal_scale_,
+        normal_shaft,
+        normal_head_diam,
+        normal_head_len,
+        0.00, 0.85, 0.95);
       pub_estimated_normal_arrow_->publish(mk);
+    }
+
+    // 9.5) Marker: true normal vector from the cylinder geometry
+    if (have_ee_pose) {
+      double nx = 0.0;
+      double ny = 0.0;
+      double nz = 0.0;
+      if (computeTrueNormalAtEE(ee_pose, nx, ny, nz)) {
+        auto mk = make_arrow_marker_with_dims(
+          "true_contact_normal", 0, parent_frame_, stamp,
+          ee_pose.pose.position.x, ee_pose.pose.position.y, ee_pose.pose.position.z,
+          nx, ny, nz,
+          1.00 * normal_scale_,
+          normal_shaft,
+          normal_head_diam,
+          normal_head_len,
+          1.00, 0.15, 0.85);
+        pub_true_normal_arrow_->publish(mk);
+      } else {
+        pub_true_normal_arrow_->publish(
+          make_delete_marker("true_contact_normal", 0, parent_frame_, stamp));
+      }
     }
 
     pub_contact_history_markers_->publish(makeContactHistoryMarkerArray(stamp));
@@ -903,41 +1044,57 @@ private:
 
     // 10) Marker: drone velocity
     if (have_pose && have_vel) {
-      auto mk = make_arrow_marker(
+      auto mk = make_arrow_marker_with_dims(
         "drone_velocity", 0, parent_frame_, stamp,
         pose.pose.position.x, pose.pose.position.y, pose.pose.position.z,
         vel.vector.x, vel.vector.y, vel.vector.z,
-        drone_vel_scale_, 1.0, 1.0, 0.2);
+        drone_vel_scale_,
+        source_shaft,
+        source_head_diam,
+        source_head_len,
+        1.0, 1.0, 0.2);
       pub_drone_vel_arrow_->publish(mk);
     }
 
     // 11) Marker: drone acceleration
     if (have_pose && have_acc) {
-      auto mk = make_arrow_marker(
+      auto mk = make_arrow_marker_with_dims(
         "drone_acceleration", 0, parent_frame_, stamp,
         pose.pose.position.x, pose.pose.position.y, pose.pose.position.z,
         acc.vector.x, acc.vector.y, acc.vector.z,
-        drone_acc_scale_, 1.0, 0.5, 0.0);
+        drone_acc_scale_,
+        source_shaft,
+        source_head_diam,
+        source_head_len,
+        1.0, 0.5, 0.0);
       pub_drone_acc_arrow_->publish(mk);
     }
 
-    // 12) Marker: EE velocity
+    // 12) Marker: EE velocity in world frame, anchored at the EE position
     if (have_ee_pose && have_ee_vel) {
-      auto mk = make_arrow_marker(
+      auto mk = make_arrow_marker_with_dims(
         "ee_velocity", 0, parent_frame_, stamp,
         ee_pose.pose.position.x, ee_pose.pose.position.y, ee_pose.pose.position.z,
         ee_vel.vector.x, ee_vel.vector.y, ee_vel.vector.z,
-        ee_vel_scale_, 0.2, 1.0, 0.2);
+        1.80 * ee_vel_scale_,
+        source_shaft,
+        source_head_diam,
+        source_head_len,
+        0.15, 1.00, 0.15);
       pub_ee_vel_arrow_->publish(mk);
     }
 
     // 13) Marker: EE acceleration
     if (have_ee_pose && have_ee_acc) {
-      auto mk = make_arrow_marker(
+      auto mk = make_arrow_marker_with_dims(
         "ee_acceleration", 0, parent_frame_, stamp,
         ee_pose.pose.position.x, ee_pose.pose.position.y, ee_pose.pose.position.z,
         ee_acc.vector.x, ee_acc.vector.y, ee_acc.vector.z,
-        ee_acc_scale_, 0.2, 1.0, 1.0);
+        ee_acc_scale_,
+        source_shaft,
+        source_head_diam,
+        source_head_len,
+        0.2, 1.0, 1.0);
       pub_ee_acc_arrow_->publish(mk);
     }
   }
@@ -965,12 +1122,15 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_consistency_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_contact_force_;
   rclcpp::Subscription<geometry_msgs::msg::QuaternionStamped>::SharedPtr sub_contact_frame_quat_;
+  rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_normal_debug_metrics_;
 
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_drone_ext_force_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_mob_2nd_order_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_mob_consistency_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_contact_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_estimated_normal_arrow_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_true_normal_arrow_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_force_based_normal_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_contact_history_markers_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_drone_vel_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_drone_acc_arrow_;
@@ -1017,6 +1177,9 @@ private:
   bool have_contact_{false};
   std::string contact_frame_id_;
 
+  std::array<float, 3> force_based_normal_{0.0f, 0.0f, 0.0f};
+  bool have_force_based_normal_{false};
+
   geometry_msgs::msg::Quaternion contact_q_;
   bool have_contact_q_{false};
 
@@ -1054,6 +1217,7 @@ private:
   std::string mob_topic_consistency_;
   std::string contact_force_topic_;
   std::string contact_frame_quat_topic_;
+  std::string normal_debug_metrics_topic_;
   std::string est_contact_frame_;
   std::string cylinder_marker_topic_;
 
@@ -1062,7 +1226,7 @@ private:
   double normal_scale_{0.2};
   double history_axis_scale_{0.08};
   double history_sample_period_{0.5};
-  double history_duration_{15.0};
+  double history_duration_{30.0};
   double drone_vel_scale_{1.0};
   double drone_acc_scale_{1.0};
   double ee_vel_scale_{1.0};

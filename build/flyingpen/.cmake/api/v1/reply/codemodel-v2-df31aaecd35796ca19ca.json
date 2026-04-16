@@ -1,0 +1,115 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-.-f7d4b4a33515f04b568a.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.12"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6
+					]
+				}
+			],
+			"name" : "",
+			"projects" : 
+			[
+				{
+					"directoryIndexes" : 
+					[
+						0
+					],
+					"name" : "flyingpen",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "flyingpen_uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-flyingpen_uninstall-3da0db8472d3a6d39f0b.json",
+					"name" : "flyingpen_uninstall",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "normal_vector_estimation::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-normal_vector_estimation-ae02bcc68c62b708584f.json",
+					"name" : "normal_vector_estimation",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "trajectory8::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-trajectory8-6e5b0271fde19e26eeee.json",
+					"name" : "trajectory8",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "trajectory_generation::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-trajectory_generation-2d27acc4ff2be0c0dd72.json",
+					"name" : "trajectory_generation",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "trajectory_step::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-trajectory_step-7ef72f6ac82050056853.json",
+					"name" : "trajectory_step",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-uninstall-9c781efd0f2be4b2c97a.json",
+					"name" : "uninstall",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "wrench_observer::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-wrench_observer-480aacec7a0be53d87b7.json",
+					"name" : "wrench_observer",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "/home/seosuk/mujoco_crazyflie/src/build/flyingpen",
+		"source" : "/home/seosuk/mujoco_crazyflie/src/flyingpen"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 3
+	}
+}

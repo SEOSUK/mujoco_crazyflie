@@ -1,0 +1,243 @@
+[0.000000] (-) TimerEvent: {}
+[0.000088] (-) JobUnselected: {'identifier': 'flyingpen'}
+[0.000113] (-) JobUnselected: {'identifier': 'low_level_controller'}
+[0.000140] (-) JobUnselected: {'identifier': 'mujoco_bridge'}
+[0.000205] (-) JobUnselected: {'identifier': 'plant'}
+[0.000224] (flyingpen_interface) JobQueued: {'identifier': 'flyingpen_interface', 'dependencies': OrderedDict()}
+[0.000245] (flyingpen_plotter) JobQueued: {'identifier': 'flyingpen_plotter', 'dependencies': OrderedDict()}
+[0.000261] (flyingpen_interface) JobStarted: {'identifier': 'flyingpen_interface'}
+[0.003160] (flyingpen_plotter) JobStarted: {'identifier': 'flyingpen_plotter'}
+[0.006620] (flyingpen_interface) JobProgress: {'identifier': 'flyingpen_interface', 'progress': 'cmake'}
+[0.006914] (flyingpen_interface) JobProgress: {'identifier': 'flyingpen_interface', 'progress': 'build'}
+[0.007291] (flyingpen_interface) Command: {'cmd': ['/usr/bin/cmake', '--build', '/home/seosuk/mujoco_crazyflie/src/build/flyingpen_interface', '--', '-j20', '-l20'], 'cwd': '/home/seosuk/mujoco_crazyflie/src/build/flyingpen_interface', 'env': OrderedDict([('GJS_DEBUG_TOPICS', 'JS ERROR;JS LOG'), ('LESSOPEN', '| /usr/bin/lesspipe %s'), ('VSCODE_CWD', '/home/seosuk'), ('VSCODE_ESM_ENTRYPOINT', 'vs/workbench/api/node/extensionHostProcess'), ('CODEX_CI', '1'), ('LANGUAGE', 'ko:en_US:en'), ('USER', 'seosuk'), ('LC_TIME', 'ko_KR.UTF-8'), ('CODEX_INTERNAL_ORIGINATOR_OVERRIDE', 'codex_vscode'), ('VSCODE_NLS_CONFIG', '{"userLocale":"ko","osLocale":"ko","resolvedLanguage":"en","defaultMessagesFile":"/usr/share/code/resources/app/out/nls.messages.json","locale":"ko","availableLanguages":{}}'), ('VSCODE_HANDLES_UNCAUGHT_ERRORS', 'true'), ('XDG_SESSION_TYPE', 'x11'), ('DEBUG', 'release'), ('SHLVL', '0'), ('LD_LIBRARY_PATH', '/home/seosuk/sitl_ws/install/dynamixel_sdk/lib:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib:'), ('HOME', '/home/seosuk'), ('CHROME_DESKTOP', 'code.desktop'), ('DESKTOP_SESSION', 'ubuntu-xorg'), ('VSCODE_IPC_HOOK', '/run/user/1000/vscode-ec461311-1.11-main.sock'), ('GIO_LAUNCHED_DESKTOP_FILE', '/usr/share/applications/code.desktop'), ('ROS_PYTHON_VERSION', '3'), ('GNOME_SHELL_SESSION_MODE', 'ubuntu'), ('GTK_MODULES', 'gail:atk-bridge'), ('PAGER', 'cat'), ('LC_MONETARY', 'ko_KR.UTF-8'), ('MANAGERPID', '1721'), ('LC_CTYPE', 'C.UTF-8'), ('SYSTEMD_EXEC_PID', '2158'), ('NO_COLOR', '1'), ('DBUS_SESSION_BUS_ADDRESS', 'unix:path=/run/user/1000/bus'), ('COLORTERM', ''), ('GIO_LAUNCHED_DESKTOP_FILE_PID', '4527'), ('_colcon_cd_root', '/opt/ros/humble/'), ('VSCODE_CRASH_REPORTER_PROCESS_TYPE', 'extensionHost'), ('COLCON_PREFIX_PATH', '/home/seosuk/sitl_ws/install'), ('ROS_DISTRO', 'humble'), ('GTK_IM_MODULE', 'fcitx'), ('LOGNAME', 'seosuk'), ('JOURNAL_STREAM', '8:10800'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('XDG_SESSION_CLASS', 'user'), ('RUST_LOG', 'warn'), ('USERNAME', 'seosuk'), ('TERM', 'dumb'), ('GNOME_DESKTOP_SESSION_ID', 'this-is-deprecated'), ('FC_FONTATIONS', '1'), ('ROS_LOCALHOST_ONLY', '0'), ('WINDOWPATH', '2'), ('PATH', '/home/seosuk/.local/bin:/home/seosuk/.codex/tmp/arg0/codex-arg0zZoK25:/home/seosuk/.local/bin:/home/seosuk/.local/bin:/opt/ros/humble/bin:/opt/gradle/gradle-6.9.4/bin:/home/seosuk/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin:/home/seosuk/.vscode/extensions/openai.chatgpt-26.5401.11717-linux-x64/bin/linux-x86_64'), ('SESSION_MANAGER', 'local/seosuk:@/tmp/.ICE-unix/2129,unix/seosuk:/tmp/.ICE-unix/2129'), ('INVOCATION_ID', '0bc5446f710049458fe89cb294c6fa22'), ('PAPERSIZE', 'a4'), ('XDG_MENU_PREFIX', 'gnome-'), ('LC_ADDRESS', 'ko_KR.UTF-8'), ('XDG_RUNTIME_DIR', '/run/user/1000'), ('GDK_BACKEND', 'x11'), ('DISPLAY', ':0'), ('CODEX_SANDBOX_NETWORK_DISABLED', '1'), ('LANG', 'C.UTF-8'), ('XDG_CURRENT_DESKTOP', 'ubuntu:GNOME'), ('IBUS_DISABLE_SNOOPER', '1'), ('LC_TELEPHONE', 'ko_KR.UTF-8'), ('XMODIFIERS', '@im=fcitx'), ('GH_PAGER', 'cat'), ('XDG_SESSION_DESKTOP', 'ubuntu-xorg'), ('XAUTHORITY', '/run/user/1000/gdm/Xauthority'), ('SSH_AGENT_LAUNCHER', 'gnome-keyring'), ('SSH_AUTH_SOCK', '/run/user/1000/keyring/ssh'), ('ROS_DOMAIN_ID', '15'), ('AMENT_PREFIX_PATH', '/home/seosuk/sitl_ws/install/keyboard_teleop_v3:/home/seosuk/sitl_ws/install/dynamixel_sdk:/opt/ros/humble:'), ('SHELL', '/bin/bash'), ('LC_NAME', 'ko_KR.UTF-8'), ('QT_ACCESSIBILITY', '1'), ('ELECTRON_RUN_AS_NODE', '1'), ('GDMSESSION', 'ubuntu-xorg'), ('LESSCLOSE', '/usr/bin/lesspipe %s %s'), ('CODEX_THREAD_ID', '019d8f28-3ce3-7c33-9752-483382365d80'), ('LC_MEASUREMENT', 'ko_KR.UTF-8'), ('GPG_AGENT_INFO', '/run/user/1000/gnupg/S.gpg-agent:0:1'), ('GJS_DEBUG_OUTPUT', 'stderr'), ('LC_IDENTIFICATION', 'ko_KR.UTF-8'), ('GIT_PAGER', 'cat'), ('QT_IM_MODULE', 'fcitx'), ('PWD', '/home/seosuk/mujoco_crazyflie/src/build/flyingpen_interface'), ('LC_ALL', 'C.UTF-8'), ('XDG_CONFIG_DIRS', '/etc/xdg/xdg-ubuntu-xorg:/etc/xdg'), ('VSCODE_CODE_CACHE_PATH', '/home/seosuk/.config/Code/CachedData/cfbea10c5ffb233ea9177d34726e6056e89913dc'), ('XDG_DATA_DIRS', '/usr/share/ubuntu-xorg:/usr/share/gnome:/usr/local/share/:/usr/share/:/var/lib/snapd/desktop'), ('PYTHONPATH', '/home/seosuk/Desktop/crazyflie-firmware/build:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('LC_NUMERIC', 'ko_KR.UTF-8'), ('LC_PAPER', 'ko_KR.UTF-8'), ('COLCON', '1'), ('CMAKE_PREFIX_PATH', '/home/seosuk/sitl_ws/install/keyboard_teleop_v3:/home/seosuk/sitl_ws/install/dynamixel_sdk:/opt/ros/humble:'), ('VSCODE_PID', '4527')]), 'shell': False}
+[0.099504] (-) TimerEvent: {}
+[0.199746] (-) TimerEvent: {}
+[0.228108] (flyingpen_interface) StdoutLine: {'line': b'[ 12%] Building CXX object CMakeFiles/rviz_visual.dir/src/rviz_visual.cpp.o\n'}
+[0.228275] (flyingpen_interface) StdoutLine: {'line': b'[ 37%] Built target command_publisher\n'}
+[0.228341] (flyingpen_interface) StdoutLine: {'line': b'[ 62%] Built target fk_ik_transform\n'}
+[0.228399] (flyingpen_interface) StdoutLine: {'line': b'[ 87%] Built target data_logger\n'}
+[0.299837] (-) TimerEvent: {}
+[0.400040] (-) TimerEvent: {}
+[0.500259] (-) TimerEvent: {}
+[0.586290] (flyingpen_plotter) Command: {'cmd': ['/usr/bin/python3', '-W', 'ignore:setup.py install is deprecated', '-W', 'ignore:easy_install command is deprecated', 'setup.py', 'egg_info', '--egg-base', '../build/flyingpen_plotter', 'build', '--build-base', '/home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build', 'install', '--record', '/home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/install.log', '--single-version-externally-managed', 'install_data'], 'cwd': '/home/seosuk/mujoco_crazyflie/src/flyingpen_plotter', 'env': {'GJS_DEBUG_TOPICS': 'JS ERROR;JS LOG', 'LESSOPEN': '| /usr/bin/lesspipe %s', 'VSCODE_CWD': '/home/seosuk', 'VSCODE_ESM_ENTRYPOINT': 'vs/workbench/api/node/extensionHostProcess', 'CODEX_CI': '1', 'LANGUAGE': 'ko:en_US:en', 'USER': 'seosuk', 'LC_TIME': 'ko_KR.UTF-8', 'CODEX_INTERNAL_ORIGINATOR_OVERRIDE': 'codex_vscode', 'VSCODE_NLS_CONFIG': '{"userLocale":"ko","osLocale":"ko","resolvedLanguage":"en","defaultMessagesFile":"/usr/share/code/resources/app/out/nls.messages.json","locale":"ko","availableLanguages":{}}', 'VSCODE_HANDLES_UNCAUGHT_ERRORS': 'true', 'XDG_SESSION_TYPE': 'x11', 'DEBUG': 'release', 'SHLVL': '0', 'LD_LIBRARY_PATH': '/home/seosuk/sitl_ws/install/dynamixel_sdk/lib:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib:', 'HOME': '/home/seosuk', 'CHROME_DESKTOP': 'code.desktop', 'DESKTOP_SESSION': 'ubuntu-xorg', 'VSCODE_IPC_HOOK': '/run/user/1000/vscode-ec461311-1.11-main.sock', 'GIO_LAUNCHED_DESKTOP_FILE': '/usr/share/applications/code.desktop', 'ROS_PYTHON_VERSION': '3', 'GNOME_SHELL_SESSION_MODE': 'ubuntu', 'GTK_MODULES': 'gail:atk-bridge', 'PAGER': 'cat', 'LC_MONETARY': 'ko_KR.UTF-8', 'MANAGERPID': '1721', 'LC_CTYPE': 'C.UTF-8', 'SYSTEMD_EXEC_PID': '2158', 'NO_COLOR': '1', 'DBUS_SESSION_BUS_ADDRESS': 'unix:path=/run/user/1000/bus', 'COLORTERM': '', 'GIO_LAUNCHED_DESKTOP_FILE_PID': '4527', '_colcon_cd_root': '/opt/ros/humble/', 'VSCODE_CRASH_REPORTER_PROCESS_TYPE': 'extensionHost', 'COLCON_PREFIX_PATH': '/home/seosuk/sitl_ws/install', 'ROS_DISTRO': 'humble', 'GTK_IM_MODULE': 'fcitx', 'LOGNAME': 'seosuk', 'JOURNAL_STREAM': '8:10800', '_': '/usr/bin/colcon', 'ROS_VERSION': '2', 'XDG_SESSION_CLASS': 'user', 'RUST_LOG': 'warn', 'USERNAME': 'seosuk', 'TERM': 'dumb', 'GNOME_DESKTOP_SESSION_ID': 'this-is-deprecated', 'FC_FONTATIONS': '1', 'ROS_LOCALHOST_ONLY': '0', 'WINDOWPATH': '2', 'PATH': '/home/seosuk/.local/bin:/home/seosuk/.codex/tmp/arg0/codex-arg0zZoK25:/home/seosuk/.local/bin:/home/seosuk/.local/bin:/opt/ros/humble/bin:/opt/gradle/gradle-6.9.4/bin:/home/seosuk/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin:/home/seosuk/.vscode/extensions/openai.chatgpt-26.5401.11717-linux-x64/bin/linux-x86_64', 'SESSION_MANAGER': 'local/seosuk:@/tmp/.ICE-unix/2129,unix/seosuk:/tmp/.ICE-unix/2129', 'INVOCATION_ID': '0bc5446f710049458fe89cb294c6fa22', 'PAPERSIZE': 'a4', 'XDG_MENU_PREFIX': 'gnome-', 'LC_ADDRESS': 'ko_KR.UTF-8', 'XDG_RUNTIME_DIR': '/run/user/1000', 'GDK_BACKEND': 'x11', 'DISPLAY': ':0', 'CODEX_SANDBOX_NETWORK_DISABLED': '1', 'LANG': 'C.UTF-8', 'XDG_CURRENT_DESKTOP': 'ubuntu:GNOME', 'IBUS_DISABLE_SNOOPER': '1', 'LC_TELEPHONE': 'ko_KR.UTF-8', 'XMODIFIERS': '@im=fcitx', 'GH_PAGER': 'cat', 'XDG_SESSION_DESKTOP': 'ubuntu-xorg', 'XAUTHORITY': '/run/user/1000/gdm/Xauthority', 'SSH_AGENT_LAUNCHER': 'gnome-keyring', 'SSH_AUTH_SOCK': '/run/user/1000/keyring/ssh', 'ROS_DOMAIN_ID': '15', 'AMENT_PREFIX_PATH': '/home/seosuk/sitl_ws/install/keyboard_teleop_v3:/home/seosuk/sitl_ws/install/dynamixel_sdk:/opt/ros/humble:', 'SHELL': '/bin/bash', 'LC_NAME': 'ko_KR.UTF-8', 'QT_ACCESSIBILITY': '1', 'ELECTRON_RUN_AS_NODE': '1', 'GDMSESSION': 'ubuntu-xorg', 'LESSCLOSE': '/usr/bin/lesspipe %s %s', 'CODEX_THREAD_ID': '019d8f28-3ce3-7c33-9752-483382365d80', 'LC_MEASUREMENT': 'ko_KR.UTF-8', 'GPG_AGENT_INFO': '/run/user/1000/gnupg/S.gpg-agent:0:1', 'GJS_DEBUG_OUTPUT': 'stderr', 'LC_IDENTIFICATION': 'ko_KR.UTF-8', 'GIT_PAGER': 'cat', 'QT_IM_MODULE': 'fcitx', 'PWD': '/home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter', 'LC_ALL': 'C.UTF-8', 'XDG_CONFIG_DIRS': '/etc/xdg/xdg-ubuntu-xorg:/etc/xdg', 'VSCODE_CODE_CACHE_PATH': '/home/seosuk/.config/Code/CachedData/cfbea10c5ffb233ea9177d34726e6056e89913dc', 'XDG_DATA_DIRS': '/usr/share/ubuntu-xorg:/usr/share/gnome:/usr/local/share/:/usr/share/:/var/lib/snapd/desktop', 'PYTHONPATH': '/home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/python3.10/site-packages:/home/seosuk/Desktop/crazyflie-firmware/build:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages', 'LC_NUMERIC': 'ko_KR.UTF-8', 'LC_PAPER': 'ko_KR.UTF-8', 'COLCON': '1', 'CMAKE_PREFIX_PATH': '/home/seosuk/sitl_ws/install/keyboard_teleop_v3:/home/seosuk/sitl_ws/install/dynamixel_sdk:/opt/ros/humble:', 'VSCODE_PID': '4527'}, 'shell': False}
+[0.600357] (-) TimerEvent: {}
+[0.678960] (flyingpen_plotter) StderrLine: {'line': b"/home/seosuk/.local/lib/python3.10/site-packages/setuptools/_distutils/dist.py:289: UserWarning: Unknown distribution option: 'tests_require'\n"}
+[0.679157] (flyingpen_plotter) StderrLine: {'line': b'  warnings.warn(msg)\n'}
+[0.700455] (-) TimerEvent: {}
+[0.734409] (flyingpen_plotter) StdoutLine: {'line': b'running egg_info\n'}
+[0.743414] (flyingpen_plotter) StdoutLine: {'line': b'writing ../build/flyingpen_plotter/flyingpen_plotter.egg-info/PKG-INFO\n'}
+[0.743725] (flyingpen_plotter) StdoutLine: {'line': b'writing dependency_links to ../build/flyingpen_plotter/flyingpen_plotter.egg-info/dependency_links.txt\n'}
+[0.743874] (flyingpen_plotter) StdoutLine: {'line': b'writing entry points to ../build/flyingpen_plotter/flyingpen_plotter.egg-info/entry_points.txt\n'}
+[0.743984] (flyingpen_plotter) StdoutLine: {'line': b'writing requirements to ../build/flyingpen_plotter/flyingpen_plotter.egg-info/requires.txt\n'}
+[0.744071] (flyingpen_plotter) StdoutLine: {'line': b'writing top-level names to ../build/flyingpen_plotter/flyingpen_plotter.egg-info/top_level.txt\n'}
+[0.763297] (flyingpen_plotter) StdoutLine: {'line': b"reading manifest file '../build/flyingpen_plotter/flyingpen_plotter.egg-info/SOURCES.txt'\n"}
+[0.764092] (flyingpen_plotter) StdoutLine: {'line': b"writing manifest file '../build/flyingpen_plotter/flyingpen_plotter.egg-info/SOURCES.txt'\n"}
+[0.764233] (flyingpen_plotter) StdoutLine: {'line': b'running build\n'}
+[0.764293] (flyingpen_plotter) StdoutLine: {'line': b'running build_py\n'}
+[0.764385] (flyingpen_plotter) StdoutLine: {'line': b'copying flyingpen_plotter/data_logging_python.py -> /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build/lib/flyingpen_plotter\n'}
+[0.764611] (flyingpen_plotter) StdoutLine: {'line': b'copying flyingpen_plotter/__init__.py -> /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build/lib/flyingpen_plotter\n'}
+[0.764716] (flyingpen_plotter) StdoutLine: {'line': b'copying flyingpen_plotter/data_logging_drone_states.py -> /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build/lib/flyingpen_plotter\n'}
+[0.764804] (flyingpen_plotter) StdoutLine: {'line': b'copying flyingpen_plotter/Normal_vector_debug.py -> /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build/lib/flyingpen_plotter\n'}
+[0.764921] (flyingpen_plotter) StdoutLine: {'line': b'copying flyingpen_plotter/data_logging_chat_frame.py -> /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build/lib/flyingpen_plotter\n'}
+[0.764976] (flyingpen_plotter) StdoutLine: {'line': b'copying flyingpen_plotter/data_logging_rpy_acceleration.py -> /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build/lib/flyingpen_plotter\n'}
+[0.765031] (flyingpen_plotter) StdoutLine: {'line': b'copying flyingpen_plotter/data_logging_arrow_pwm.py -> /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build/lib/flyingpen_plotter\n'}
+[0.765119] (flyingpen_plotter) StdoutLine: {'line': b'running install\n'}
+[0.767620] (flyingpen_plotter) StdoutLine: {'line': b'running install_lib\n'}
+[0.777131] (flyingpen_plotter) StdoutLine: {'line': b'copying /home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/build/lib/flyingpen_plotter/Normal_vector_debug.py -> /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/python3.10/site-packages/flyingpen_plotter\n'}
+[0.777546] (flyingpen_plotter) StdoutLine: {'line': b'byte-compiling /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/python3.10/site-packages/flyingpen_plotter/Normal_vector_debug.py to Normal_vector_debug.cpython-310.pyc\n'}
+[0.781238] (flyingpen_plotter) StdoutLine: {'line': b'running install_data\n'}
+[0.781479] (flyingpen_plotter) StdoutLine: {'line': b'copying resource/flyingpen_plotter -> /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/share/ament_index/resource_index/packages\n'}
+[0.781556] (flyingpen_plotter) StdoutLine: {'line': b'copying package.xml -> /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/share/flyingpen_plotter\n'}
+[0.781620] (flyingpen_plotter) StdoutLine: {'line': b'running install_egg_info\n'}
+[0.791461] (flyingpen_plotter) StdoutLine: {'line': b"removing '/home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/python3.10/site-packages/flyingpen_plotter-0.0.0-py3.10.egg-info' (and everything under it)\n"}
+[0.791747] (flyingpen_plotter) StdoutLine: {'line': b'Copying ../build/flyingpen_plotter/flyingpen_plotter.egg-info to /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/python3.10/site-packages/flyingpen_plotter-0.0.0-py3.10.egg-info\n'}
+[0.791942] (flyingpen_plotter) StdoutLine: {'line': b'running install_scripts\n'}
+[0.800574] (-) TimerEvent: {}
+[0.871224] (flyingpen_plotter) StdoutLine: {'line': b'Installing data_logging_arrow_pwm script to /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/flyingpen_plotter\n'}
+[0.871652] (flyingpen_plotter) StdoutLine: {'line': b'Installing data_logging_chat_frame script to /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/flyingpen_plotter\n'}
+[0.871745] (flyingpen_plotter) StdoutLine: {'line': b'Installing data_logging_drone_states script to /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/flyingpen_plotter\n'}
+[0.871803] (flyingpen_plotter) StdoutLine: {'line': b'Installing data_logging_python script to /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/flyingpen_plotter\n'}
+[0.871913] (flyingpen_plotter) StdoutLine: {'line': b'Installing data_logging_rpy_acceleration script to /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/flyingpen_plotter\n'}
+[0.871948] (flyingpen_plotter) StdoutLine: {'line': b'Installing normal_vector_debug script to /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/flyingpen_plotter\n'}
+[0.871973] (flyingpen_plotter) StdoutLine: {'line': b'Installing realtime_plotter script to /home/seosuk/mujoco_crazyflie/src/install/flyingpen_plotter/lib/flyingpen_plotter\n'}
+[0.871995] (flyingpen_plotter) StdoutLine: {'line': b"writing list of installed files to '/home/seosuk/mujoco_crazyflie/src/build/flyingpen_plotter/install.log'\n"}
+[0.894851] (flyingpen_plotter) CommandEnded: {'returncode': 0}
+[0.900671] (-) TimerEvent: {}
+[0.902185] (flyingpen_plotter) JobEnded: {'identifier': 'flyingpen_plotter', 'rc': 0}
+[1.000768] (-) TimerEvent: {}
+[1.100967] (-) TimerEvent: {}
+[1.201124] (-) TimerEvent: {}
+[1.301274] (-) TimerEvent: {}
+[1.401446] (-) TimerEvent: {}
+[1.501632] (-) TimerEvent: {}
+[1.601791] (-) TimerEvent: {}
+[1.701986] (-) TimerEvent: {}
+[1.802183] (-) TimerEvent: {}
+[1.902357] (-) TimerEvent: {}
+[2.002584] (-) TimerEvent: {}
+[2.102805] (-) TimerEvent: {}
+[2.203007] (-) TimerEvent: {}
+[2.303233] (-) TimerEvent: {}
+[2.403457] (-) TimerEvent: {}
+[2.503614] (-) TimerEvent: {}
+[2.603819] (-) TimerEvent: {}
+[2.704027] (-) TimerEvent: {}
+[2.804236] (-) TimerEvent: {}
+[2.904466] (-) TimerEvent: {}
+[3.004592] (-) TimerEvent: {}
+[3.104753] (-) TimerEvent: {}
+[3.204927] (-) TimerEvent: {}
+[3.305115] (-) TimerEvent: {}
+[3.405298] (-) TimerEvent: {}
+[3.505495] (-) TimerEvent: {}
+[3.605692] (-) TimerEvent: {}
+[3.705904] (-) TimerEvent: {}
+[3.806110] (-) TimerEvent: {}
+[3.906324] (-) TimerEvent: {}
+[4.006570] (-) TimerEvent: {}
+[4.106753] (-) TimerEvent: {}
+[4.206972] (-) TimerEvent: {}
+[4.307224] (-) TimerEvent: {}
+[4.407416] (-) TimerEvent: {}
+[4.507611] (-) TimerEvent: {}
+[4.607801] (-) TimerEvent: {}
+[4.708090] (-) TimerEvent: {}
+[4.808285] (-) TimerEvent: {}
+[4.908487] (-) TimerEvent: {}
+[5.008719] (-) TimerEvent: {}
+[5.108918] (-) TimerEvent: {}
+[5.209130] (-) TimerEvent: {}
+[5.309361] (-) TimerEvent: {}
+[5.409553] (-) TimerEvent: {}
+[5.509736] (-) TimerEvent: {}
+[5.609962] (-) TimerEvent: {}
+[5.710214] (-) TimerEvent: {}
+[5.810444] (-) TimerEvent: {}
+[5.910637] (-) TimerEvent: {}
+[6.010861] (-) TimerEvent: {}
+[6.111101] (-) TimerEvent: {}
+[6.211325] (-) TimerEvent: {}
+[6.311587] (-) TimerEvent: {}
+[6.411778] (-) TimerEvent: {}
+[6.511994] (-) TimerEvent: {}
+[6.612245] (-) TimerEvent: {}
+[6.712489] (-) TimerEvent: {}
+[6.812689] (-) TimerEvent: {}
+[6.912879] (-) TimerEvent: {}
+[7.013086] (-) TimerEvent: {}
+[7.113296] (-) TimerEvent: {}
+[7.213501] (-) TimerEvent: {}
+[7.313702] (-) TimerEvent: {}
+[7.413916] (-) TimerEvent: {}
+[7.514112] (-) TimerEvent: {}
+[7.614315] (-) TimerEvent: {}
+[7.714495] (-) TimerEvent: {}
+[7.814679] (-) TimerEvent: {}
+[7.914871] (-) TimerEvent: {}
+[8.015085] (-) TimerEvent: {}
+[8.115315] (-) TimerEvent: {}
+[8.215490] (-) TimerEvent: {}
+[8.315667] (-) TimerEvent: {}
+[8.415877] (-) TimerEvent: {}
+[8.516106] (-) TimerEvent: {}
+[8.616317] (-) TimerEvent: {}
+[8.716529] (-) TimerEvent: {}
+[8.816717] (-) TimerEvent: {}
+[8.916893] (-) TimerEvent: {}
+[9.017092] (-) TimerEvent: {}
+[9.117481] (-) TimerEvent: {}
+[9.217756] (-) TimerEvent: {}
+[9.317919] (-) TimerEvent: {}
+[9.418058] (-) TimerEvent: {}
+[9.518273] (-) TimerEvent: {}
+[9.618443] (-) TimerEvent: {}
+[9.718634] (-) TimerEvent: {}
+[9.818791] (-) TimerEvent: {}
+[9.918998] (-) TimerEvent: {}
+[10.019184] (-) TimerEvent: {}
+[10.119357] (-) TimerEvent: {}
+[10.219578] (-) TimerEvent: {}
+[10.319773] (-) TimerEvent: {}
+[10.419970] (-) TimerEvent: {}
+[10.520156] (-) TimerEvent: {}
+[10.620349] (-) TimerEvent: {}
+[10.720529] (-) TimerEvent: {}
+[10.820722] (-) TimerEvent: {}
+[10.920918] (-) TimerEvent: {}
+[11.021113] (-) TimerEvent: {}
+[11.121290] (-) TimerEvent: {}
+[11.221585] (-) TimerEvent: {}
+[11.321766] (-) TimerEvent: {}
+[11.421941] (-) TimerEvent: {}
+[11.522143] (-) TimerEvent: {}
+[11.622315] (-) TimerEvent: {}
+[11.722494] (-) TimerEvent: {}
+[11.822688] (-) TimerEvent: {}
+[11.922866] (-) TimerEvent: {}
+[12.023056] (-) TimerEvent: {}
+[12.123239] (-) TimerEvent: {}
+[12.223520] (-) TimerEvent: {}
+[12.323702] (-) TimerEvent: {}
+[12.423882] (-) TimerEvent: {}
+[12.524199] (-) TimerEvent: {}
+[12.624458] (-) TimerEvent: {}
+[12.724584] (-) TimerEvent: {}
+[12.824745] (-) TimerEvent: {}
+[12.924968] (-) TimerEvent: {}
+[13.025218] (-) TimerEvent: {}
+[13.125402] (-) TimerEvent: {}
+[13.225699] (-) TimerEvent: {}
+[13.325901] (-) TimerEvent: {}
+[13.426064] (-) TimerEvent: {}
+[13.526225] (-) TimerEvent: {}
+[13.606727] (flyingpen_interface) StdoutLine: {'line': b'[100%] Linking CXX executable rviz_visual\n'}
+[13.626322] (-) TimerEvent: {}
+[13.726516] (-) TimerEvent: {}
+[13.826845] (-) TimerEvent: {}
+[13.927152] (-) TimerEvent: {}
+[14.027387] (-) TimerEvent: {}
+[14.127628] (-) TimerEvent: {}
+[14.227821] (-) TimerEvent: {}
+[14.328043] (-) TimerEvent: {}
+[14.428247] (-) TimerEvent: {}
+[14.528455] (-) TimerEvent: {}
+[14.582275] (flyingpen_interface) StdoutLine: {'line': b'[100%] Built target rviz_visual\n'}
+[14.601991] (flyingpen_interface) CommandEnded: {'returncode': 0}
+[14.603139] (flyingpen_interface) JobProgress: {'identifier': 'flyingpen_interface', 'progress': 'install'}
+[14.617400] (flyingpen_interface) Command: {'cmd': ['/usr/bin/cmake', '--install', '/home/seosuk/mujoco_crazyflie/src/build/flyingpen_interface'], 'cwd': '/home/seosuk/mujoco_crazyflie/src/build/flyingpen_interface', 'env': OrderedDict([('GJS_DEBUG_TOPICS', 'JS ERROR;JS LOG'), ('LESSOPEN', '| /usr/bin/lesspipe %s'), ('VSCODE_CWD', '/home/seosuk'), ('VSCODE_ESM_ENTRYPOINT', 'vs/workbench/api/node/extensionHostProcess'), ('CODEX_CI', '1'), ('LANGUAGE', 'ko:en_US:en'), ('USER', 'seosuk'), ('LC_TIME', 'ko_KR.UTF-8'), ('CODEX_INTERNAL_ORIGINATOR_OVERRIDE', 'codex_vscode'), ('VSCODE_NLS_CONFIG', '{"userLocale":"ko","osLocale":"ko","resolvedLanguage":"en","defaultMessagesFile":"/usr/share/code/resources/app/out/nls.messages.json","locale":"ko","availableLanguages":{}}'), ('VSCODE_HANDLES_UNCAUGHT_ERRORS', 'true'), ('XDG_SESSION_TYPE', 'x11'), ('DEBUG', 'release'), ('SHLVL', '0'), ('LD_LIBRARY_PATH', '/home/seosuk/sitl_ws/install/dynamixel_sdk/lib:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib:'), ('HOME', '/home/seosuk'), ('CHROME_DESKTOP', 'code.desktop'), ('DESKTOP_SESSION', 'ubuntu-xorg'), ('VSCODE_IPC_HOOK', '/run/user/1000/vscode-ec461311-1.11-main.sock'), ('GIO_LAUNCHED_DESKTOP_FILE', '/usr/share/applications/code.desktop'), ('ROS_PYTHON_VERSION', '3'), ('GNOME_SHELL_SESSION_MODE', 'ubuntu'), ('GTK_MODULES', 'gail:atk-bridge'), ('PAGER', 'cat'), ('LC_MONETARY', 'ko_KR.UTF-8'), ('MANAGERPID', '1721'), ('LC_CTYPE', 'C.UTF-8'), ('SYSTEMD_EXEC_PID', '2158'), ('NO_COLOR', '1'), ('DBUS_SESSION_BUS_ADDRESS', 'unix:path=/run/user/1000/bus'), ('COLORTERM', ''), ('GIO_LAUNCHED_DESKTOP_FILE_PID', '4527'), ('_colcon_cd_root', '/opt/ros/humble/'), ('VSCODE_CRASH_REPORTER_PROCESS_TYPE', 'extensionHost'), ('COLCON_PREFIX_PATH', '/home/seosuk/sitl_ws/install'), ('ROS_DISTRO', 'humble'), ('GTK_IM_MODULE', 'fcitx'), ('LOGNAME', 'seosuk'), ('JOURNAL_STREAM', '8:10800'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('XDG_SESSION_CLASS', 'user'), ('RUST_LOG', 'warn'), ('USERNAME', 'seosuk'), ('TERM', 'dumb'), ('GNOME_DESKTOP_SESSION_ID', 'this-is-deprecated'), ('FC_FONTATIONS', '1'), ('ROS_LOCALHOST_ONLY', '0'), ('WINDOWPATH', '2'), ('PATH', '/home/seosuk/.local/bin:/home/seosuk/.codex/tmp/arg0/codex-arg0zZoK25:/home/seosuk/.local/bin:/home/seosuk/.local/bin:/opt/ros/humble/bin:/opt/gradle/gradle-6.9.4/bin:/home/seosuk/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin:/home/seosuk/.vscode/extensions/openai.chatgpt-26.5401.11717-linux-x64/bin/linux-x86_64'), ('SESSION_MANAGER', 'local/seosuk:@/tmp/.ICE-unix/2129,unix/seosuk:/tmp/.ICE-unix/2129'), ('INVOCATION_ID', '0bc5446f710049458fe89cb294c6fa22'), ('PAPERSIZE', 'a4'), ('XDG_MENU_PREFIX', 'gnome-'), ('LC_ADDRESS', 'ko_KR.UTF-8'), ('XDG_RUNTIME_DIR', '/run/user/1000'), ('GDK_BACKEND', 'x11'), ('DISPLAY', ':0'), ('CODEX_SANDBOX_NETWORK_DISABLED', '1'), ('LANG', 'C.UTF-8'), ('XDG_CURRENT_DESKTOP', 'ubuntu:GNOME'), ('IBUS_DISABLE_SNOOPER', '1'), ('LC_TELEPHONE', 'ko_KR.UTF-8'), ('XMODIFIERS', '@im=fcitx'), ('GH_PAGER', 'cat'), ('XDG_SESSION_DESKTOP', 'ubuntu-xorg'), ('XAUTHORITY', '/run/user/1000/gdm/Xauthority'), ('SSH_AGENT_LAUNCHER', 'gnome-keyring'), ('SSH_AUTH_SOCK', '/run/user/1000/keyring/ssh'), ('ROS_DOMAIN_ID', '15'), ('AMENT_PREFIX_PATH', '/home/seosuk/sitl_ws/install/keyboard_teleop_v3:/home/seosuk/sitl_ws/install/dynamixel_sdk:/opt/ros/humble:'), ('SHELL', '/bin/bash'), ('LC_NAME', 'ko_KR.UTF-8'), ('QT_ACCESSIBILITY', '1'), ('ELECTRON_RUN_AS_NODE', '1'), ('GDMSESSION', 'ubuntu-xorg'), ('LESSCLOSE', '/usr/bin/lesspipe %s %s'), ('CODEX_THREAD_ID', '019d8f28-3ce3-7c33-9752-483382365d80'), ('LC_MEASUREMENT', 'ko_KR.UTF-8'), ('GPG_AGENT_INFO', '/run/user/1000/gnupg/S.gpg-agent:0:1'), ('GJS_DEBUG_OUTPUT', 'stderr'), ('LC_IDENTIFICATION', 'ko_KR.UTF-8'), ('GIT_PAGER', 'cat'), ('QT_IM_MODULE', 'fcitx'), ('PWD', '/home/seosuk/mujoco_crazyflie/src/build/flyingpen_interface'), ('LC_ALL', 'C.UTF-8'), ('XDG_CONFIG_DIRS', '/etc/xdg/xdg-ubuntu-xorg:/etc/xdg'), ('VSCODE_CODE_CACHE_PATH', '/home/seosuk/.config/Code/CachedData/cfbea10c5ffb233ea9177d34726e6056e89913dc'), ('XDG_DATA_DIRS', '/usr/share/ubuntu-xorg:/usr/share/gnome:/usr/local/share/:/usr/share/:/var/lib/snapd/desktop'), ('PYTHONPATH', '/home/seosuk/Desktop/crazyflie-firmware/build:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('LC_NUMERIC', 'ko_KR.UTF-8'), ('LC_PAPER', 'ko_KR.UTF-8'), ('COLCON', '1'), ('CMAKE_PREFIX_PATH', '/home/seosuk/sitl_ws/install/keyboard_teleop_v3:/home/seosuk/sitl_ws/install/dynamixel_sdk:/opt/ros/humble:'), ('VSCODE_PID', '4527')]), 'shell': False}
+[14.628576] (-) TimerEvent: {}
+[14.631182] (flyingpen_interface) StdoutLine: {'line': b'-- Install configuration: ""\n'}
+[14.631666] (flyingpen_interface) StdoutLine: {'line': b'-- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/lib/flyingpen_interface/data_logger\n'}
+[14.631762] (flyingpen_interface) StdoutLine: {'line': b'-- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/lib/flyingpen_interface/command_publisher\n'}
+[14.631987] (flyingpen_interface) StdoutLine: {'line': b'-- Installing: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/lib/flyingpen_interface/rviz_visual\n'}
+[14.646023] (flyingpen_interface) StdoutLine: {'line': b'-- Set runtime path of "/home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/lib/flyingpen_interface/rviz_visual" to ""\n'}
+[14.646957] (flyingpen_interface) StdoutLine: {'line': b'-- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/lib/flyingpen_interface/fk_ik_transform\n'}
+[14.647478] (flyingpen_interface) StdoutLine: {'line': b'-- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/launch\n'}
+[14.647645] (flyingpen_interface) StdoutLine: {'line': b'-- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/launch/flyingpen_cpp.launch.py\n'}
+[14.647735] (flyingpen_interface) StdoutLine: {'line': b'-- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/launch/flyingpen.launch.py\n'}
+[14.647816] (flyingpen_interface) StdoutLine: {'line': b'-- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/launch/flyingpen.launch_mj.py\n'}
+[14.647883] (flyingpen_interface) StdoutLine: {'line': b'-- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/launch/__pycache__\n'}
+[14.647993] (flyingpen_interface) StdoutLine: {'line': b'-- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/launch/__pycache__/flyingpen.launch.cpython-310.pyc\n'}
+[14.648090] (flyingpen_interface) StdoutLine: {'line': b'-- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/launch/__pycache__/flyingpen.launch_mj.cpython-310.pyc\n'}
+[14.648194] (flyingpen_interface) StdoutLine: {'line': b'-- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/launch/__pycache__/flyingpen_cpp.launch.cpython-310.pyc\n'}
+[14.648284] (flyingpen_interface) StdoutLine: {'line': b'-- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/config\n'}
+[14.648350] (flyingpen_interface) StdoutLine: {'line': b'-- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/config/parameters.yaml\n'}
+[14.648413] (flyingpen_interface) StdoutLine: {'line': b'-- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/config/normal_vector_estimation.yaml\n'}
+[14.648475] (flyingpen_interface) StdoutLine: {'line': b'-- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/ament_index/resource_index/package_run_dependencies/flyingpen_interface\n'}
+[14.648548] (flyingpen_interface) StdoutLine: {'line': b'-- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/ament_index/resource_index/parent_prefix_path/flyingpen_interface\n'}
+[14.648652] (flyingpen_interface) StdoutLine: {'line': b'-- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/environment/ament_prefix_path.sh\n'}
+[14.648872] (flyingpen_interface) StdoutLine: {'line': b'-- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/environment/ament_prefix_path.dsv\n'}
+[14.649203] (flyingpen_interface) StdoutLine: {'line': b'-- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/environment/path.sh\n'}
+[14.649286] (flyingpen_interface) StdoutLine: {'line': b'-- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/environment/path.dsv\n'}
+[14.649358] (flyingpen_interface) StdoutLine: {'line': b'-- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/local_setup.bash\n'}
+[14.649501] (flyingpen_interface) StdoutLine: {'line': b'-- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/local_setup.sh\n'}
+[14.649702] (flyingpen_interface) StdoutLine: {'line': b'-- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/local_setup.zsh\n'}
+[14.649782] (flyingpen_interface) StdoutLine: {'line': b'-- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/local_setup.dsv\n'}
+[14.649852] (flyingpen_interface) StdoutLine: {'line': b'-- Installing: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/package.dsv\n'}
+[14.649921] (flyingpen_interface) StdoutLine: {'line': b'-- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/ament_index/resource_index/packages/flyingpen_interface\n'}
+[14.649991] (flyingpen_interface) StdoutLine: {'line': b'-- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/cmake/flyingpen_interfaceConfig.cmake\n'}
+[14.650056] (flyingpen_interface) StdoutLine: {'line': b'-- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/cmake/flyingpen_interfaceConfig-version.cmake\n'}
+[14.650167] (flyingpen_interface) StdoutLine: {'line': b'-- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen_interface/share/flyingpen_interface/package.xml\n'}
+[14.651518] (flyingpen_interface) CommandEnded: {'returncode': 0}
+[14.669110] (flyingpen_interface) JobEnded: {'identifier': 'flyingpen_interface', 'rc': 0}
+[14.669914] (-) EventReactorShutdown: {}

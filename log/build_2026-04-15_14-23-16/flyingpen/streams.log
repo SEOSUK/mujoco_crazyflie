@@ -1,0 +1,35 @@
+[0.008s] Invoking command in '/home/seosuk/mujoco_crazyflie/src/build/flyingpen': /usr/bin/cmake --build /home/seosuk/mujoco_crazyflie/src/build/flyingpen -- -j20 -l20
+[0.045s] Consolidate compiler generated dependencies of target normal_vector_estimation
+[0.049s] [ 20%] Built target trajectory_step
+[0.050s] [ 40%] Built target trajectory8
+[0.050s] [ 60%] Built target wrench_observer
+[0.053s] [ 80%] Built target normal_vector_estimation
+[0.054s] [ 90%] Building CXX object CMakeFiles/trajectory_generation.dir/src/trajectory_generation.cpp.o
+[12.093s] [100%] Linking CXX executable trajectory_generation
+[12.873s] [100%] Built target trajectory_generation
+[12.885s] Invoked command in '/home/seosuk/mujoco_crazyflie/src/build/flyingpen' returned '0': /usr/bin/cmake --build /home/seosuk/mujoco_crazyflie/src/build/flyingpen -- -j20 -l20
+[12.887s] Invoking command in '/home/seosuk/mujoco_crazyflie/src/build/flyingpen': /usr/bin/cmake --install /home/seosuk/mujoco_crazyflie/src/build/flyingpen
+[12.898s] -- Install configuration: ""
+[12.898s] -- Installing: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib/flyingpen/trajectory_generation
+[12.909s] -- Set runtime path of "/home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib/flyingpen/trajectory_generation" to ""
+[12.909s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib/flyingpen/trajectory8
+[12.910s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib/flyingpen/trajectory_step
+[12.910s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib/flyingpen/trajectory_generation
+[12.910s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib/flyingpen/wrench_observer
+[12.910s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/lib/flyingpen/normal_vector_estimation
+[12.910s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/ament_index/resource_index/package_run_dependencies/flyingpen
+[12.911s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/ament_index/resource_index/parent_prefix_path/flyingpen
+[12.911s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/environment/ament_prefix_path.sh
+[12.911s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/environment/ament_prefix_path.dsv
+[12.911s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/environment/path.sh
+[12.911s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/environment/path.dsv
+[12.911s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/local_setup.bash
+[12.911s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/local_setup.sh
+[12.911s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/local_setup.zsh
+[12.911s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/local_setup.dsv
+[12.911s] -- Installing: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/package.dsv
+[12.911s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/ament_index/resource_index/packages/flyingpen
+[12.911s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/cmake/flyingpenConfig.cmake
+[12.911s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/cmake/flyingpenConfig-version.cmake
+[12.911s] -- Up-to-date: /home/seosuk/mujoco_crazyflie/src/install/flyingpen/share/flyingpen/package.xml
+[12.912s] Invoked command in '/home/seosuk/mujoco_crazyflie/src/build/flyingpen' returned '0': /usr/bin/cmake --install /home/seosuk/mujoco_crazyflie/src/build/flyingpen

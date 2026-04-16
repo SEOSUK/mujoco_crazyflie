@@ -47,7 +47,7 @@ public:
 
     mvprintw(0, 0, "command_publisher running. press 't' to quit.");
     mvprintw(2, 0, "keys: w/s(x), a/d(y), e/q(z), z/c(yaw), x(reset pos)");
-    mvprintw(3, 0, "      j/k/l(force), i(toggle pos/vel+reset)");
+    mvprintw(3, 0, "      j/k/l(force), i(toggle pos/vel+reset), g(toggle yz trajectory)");
     refresh();
 
     RCLCPP_INFO(this->get_logger(), "command_publisher started.");
@@ -91,6 +91,7 @@ private:
     else if (c == 'l')  { force_des_ = 0.0;           publishForce(); }
 
     else if (c == 'i')  { toggleVelMode(); }
+    else if (c == 'g')  { toggleTrajectory(); }
 
     else if (c == 't') {
       rclcpp::shutdown();
@@ -99,16 +100,17 @@ private:
 
   // ===============================
   // Float64MultiArray publish
-  // data = [x, y, z, yaw]
+  // data = [x, y, z, yaw, trajectory_enable]
   // ===============================
   void publishPositionCmd()
   {
     std_msgs::msg::Float64MultiArray msg;
-    msg.data.resize(4);
+    msg.data.resize(5);
     msg.data[0] = cmd_xyz_yaw_[0];
     msg.data[1] = cmd_xyz_yaw_[1];
     msg.data[2] = cmd_xyz_yaw_[2];
     msg.data[3] = cmd_xyz_yaw_[3];  // yaw [deg]
+    msg.data[4] = trajectory_enabled_ ? 1.0 : 0.0;
 
     pos_cmd_pub_->publish(msg);
   }
@@ -131,6 +133,16 @@ private:
     cmd_xyz_yaw_.fill(0.0);
   }
 
+  void toggleTrajectory()
+  {
+    if (use_vel_mode_ < 0.5) {
+      status_msg_ = "trajectory requires VELOCITY mode";
+      return;
+    }
+    trajectory_enabled_ = !trajectory_enabled_;
+    status_msg_ = trajectory_enabled_ ? "trajectory ON" : "trajectory OFF";
+  }
+
   void drawStatusLine()
   {
     const char* mode_str = (use_vel_mode_ > 0.5) ? "VELOCITY" : "POSITION";
@@ -141,8 +153,10 @@ private:
       cmd_xyz_yaw_[3], force_des_);
 
     mvprintw(6, 0,
-      "mode: %s  (i: toggle pos/vel)                         ",
-      mode_str);
+      "mode: %s | trajectory: %s                             ",
+      mode_str, trajectory_enabled_ ? "ON" : "OFF");
+
+    mvprintw(7, 0, "status: %-48s", status_msg_.c_str());
 
     refresh();
   }
@@ -163,6 +177,7 @@ private:
   double force_delta_;
   double use_vel_mode_;
   std::string status_msg_;
+  bool trajectory_enabled_{false};
 };
 
 int main(int argc, char ** argv)

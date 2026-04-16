@@ -10,6 +10,7 @@
 
 #include <array>
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <mutex>
 #include <limits>
@@ -43,6 +44,48 @@ public:
 
     force_adm_kd_ = this->declare_parameter<double>(
       "force_adm_kd", 0.005);
+
+    const auto requested_trajectory_type = this->declare_parameter<std::string>(
+      "trajectory.type", "lissajous");
+    trajectory_type_ = normalizeTrajectoryType(requested_trajectory_type);
+    if (!isSupportedTrajectoryType(requested_trajectory_type)) {
+      RCLCPP_WARN(this->get_logger(),
+                  "Unknown trajectory.type '%s'. Fallback to lissajous.",
+                  requested_trajectory_type.c_str());
+    }
+    trajectory_ramp_sec_ = this->declare_parameter<double>(
+      "trajectory.ramp_sec", 2.0);
+
+    lissajous_amp_y_ = this->declare_parameter<double>(
+      "lissajous.amp_y", 0.40);
+    lissajous_amp_z_ = this->declare_parameter<double>(
+      "lissajous.amp_z", 0.2);
+    lissajous_period_y_ = this->declare_parameter<double>(
+      "lissajous.period_y", 20.0);
+    lissajous_period_z_ = this->declare_parameter<double>(
+      "lissajous.period_z", 10.0);
+
+    circle_radius_ = this->declare_parameter<double>(
+      "circle.radius", 0.30);
+    circle_period_sec_ = this->declare_parameter<double>(
+      "circle.period_sec", 20.0);
+    circle_center_y_ = this->declare_parameter<double>(
+      "circle.center_y", 0.0);
+    circle_center_z_ = this->declare_parameter<double>(
+      "circle.center_z", 0.0);
+    circle_phase_rad_ = this->declare_parameter<double>(
+      "circle.phase_rad", -0.5 * M_PI);
+
+    square_side_length_ = this->declare_parameter<double>(
+      "square.side_length", 0.40);
+    square_period_sec_ = this->declare_parameter<double>(
+      "square.period_sec", 20.0);
+    square_center_y_ = this->declare_parameter<double>(
+      "square.center_y", 0.0);
+    square_center_z_ = this->declare_parameter<double>(
+      "square.center_z", 0.0);
+    square_phase_ = this->declare_parameter<double>(
+      "square.phase", 0.0);
 
     auto ee_off = this->declare_parameter<std::vector<double>>(
       "end_effector_offset", {0.09, 0.0, 0.085});
@@ -155,6 +198,7 @@ public:
 
     RCLCPP_INFO(this->get_logger(), "trajectory_generation started");
     RCLCPP_INFO(this->get_logger(), "reference_object = %s", reference_object_.c_str());
+    RCLCPP_INFO(this->get_logger(), "g-key trajectory.type = %s", trajectory_type_.c_str());
     RCLCPP_INFO(this->get_logger(), "EE offset d_B = [%.4f %.4f %.4f]",
                 d_B_.x(), d_B_.y(), d_B_.z());
   }
@@ -183,6 +227,107 @@ private:
     q.y = 0.0;
     q.z = std::sin(0.5 * yaw);
     return q;
+  }
+
+  static inline void smoothstepQuintic(double tau, double T, double & s, double & s_dot)
+  {
+    if (T <= 1e-9) {
+      s = 1.0;
+      s_dot = 0.0;
+      return;
+    }
+
+    const double t = std::clamp(tau / T, 0.0, 1.0);
+    const double t2 = t * t;
+    const double t3 = t2 * t;
+    const double t4 = t3 * t;
+    const double t5 = t4 * t;
+
+    s = 10.0 * t3 - 15.0 * t4 + 6.0 * t5;
+    s_dot = (30.0 * t2 - 60.0 * t3 + 30.0 * t4) / T;
+  }
+
+  static std::string normalizeTrajectoryType(std::string type)
+  {
+    std::transform(type.begin(), type.end(), type.begin(),
+      [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (type == "circle" || type == "circular") {
+      return "circle";
+    }
+    if (type == "square") {
+      return "square";
+    }
+    return "lissajous";
+  }
+
+  static bool isSupportedTrajectoryType(std::string type)
+  {
+    std::transform(type.begin(), type.end(), type.begin(),
+      [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return type == "lissajous" || type == "circle" ||
+      type == "circular" || type == "square";
+  }
+
+  static inline double positivePeriod(double period_sec)
+  {
+    return std::max(1e-3, period_sec);
+  }
+
+  void computeTrajectoryReference(
+    double t, double & y_ref, double & z_ref, double & y_ref_dot, double & z_ref_dot) const
+  {
+    if (trajectory_type_ == "circle") {
+      const double radius = std::max(0.0, circle_radius_);
+      const double w = 2.0 * M_PI / positivePeriod(circle_period_sec_);
+      const double theta = w * t + circle_phase_rad_;
+      y_ref = circle_center_y_ + radius * std::cos(theta);
+      z_ref = circle_center_z_ + radius * std::sin(theta);
+      y_ref_dot = -radius * w * std::sin(theta);
+      z_ref_dot = radius * w * std::cos(theta);
+      return;
+    }
+
+    if (trajectory_type_ == "square") {
+      const double side = std::max(0.0, square_side_length_);
+      const double half = 0.5 * side;
+      const double period = positivePeriod(square_period_sec_);
+      const double speed = 4.0 * side / period;
+      double phase = std::fmod(t / period + square_phase_, 1.0);
+      if (phase < 0.0) {
+        phase += 1.0;
+      }
+
+      const double u = 4.0 * phase;
+      if (u < 1.0) {
+        y_ref = square_center_y_ - half + side * u;
+        z_ref = square_center_z_ - half;
+        y_ref_dot = speed;
+        z_ref_dot = 0.0;
+      } else if (u < 2.0) {
+        y_ref = square_center_y_ + half;
+        z_ref = square_center_z_ - half + side * (u - 1.0);
+        y_ref_dot = 0.0;
+        z_ref_dot = speed;
+      } else if (u < 3.0) {
+        y_ref = square_center_y_ + half - side * (u - 2.0);
+        z_ref = square_center_z_ + half;
+        y_ref_dot = -speed;
+        z_ref_dot = 0.0;
+      } else {
+        y_ref = square_center_y_ - half;
+        z_ref = square_center_z_ + half - side * (u - 3.0);
+        y_ref_dot = 0.0;
+        z_ref_dot = -speed;
+      }
+      return;
+    }
+
+    const double wy = 2.0 * M_PI / positivePeriod(lissajous_period_y_);
+    const double wz = 2.0 * M_PI / positivePeriod(lissajous_period_z_);
+    y_ref = lissajous_amp_y_ * std::sin(wy * t);
+    z_ref = lissajous_amp_z_ * std::sin(wz * t);
+    y_ref_dot = lissajous_amp_y_ * wy * std::cos(wy * t);
+    z_ref_dot = lissajous_amp_z_ * wz * std::cos(wz * t);
   }
 
   // ==================================================
@@ -306,6 +451,7 @@ private:
     sp_in_[1] = msg->data[1];
     sp_in_[2] = msg->data[2];
     sp_in_yaw_ = msg->data[3];
+    trajectory_cmd_enabled_ = (msg->data.size() >= 5 && msg->data[4] > 0.5);
     sp_received_ = true;
   }
 
@@ -601,11 +747,16 @@ private:
         su_int_ref_yaw_ = ref.yaw_w;
       }
       su_pos_base_valid_ = false;
+      trajectory_gain_ = 0.0;
+      trajectory_phase_time_ = 0.0;
+      trajectory_elapsed_sec_ = 0.0;
     }
     else if (!vel_mode_on && su_vel_mode_prev_) {
       su_pos_base_ = su_int_ref_pos_;
       su_yaw_base_ = su_int_ref_yaw_;
       su_pos_base_valid_ = true;
+      trajectory_gain_ = 0.0;
+      trajectory_elapsed_sec_ = 0.0;
     }
     su_vel_mode_prev_ = vel_mode_on;
 
@@ -634,6 +785,37 @@ private:
       double vy_cmd   = sp_in_[1];
       double vz_cmd   = sp_in_[2];
       double vyaw_cmd = sp_in_yaw_;
+
+      const bool trajectory_target_on = vel_mode_on && trajectory_cmd_enabled_;
+      const double ramp_sec = std::max(1e-3, trajectory_ramp_sec_);
+      double trajectory_gain_dot = 0.0;
+      if (trajectory_target_on) {
+        trajectory_elapsed_sec_ += dt;
+        smoothstepQuintic(
+          trajectory_elapsed_sec_, ramp_sec, trajectory_gain_, trajectory_gain_dot);
+        trajectory_phase_time_ += dt;
+      } else {
+        trajectory_elapsed_sec_ = std::max(0.0, trajectory_elapsed_sec_ - dt);
+        smoothstepQuintic(
+          trajectory_elapsed_sec_, ramp_sec, trajectory_gain_, trajectory_gain_dot);
+        trajectory_gain_dot = -trajectory_gain_dot;
+        if (trajectory_gain_ > 1e-6) {
+          trajectory_phase_time_ += dt;
+        } else {
+          trajectory_phase_time_ = 0.0;
+        }
+      }
+
+      if (trajectory_gain_ > 1e-6) {
+        double y_ref = 0.0;
+        double z_ref = 0.0;
+        double y_ref_dot = 0.0;
+        double z_ref_dot = 0.0;
+        computeTrajectoryReference(
+          trajectory_phase_time_, y_ref, z_ref, y_ref_dot, z_ref_dot);
+        vy_cmd = trajectory_gain_ * y_ref_dot + trajectory_gain_dot * y_ref;
+        vz_cmd = trajectory_gain_ * z_ref_dot + trajectory_gain_dot * z_ref;
+      }
 
       std::array<double,3> eF{0.0, 0.0, 0.0};
       std::array<double,3> eF_dot_filt{0.0, 0.0, 0.0};
@@ -736,6 +918,22 @@ private:
 
   double force_adm_kp_{5.0};
   double force_adm_kd_{0.005};
+  std::string trajectory_type_{"lissajous"};
+  double trajectory_ramp_sec_{2.0};
+  double lissajous_amp_y_{0.40};
+  double lissajous_amp_z_{0.4};
+  double lissajous_period_y_{20.0};
+  double lissajous_period_z_{10.0};
+  double circle_radius_{0.30};
+  double circle_period_sec_{20.0};
+  double circle_center_y_{0.0};
+  double circle_center_z_{0.0};
+  double circle_phase_rad_{-0.5 * M_PI};
+  double square_side_length_{0.40};
+  double square_period_sec_{20.0};
+  double square_center_y_{0.0};
+  double square_center_z_{0.0};
+  double square_phase_{0.0};
 
   Eigen::Vector3d d_B_{0.0, 0.0, 0.0};
 
@@ -750,6 +948,7 @@ private:
 
   std::array<double, 3> sp_in_{0.0, 0.0, 0.0};
   double sp_in_yaw_{0.0};
+  bool trajectory_cmd_enabled_{false};
   bool sp_received_{false};
 
   std::array<double, 3> su_int_ref_pos_{0.0, 0.0, 0.0};
@@ -760,6 +959,9 @@ private:
   std::array<double, 3> su_pos_base_{0.0, 0.0, 0.0};
   double su_yaw_base_{0.0};
   bool su_pos_base_valid_{false};
+  double trajectory_gain_{0.0};
+  double trajectory_phase_time_{0.0};
+  double trajectory_elapsed_sec_{0.0};
 
   std::mutex force_mtx_;
   float su_cmd_use_vel_mode_{0.0f};

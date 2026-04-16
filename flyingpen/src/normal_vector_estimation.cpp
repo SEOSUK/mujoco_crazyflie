@@ -5,6 +5,7 @@
 #include <geometry_msgs/msg/vector3_stamped.hpp>
 #include <geometry_msgs/msg/wrench_stamped.hpp>
 #include <std_msgs/msg/float32.hpp>
+#include <std_msgs/msg/float64_multi_array.hpp>
 
 #include <Eigen/Dense>
 
@@ -109,6 +110,8 @@ public:
       "contact_frame_quat_topic", "/estimated_contact_frame_quat");
     contact_force_x_topic_ = this->declare_parameter<std::string>(
       "contact_force_x_topic", "/su/contact_force_x");
+    normal_debug_metrics_topic_ = this->declare_parameter<std::string>(
+      "normal_debug_metrics_topic", "/normal_vector/debug_metrics");
 
     sub_contact_force_ = this->create_subscription<geometry_msgs::msg::WrenchStamped>(
       contact_force_topic_, 10,
@@ -150,6 +153,8 @@ public:
       contact_frame_quat_topic_, 10);
     pub_contact_force_x_ = this->create_publisher<std_msgs::msg::Float32>(
       contact_force_x_topic_, 10);
+    pub_normal_debug_metrics_ = this->create_publisher<std_msgs::msg::Float64MultiArray>(
+      normal_debug_metrics_topic_, 10);
 
     const double safe_hz = std::max(1.0, publish_hz_);
     timer_ = this->create_wall_timer(
@@ -185,10 +190,23 @@ private:
   {
     Eigen::Matrix3d l_v = Eigen::Matrix3d::Zero();
     Eigen::Matrix3d l_f = Eigen::Matrix3d::Zero();
+    Eigen::Matrix3d l_v_bar = Eigen::Matrix3d::Zero();
+    Eigen::Matrix3d l_f_bar = Eigen::Matrix3d::Zero();
     Eigen::Vector3d n_f = Eigen::Vector3d::Zero();
     Eigen::Vector3d n_geo = Eigen::Vector3d::Zero();
+    Eigen::Vector3d n_est = Eigen::Vector3d::Zero();
     double rho_v = 0.0;
     double rho_f = 0.0;
+    double alpha_v = 0.0;
+    double alpha_f = 0.0;
+    double lambda1 = 0.0;
+    double lambda2 = 0.0;
+    double lambda3 = 0.0;
+    double m_tau = 1.0;
+    double vel_norm = 0.0;
+    double force_norm = 0.0;
+    double angle_n_geo_deg = 0.0;
+    double angle_n_f_deg = 0.0;
     bool initialized = false;
   };
 
@@ -264,6 +282,19 @@ private:
       return 0.0;
     }
     return mag2 / (gate2 + mag2 + 1e-12);
+  }
+
+  static double angleDegreesBetween(const Eigen::Vector3d & a, const Eigen::Vector3d & b)
+  {
+    const double na = a.norm();
+    const double nb = b.norm();
+    if (!(std::isfinite(na) && std::isfinite(nb) && na > 1e-12 && nb > 1e-12)) {
+      return std::numeric_limits<double>::quiet_NaN();
+    }
+
+    double cosine = a.dot(b) / (na * nb);
+    cosine = std::clamp(cosine, -1.0, 1.0);
+    return std::acos(cosine) * 180.0 / M_PI;
   }
 
   std::string resolveForceObservationTopic(const std::string & source) const
@@ -550,13 +581,14 @@ private:
     }
     const double vel_gate = smoothGate(vel_norm, new_normal_velocity_gate_);
     const double force_gate = smoothGate(force_norm, new_normal_force_gate_);
+    new_normal_state_.vel_norm = vel_norm;
+    new_normal_state_.force_norm = force_norm;
 
-    const double decay_v = std::exp(-new_normal_beta_v_ * dt);
-    const double decay_f = std::exp(-new_normal_beta_f_ * dt);
+    const Eigen::Matrix3d l_v_dot =
+      -new_normal_beta_v_ * new_normal_state_.l_v +
+      new_normal_sigma_v_ * (s_v * s_v.transpose());
 
-    new_normal_state_.l_v =
-      decay_v * new_normal_state_.l_v +
-      dt * new_normal_sigma_v_ * vel_gate * (s_v * s_v.transpose());
+    new_normal_state_.l_v += dt * l_v_dot;
 
     const Eigen::Vector3d f_hat_ext = safeNormalized(force_world, new_normal_force_epsilon_);
     Eigen::Matrix3d proj_s = Eigen::Matrix3d::Identity();
@@ -575,12 +607,15 @@ private:
     const Eigen::Vector3d n_f = safeNormalized(f_perp, new_normal_force_epsilon_);
 
     if (n_f.squaredNorm() > 1e-12) {
-      new_normal_state_.l_f =
-        decay_f * new_normal_state_.l_f +
-        dt * new_normal_sigma_f_ * force_gate * (n_f * n_f.transpose());
+      const Eigen::Matrix3d l_f_dot =
+        -new_normal_beta_f_ * new_normal_state_.l_f +
+        new_normal_sigma_f_ * force_gate * (n_f * n_f.transpose());
+      new_normal_state_.l_f += dt * l_f_dot;
       new_normal_state_.n_f = n_f;
     } else {
-      new_normal_state_.l_f = decay_f * new_normal_state_.l_f;
+      const Eigen::Matrix3d l_f_dot =
+        -new_normal_beta_f_ * new_normal_state_.l_f;
+      new_normal_state_.l_f += dt * l_f_dot;
     }
 
     const EigenSpectrum spec_v = eigenDecomposeDescending(new_normal_state_.l_v);
@@ -588,6 +623,9 @@ private:
     const double lambda1 = std::max(0.0, spec_v.values(0));
     const double lambda2 = std::max(0.0, spec_v.values(1));
     const double lambda3 = std::max(0.0, spec_v.values(2));
+    new_normal_state_.lambda1 = lambda1;
+    new_normal_state_.lambda2 = lambda2;
+    new_normal_state_.lambda3 = lambda3;
 
     const double rho_v_mag = lambda2 / (lambda2 + new_normal_c_v_ + 1e-12);
     const double rho_v_gap =
@@ -612,6 +650,7 @@ private:
       (new_normal_eta_tau_ + (1.0 - new_normal_eta_tau_) *
       std::exp(-(e_tau_norm * e_tau_norm) / (sigma_tau_sq + 1e-12))) :
       1.0;
+    new_normal_state_.m_tau = m_tau;
 
     const double rho_f = clamp01(rho_f_bar * ((1.0 - rho_v) + rho_v * m_tau));
     const double alpha_denom = rho_v + rho_f + new_normal_eps_alpha_;
@@ -641,6 +680,10 @@ private:
     new_normal_state_.n_geo = n_geo;
     new_normal_state_.rho_v = rho_v;
     new_normal_state_.rho_f = rho_f;
+    new_normal_state_.alpha_v = alpha_v;
+    new_normal_state_.alpha_f = alpha_f;
+    new_normal_state_.l_v_bar = l_v_bar;
+    new_normal_state_.l_f_bar = l_f_bar;
     new_normal_state_.initialized = true;
 
     if (std::max(rho_v, rho_f) < new_normal_min_confidence_) {
@@ -648,20 +691,7 @@ private:
       return false;
     }
 
-    if (!cf_out.valid) {
-      cf_out.n_w = n_geo;
-    } else {
-      if (cf_out.n_w.dot(n_geo) < 0.0) {
-        n_geo = -n_geo;
-      }
-
-      cf_out.n_w =
-        (1.0 - normal_lpf_alpha_) * cf_out.n_w +
-        normal_lpf_alpha_ * n_geo;
-
-      const double nn = cf_out.n_w.norm();
-      cf_out.n_w = (nn > 1e-9) ? (cf_out.n_w / nn) : n_geo;
-    }
+    cf_out.n_w = n_geo;
 
     return true;
   }
@@ -741,10 +771,6 @@ private:
       return false;
     }
 
-    if (!projectNormalToXYPlane(cf_out)) {
-      return false;
-    }
-
     return buildContactFrameFromNormal(cf_out);
   }
 
@@ -761,6 +787,64 @@ private:
     msg.quaternion.y = q.y();
     msg.quaternion.z = q.z();
     pub_contact_quat_->publish(msg);
+  }
+
+  void publishNormalDebugMetrics()
+  {
+    std_msgs::msg::Float64MultiArray msg;
+    const auto nan = std::numeric_limits<double>::quiet_NaN();
+
+    msg.data.resize(34, nan);
+    msg.data[0] = new_normal_state_.lambda1;
+    msg.data[1] = new_normal_state_.lambda2;
+    msg.data[2] = new_normal_state_.lambda3;
+    msg.data[3] = new_normal_state_.m_tau;
+    msg.data[4] = new_normal_state_.vel_norm;
+    msg.data[5] = new_normal_state_.force_norm;
+    msg.data[6] = new_normal_state_.rho_v;
+    msg.data[7] = new_normal_state_.rho_f;
+    msg.data[8] = new_normal_state_.alpha_v;
+    msg.data[9] = new_normal_state_.alpha_f;
+
+    int idx = 10;
+    for (int r = 0; r < 3; ++r) {
+      for (int c = 0; c < 3; ++c) {
+        msg.data[idx++] = new_normal_state_.l_v_bar(r, c);
+      }
+    }
+    for (int r = 0; r < 3; ++r) {
+      for (int c = 0; c < 3; ++c) {
+        msg.data[idx++] = new_normal_state_.l_f_bar(r, c);
+      }
+    }
+    msg.data[28] = new_normal_state_.n_geo.x();
+    msg.data[29] = new_normal_state_.n_geo.y();
+    msg.data[30] = new_normal_state_.n_geo.z();
+    msg.data[31] = new_normal_state_.n_f.x();
+    msg.data[32] = new_normal_state_.n_f.y();
+    msg.data[33] = new_normal_state_.n_f.z();
+
+    pub_normal_debug_metrics_->publish(msg);
+  }
+
+  void clearNormalDebugMetrics()
+  {
+    const auto nan = std::numeric_limits<double>::quiet_NaN();
+    new_normal_state_.lambda1 = nan;
+    new_normal_state_.lambda2 = nan;
+    new_normal_state_.lambda3 = nan;
+    new_normal_state_.m_tau = nan;
+    new_normal_state_.vel_norm = nan;
+    new_normal_state_.force_norm = nan;
+    new_normal_state_.rho_v = nan;
+    new_normal_state_.rho_f = nan;
+    new_normal_state_.alpha_v = nan;
+    new_normal_state_.alpha_f = nan;
+    new_normal_state_.l_v_bar = Eigen::Matrix3d::Constant(nan);
+    new_normal_state_.l_f_bar = Eigen::Matrix3d::Constant(nan);
+    new_normal_state_.angle_n_geo_deg = nan;
+    new_normal_state_.angle_n_f_deg = nan;
+    new_normal_state_.n_est = Eigen::Vector3d::Zero();
   }
 
   void contactForceCb(const geometry_msgs::msg::WrenchStamped::SharedPtr msg)
@@ -856,6 +940,8 @@ private:
         std_msgs::msg::Float32 force_x_msg;
         force_x_msg.data = 0.0f;
         pub_contact_force_x_->publish(force_x_msg);
+        clearNormalDebugMetrics();
+        publishNormalDebugMetrics();
         return;
       }
     }
@@ -897,6 +983,8 @@ private:
       std_msgs::msg::Float32 force_x_msg;
       force_x_msg.data = 0.0f;
       pub_contact_force_x_->publish(force_x_msg);
+      clearNormalDebugMetrics();
+      publishNormalDebugMetrics();
       return;
     }
 
@@ -907,7 +995,14 @@ private:
       contact_frame_ = cf_local;
     }
 
+    new_normal_state_.n_est = cf_local.n_w;
+    new_normal_state_.angle_n_geo_deg =
+      angleDegreesBetween(new_normal_state_.n_geo, cf_local.n_w);
+    new_normal_state_.angle_n_f_deg =
+      angleDegreesBetween(new_normal_state_.n_f, cf_local.n_w);
+
     publishContactQuat(cf_local.R_C, stamp);
+    publishNormalDebugMetrics();
 
     std_msgs::msg::Float32 force_x_msg;
     force_x_msg.data = static_cast<float>(force_contact.x());
@@ -926,6 +1021,7 @@ private:
 
   rclcpp::Publisher<geometry_msgs::msg::QuaternionStamped>::SharedPtr pub_contact_quat_;
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr pub_contact_force_x_;
+  rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr pub_normal_debug_metrics_;
 
   rclcpp::TimerBase::SharedPtr timer_;
 
@@ -964,6 +1060,7 @@ private:
   std::string contact_force_topic_;
   std::string contact_frame_quat_topic_;
   std::string contact_force_x_topic_;
+  std::string normal_debug_metrics_topic_;
   std::string consistency_match_topic_;
   std::string use_vel_mode_topic_;
 

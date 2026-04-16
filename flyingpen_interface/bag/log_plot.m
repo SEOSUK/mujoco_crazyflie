@@ -112,7 +112,7 @@ axis_names = {'X', 'Y', 'Z'};
 att_names = {'roll', 'pitch', 'yaw'};
 
 %% Figure 5) 2x2 dashboard with 3x1 subplots per panel
-twin = [25 51];
+twin = [0 20];
 xlim_cfg_fig5_pos = twin;
 xlim_cfg_fig5_ma  = twin;
 xlim_cfg_fig5_att = twin;
@@ -261,11 +261,9 @@ else
     disp("- MOB consistency debug source: missing in this CSV, using zeros in Figure 6 right column");
 end
 
-%% Figure 6) MOB compare + consistency observer diagnostics
+%% Figure 6) MOB 2nd-order only + consistency observer diagnostics
 xlim_cfg_fig6 = twin;
-ylim_cfg_fig6_force = [-0.05 0.05; -0.05 0.05; -0.05 0.05];
-mob_colors = [0.85 0.33 0.10; 0.20 0.50 0.95; 0.20 0.65 0.35];
-mob_labels = {'baseline', '2nd order', '2nd order + tau'};
+ylim_cfg_fig6_force = [-0.01 0.1; -0.05 0.05; -0.05 0.05];
 
 mob_tau_kfep_norm = vecnorm(mob_tau_kfep, 2, 2);
 mob_tau_consistency_norm = vecnorm(mob_tau_consistency, 2, 2);
@@ -273,29 +271,21 @@ mob_tau_tauhat_norm = vecnorm(mob_tau_tauhat, 2, 2);
 mob_tau_rxf_norm = vecnorm(mob_tau_rxf, 2, 2);
 mob_tau_residual_norm = vecnorm(mob_tau_tauhat - mob_tau_rxf, 2, 2);
 
-f6 = figure('Name','MOB Compare and Consistency Diagnostics','NumberTitle','off', ...
+f6 = figure('Name','MOB 2nd Order and Consistency Diagnostics','NumberTitle','off', ...
             'Color','w','Units','normalized','Position',[0.08 0.08 0.84 0.82]);
 tl6 = tiledlayout(f6, 3, 2, 'TileSpacing', 'compact', 'Padding', 'compact');
 ax_fig6 = gobjects(0);
 
 for i = 1:3
     ax = nexttile(tl6, 2*(i-1)+1); ax_fig6(end+1) = ax; %#ok<SAGROW>
-    plot(time, mob1_force(:,i), 'LineWidth', 1.3, 'Color', mob_colors(1,:)); hold on;
-    plot(time, mob2_force(:,i), 'LineWidth', 1.2, 'Color', mob_colors(2,:));
-    if mob_compare_3way_valid
-        plot(time, mob3_force(:,i), 'LineWidth', 1.2, 'Color', mob_colors(3,:));
-    end
+    plot(time, mob2_force(:,i), 'LineWidth', 1.2, 'Color', [0.20 0.50 0.95]); hold on;
     plot(time, contact_filt(:,i), '--', 'LineWidth', 1.2, 'Color', [0.10 0.10 0.10]);
     grid on;
-    apply_user_ylim(ax, ylim_cfg_fig6_force, i, [mob1_force(:,i); mob2_force(:,i); mob3_force(:,i); contact_filt(:,i)]);
+    apply_user_ylim(ax, ylim_cfg_fig6_force, i, [mob2_force(:,i); contact_filt(:,i)]);
     ylabel(sprintf('F%s [N]', lower(axis_names{i})));
     if i == 1
         title('External Force');
-        if mob_compare_3way_valid
-            legend([mob_labels, {'contact'}], 'Location', 'best');
-        else
-            legend([mob_labels(1:2), {'contact'}], 'Location', 'best');
-        end
+        legend({'2nd order', 'contact'}, 'Location', 'best');
     end
     if i < 3
         ax.XTickLabel = [];
