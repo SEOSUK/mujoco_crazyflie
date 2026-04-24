@@ -2,7 +2,7 @@
 % Reads data_logger CSV and builds a comparison dashboard.
 % Legacy CSV (46 cols), MOB force CSV (49 cols), MOB vs second-order compare
 % CSV (58 cols), MOB vs second-order vs consistency compare CSV (64 cols),
-% and consistency-debug CSV (76 cols) are supported.
+% consistency-debug CSV (76 cols), and wind-augmented CSV (79 cols) are supported.
 
 clear; clc;
 set(groot, 'defaultFigureRenderer', 'painters');
@@ -100,6 +100,14 @@ else
     mob_tau_tauhat = z3;
     mob_tau_rxf = z3;
     mob_tau_debug_valid = false;
+end
+
+if size(A, 2) >= 79
+    wind_force = [col(77), col(78), col(79)];
+    wind_valid = true;
+else
+    wind_force = zeros(size(A,1), 3);
+    wind_valid = false;
 end
 
 %% ---- comparison signals ----
@@ -260,67 +268,65 @@ if mob_tau_debug_valid
 else
     disp("- MOB consistency debug source: missing in this CSV, using zeros in Figure 6 right column");
 end
+if wind_valid
+    disp("- Wind disturbance source: logged /crazyflie/in/wind");
+else
+    disp("- Wind disturbance source: missing in this CSV, using zeros in Figure 6 bottom row");
+end
 
-%% Figure 6) MOB 2nd-order only + consistency observer diagnostics
-xlim_cfg_fig6 = twin;
-ylim_cfg_fig6_force = [-0.01 0.1; -0.05 0.05; -0.05 0.05];
+%% Figure 6) PyQt-style MOB consistency logging panel
+xlim_cfg_fig6 = [25 95];
+ylim_cfg_fig6_force = repmat([-0.04 0.04], 3, 1);
+ylim_cfg_fig6_tau = repmat([-0.005 0.005], 3, 1);
+ylim_cfg_fig6_wind = [nan nan; nan nan; nan nan];
 
-mob_tau_kfep_norm = vecnorm(mob_tau_kfep, 2, 2);
-mob_tau_consistency_norm = vecnorm(mob_tau_consistency, 2, 2);
-mob_tau_tauhat_norm = vecnorm(mob_tau_tauhat, 2, 2);
-mob_tau_rxf_norm = vecnorm(mob_tau_rxf, 2, 2);
-mob_tau_residual_norm = vecnorm(mob_tau_tauhat - mob_tau_rxf, 2, 2);
-
-f6 = figure('Name','MOB 2nd Order and Consistency Diagnostics','NumberTitle','off', ...
-            'Color','w','Units','normalized','Position',[0.08 0.08 0.84 0.82]);
-tl6 = tiledlayout(f6, 3, 2, 'TileSpacing', 'compact', 'Padding', 'compact');
+f6 = figure('Name','MOB Consistency Logging Panel','NumberTitle','off', ...
+            'Color','w','Units','normalized','Position',[0.05 0.05 0.90 0.88]);
+tl6 = tiledlayout(f6, 3, 3, 'TileSpacing', 'compact', 'Padding', 'compact');
 ax_fig6 = gobjects(0);
+force_colors.gt = [0.10 0.10 0.10];
+force_colors.mob2 = [0.20 0.50 0.95];
+force_colors.mobc = [0.90 0.30 0.18];
+tau_colors.tauhat = [0.20 0.50 0.95];
+tau_colors.rxf = [0.90 0.30 0.18];
+wind_colors.force = [0.15 0.60 0.30];
 
 for i = 1:3
-    ax = nexttile(tl6, 2*(i-1)+1); ax_fig6(end+1) = ax; %#ok<SAGROW>
-    plot(time, mob2_force(:,i), 'LineWidth', 1.2, 'Color', [0.20 0.50 0.95]); hold on;
-    plot(time, contact_filt(:,i), '--', 'LineWidth', 1.2, 'Color', [0.10 0.10 0.10]);
+    ax = nexttile(tl6, i); ax_fig6(end+1) = ax; %#ok<SAGROW>
+    plot(time, contact_filt(:,i), '--', 'LineWidth', 1.25, 'Color', force_colors.gt); hold on;
+    plot(time, mob2_force(:,i), '-', 'LineWidth', 1.35, 'Color', force_colors.mob2);
+    plot(time, mob3_force(:,i), '-', 'LineWidth', 1.35, 'Color', force_colors.mobc);
     grid on;
-    apply_user_ylim(ax, ylim_cfg_fig6_force, i, [mob2_force(:,i); contact_filt(:,i)]);
-    ylabel(sprintf('F%s [N]', lower(axis_names{i})));
+    apply_user_ylim(ax, ylim_cfg_fig6_force, i, [contact_filt(:,i); mob2_force(:,i); mob3_force(:,i)]);
+    ylabel('force [N]');
+    title(sprintf('Force %s', axis_names{i}));
     if i == 1
-        title('External Force');
-        legend({'2nd order', 'contact'}, 'Location', 'best');
+        legend({'GT', 'MOB 2nd order', 'MOB consistency'}, 'Location', 'best');
     end
-    if i < 3
-        ax.XTickLabel = [];
-    else
-        xlabel('time [s]');
-    end
+    ax.XTickLabel = [];
 
-    ax = nexttile(tl6, 2*(i-1)+2); ax_fig6(end+1) = ax; %#ok<SAGROW>
-    if i == 1
-        plot(time, mob_tau_kfep_norm, 'LineWidth', 1.3, 'Color', [0.15 0.45 0.90]); hold on;
-        plot(time, mob_tau_consistency_norm, 'LineWidth', 1.3, 'Color', [0.90 0.35 0.15]);
-        ylabel('norm [N/s]');
-        title('Force Update Contribution');
-        legend({'baseline term: ||K_f e_p||', 'consistency term: ||\sigma_\tau K_e [r]^T_\times e_\tau||'}, 'Location', 'best');
-        apply_user_ylim(ax, [nan nan; nan nan; nan nan], 1, [mob_tau_kfep_norm; mob_tau_consistency_norm]);
-    elseif i == 2
-        plot(time, mob_tau_tauhat_norm, 'LineWidth', 1.3, 'Color', [0.20 0.65 0.35]); hold on;
-        plot(time, mob_tau_rxf_norm, 'LineWidth', 1.3, 'Color', [0.55 0.25 0.80]);
-        ylabel('norm [Nm]');
-        title('Torque Consistency Match');
-        legend({'estimated torque: ||\hat{\tau}^w_{ext}||', 'contact-induced moment: ||r^w \times \hat{f}^w_{ext}||'}, 'Location', 'best');
-        apply_user_ylim(ax, [nan nan; nan nan; nan nan], 1, [mob_tau_tauhat_norm; mob_tau_rxf_norm]);
-    else
-        plot(time, mob_tau_residual_norm, 'LineWidth', 1.3, 'Color', [0.10 0.10 0.10]); hold on;
-        ylabel('norm [Nm]');
-        title('Residual After Correction');
-        legend({'consistency residual: ||e_\tau||'}, 'Location', 'best');
-        apply_user_ylim(ax, [nan nan; nan nan; nan nan], 1, mob_tau_residual_norm);
-    end
+    ax = nexttile(tl6, 3 + i); ax_fig6(end+1) = ax; %#ok<SAGROW>
+    plot(time, mob_tau_tauhat(:,i), '-', 'LineWidth', 1.35, 'Color', tau_colors.tauhat); hold on;
+    plot(time, mob_tau_rxf(:,i), '-', 'LineWidth', 1.35, 'Color', tau_colors.rxf);
     grid on;
-    if i < 3
-        ax.XTickLabel = [];
-    else
-        xlabel('time [s]');
+    apply_user_ylim(ax, ylim_cfg_fig6_tau, i, [mob_tau_tauhat(:,i); mob_tau_rxf(:,i)]);
+    ylabel('torque [Nm]');
+    title(sprintf('\\tau consistency %s', axis_names{i}));
+    if i == 1
+        legend({'\tau\_hat\_ext', 'r \times F'}, 'Location', 'best', 'Interpreter', 'tex');
     end
+    ax.XTickLabel = [];
+
+    ax = nexttile(tl6, 6 + i); ax_fig6(end+1) = ax; %#ok<SAGROW>
+    plot(time, wind_force(:,i), '-', 'LineWidth', 1.35, 'Color', wind_colors.force); hold on;
+    grid on;
+    apply_user_ylim(ax, ylim_cfg_fig6_wind, i, wind_force(:,i));
+    ylabel('wind [N]');
+    title(sprintf('Wind disturbance %s', axis_names{i}));
+    if i == 1
+        legend({'wind disturbance'}, 'Location', 'best');
+    end
+    xlabel('time [s]');
 end
 
 apply_panel_xlim(ax_fig6, xlim_cfg_fig6, 'data_decryptor_specific_fig6_mob_compare_xlink');

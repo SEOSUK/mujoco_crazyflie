@@ -59,6 +59,7 @@ ament_target_dependencies(rviz_visual
   tf2
   tf2_ros
 )
+target_link_libraries(rviz_visual Eigen3::Eigen)
 
 install(TARGETS
   rviz_visual

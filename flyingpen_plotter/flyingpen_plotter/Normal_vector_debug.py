@@ -68,6 +68,23 @@ def safe_unit(v: np.ndarray) -> np.ndarray:
     return v / n
 
 
+def velocity_evidence_normal(l_v: np.ndarray) -> np.ndarray:
+    if not np.all(np.isfinite(l_v)):
+        return np.full(3, math.nan, dtype=float)
+
+    mat = 0.5 * (l_v + l_v.T)
+    if float(np.linalg.norm(mat, ord="fro")) < 1e-12:
+        return np.full(3, math.nan, dtype=float)
+
+    try:
+        values, vectors = np.linalg.eigh(mat)
+    except np.linalg.LinAlgError:
+        return np.full(3, math.nan, dtype=float)
+
+    idx = int(np.argmin(values))
+    return safe_unit(vectors[:, idx])
+
+
 def load_cylinder_geometry() -> Tuple[np.ndarray, float]:
     for package_name in ("mujoco_bridge", "plant"):
         try:
@@ -101,7 +118,7 @@ class ROSDataBuffer(Node):
         super().__init__("normal_vector_debug")
 
         self.declare_parameter("history_sec", 3.0)
-        self.declare_parameter("update_hz", 5.0)
+        self.declare_parameter("update_hz", 30.0)
         self.declare_parameter("contact_quat_topic", "/estimated_contact_frame_quat")
         self.declare_parameter("ee_pose_topic", "/crazyflie/out/EE_pose")
         self.declare_parameter("vel_cmd_topic", "/su/debug/contact_vel_cmd")
@@ -114,11 +131,20 @@ class ROSDataBuffer(Node):
         self.declare_parameter("packed_debug_topic", "/normal_vector/debug_metrics")
         self.declare_parameter("eta_tau", 0.4)
         self.declare_parameter("sigma_tau", 0.004)
+        self.declare_parameter("environment.type", "cylinder")
+        self.declare_parameter("cylinder.pos.x", 1.5)
+        self.declare_parameter("cylinder.pos.y", 0.0)
+        self.declare_parameter("cylinder.pos.z", 0.0)
+        self.declare_parameter("cylinder.radius", 1.0)
+        self.declare_parameter("wall.pos.x", 0.2)
 
         self.history_sec = float(self.get_parameter("history_sec").value)
         self.update_hz = float(self.get_parameter("update_hz").value)
         self.eta_tau = float(self.get_parameter("eta_tau").value)
         self.sigma_tau = float(self.get_parameter("sigma_tau").value)
+        self.environment_type = str(self.get_parameter("environment.type").value).lower()
+        if self.environment_type not in ("wall", "cylinder"):
+            self.environment_type = "cylinder"
 
         self.lock = threading.Lock()
         self.t0 = self.get_clock().now().nanoseconds * 1e-9
@@ -133,7 +159,7 @@ class ROSDataBuffer(Node):
             "rho_v", "rho_f",
             "alpha_v", "alpha_f",
             "tr_l_v", "tr_l_f",
-            "angle_n_geo_deg", "angle_n_f_deg", "angle_force_dir_deg",
+            "angle_n_geo_deg", "angle_n_f_deg", "angle_n_v_deg", "angle_force_dir_deg",
         ]
         self.data: Dict[str, deque] = {"t": deque(maxlen=self.maxlen)}
         for key in keys:
@@ -149,10 +175,17 @@ class ROSDataBuffer(Node):
         self.n_est = np.full(3, math.nan, dtype=float)
         self.n_geo = np.full(3, math.nan, dtype=float)
         self.n_f = np.full(3, math.nan, dtype=float)
+        self.n_v = np.full(3, math.nan, dtype=float)
         self.n_gt = np.full(3, math.nan, dtype=float)
         self.force_dir = np.full(3, math.nan, dtype=float)
         self.ee_pos = np.full(3, math.nan, dtype=float)
-        self.cylinder_center, self.cylinder_radius = load_cylinder_geometry()
+        self.cylinder_center = np.array([
+            float(self.get_parameter("cylinder.pos.x").value),
+            float(self.get_parameter("cylinder.pos.y").value),
+            float(self.get_parameter("cylinder.pos.z").value),
+        ], dtype=float)
+        self.cylinder_radius = float(self.get_parameter("cylinder.radius").value)
+        self.wall_x = float(self.get_parameter("wall.pos.x").value)
 
         self.create_subscription(
             QuaternionStamped,
@@ -258,13 +291,10 @@ class ROSDataBuffer(Node):
             self._update_quality_angles_locked()
 
     def cb_consistency(self, msg: WrenchStamped) -> None:
-        torque_hat = np.array([msg.wrench.force.x, msg.wrench.force.y, msg.wrench.force.z], dtype=float)
-        moment_from_force = np.array([msg.wrench.torque.x, msg.wrench.torque.y, msg.wrench.torque.z], dtype=float)
-        e_tau_norm = float(np.linalg.norm(torque_hat - moment_from_force))
-        sigma_sq = self.sigma_tau * self.sigma_tau
-        m_tau = self.eta_tau + (1.0 - self.eta_tau) * math.exp(-(e_tau_norm * e_tau_norm) / (sigma_sq + 1e-12))
-        with self.lock:
-            self.latest["m_tau"] = m_tau
+        # m_tau is low-pass filtered in normal_vector_estimation and published
+        # through /normal_vector/debug_metrics. Keep the panel on that filtered
+        # value instead of recomputing an unsmoothed one here.
+        pass
 
     def cb_packed_debug(self, msg: Float64MultiArray) -> None:
         data = list(msg.data)
@@ -294,11 +324,21 @@ class ROSDataBuffer(Node):
                 self.latest["tr_l_f"] = float(np.trace(self.l_f_bar))
             self.n_geo[:] = data[28:31]
             self.n_f[:] = data[31:34]
+            self.n_v[:] = velocity_evidence_normal(self.l_v_bar)
+            if np.all(np.isfinite(self.n_v)):
+                if np.all(np.isfinite(self.n_gt)) and np.dot(self.n_v, self.n_gt) < 0.0:
+                    self.n_v[:] = -self.n_v
+                elif np.all(np.isfinite(self.n_geo)) and np.dot(self.n_v, self.n_geo) < 0.0:
+                    self.n_v[:] = -self.n_v
             self._update_quality_angles_locked()
 
     def _update_gt_normal_locked(self) -> None:
         if not np.all(np.isfinite(self.ee_pos)):
             self.n_gt[:] = np.full(3, math.nan, dtype=float)
+            return
+
+        if self.environment_type == "wall":
+            self.n_gt[:] = [1.0 if self.ee_pos[0] <= self.wall_x else -1.0, 0.0, 0.0]
             return
 
         radial = np.array([
@@ -311,6 +351,7 @@ class ROSDataBuffer(Node):
     def _update_quality_angles_locked(self) -> None:
         self.latest["angle_n_geo_deg"] = angle_deg(self.n_geo, self.n_gt)
         self.latest["angle_n_f_deg"] = angle_deg(self.n_f, self.n_gt)
+        self.latest["angle_n_v_deg"] = angle_deg(self.n_v, self.n_gt)
         self.latest["angle_force_dir_deg"] = angle_deg(self.force_dir, self.n_gt)
 
     def log_snapshot(self) -> None:
@@ -346,6 +387,8 @@ class PlotWindow(QMainWindow):
 
         self.info_label = QLabel("Waiting for normal-vector debug data...")
         self.info_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.info_label.setWordWrap(True)
+        self.info_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         root.addWidget(self.info_label)
 
         root.addWidget(self._build_control_panel(), stretch=0)
@@ -357,7 +400,8 @@ class PlotWindow(QMainWindow):
         self.timer.timeout.connect(self.update_all)
         self.timer.start(350)
 
-        self.resize(760, 1420)
+        self.setFixedWidth(720)
+        self.resize(720, 1460)
 
     def _make_group_frame(self, title: str) -> QFrame:
         frame = QFrame()
@@ -383,6 +427,8 @@ class PlotWindow(QMainWindow):
     def _make_plot(self, title: str, ylabel: str, min_height: int = 120):
         plot = pg.PlotWidget()
         plot.setBackground("w")
+        plot.setMinimumWidth(1)
+        plot.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
         plot.setMinimumHeight(min_height)
         pi = plot.getPlotItem()
         pi.setTitle(title)
@@ -483,6 +529,7 @@ class PlotWindow(QMainWindow):
         self.plot_trace = self._make_plot("trace(L_v) vs trace(L_f)", "trace", min_height=130)
         self.curve_tr_l_v = self.plot_trace.plot(name="tr(L_v)", pen=pg.mkPen((40, 90, 220), width=2))
         self.curve_tr_l_f = self.plot_trace.plot(name="tr(L_f)", pen=pg.mkPen((220, 50, 50), width=2))
+        self.plot_trace.setYRange(-0.1, 1.1, padding=0.0)
 
         grid.addWidget(self.plot_rho, 0, 0)
         grid.addWidget(self.plot_alpha, 0, 1)
@@ -499,21 +546,28 @@ class PlotWindow(QMainWindow):
         grid.setHorizontalSpacing(6)
         grid.setVerticalSpacing(6)
 
-        self.plot_ang_geo = self._make_plot("acos(n_geo, n_gt)", "deg", min_height=150)
+        quality_min_height = 180
+
+        self.plot_ang_geo = self._make_plot("current", "deg", min_height=quality_min_height)
         self.curve_ang_geo = self.plot_ang_geo.plot(name="n_geo", pen=pg.mkPen((40, 90, 220), width=2))
-        self.plot_ang_geo.setYRange(0.0, 20.0, padding=0.0)
+        self.plot_ang_geo.setYRange(0.0, 30.0, padding=0.0)
 
-        self.plot_ang_f = self._make_plot("acos(n_f, n_gt)", "deg", min_height=150)
+        self.plot_ang_f = self._make_plot("Lf only (Force only)", "deg", min_height=quality_min_height)
         self.curve_ang_f = self.plot_ang_f.plot(name="n_f", pen=pg.mkPen((220, 50, 50), width=2))
-        self.plot_ang_f.setYRange(0.0, 20.0, padding=0.0)
+        self.plot_ang_f.setYRange(0.0, 30.0, padding=0.0)
 
-        self.plot_ang_force = self._make_plot("acos(force_hat, n_gt)", "deg", min_height=150)
+        self.plot_ang_v = self._make_plot("Lv only (Velocity only)", "deg", min_height=quality_min_height)
+        self.curve_ang_v = self.plot_ang_v.plot(name="n_v", pen=pg.mkPen((50, 160, 70), width=2))
+        self.plot_ang_v.setYRange(0.0, 30.0, padding=0.0)
+
+        self.plot_ang_force = self._make_plot("raw force based", "deg", min_height=quality_min_height)
         self.curve_ang_force = self.plot_ang_force.plot(name="force_hat", pen=pg.mkPen((180, 120, 40), width=2))
-        self.plot_ang_force.setYRange(0.0, 20.0, padding=0.0)
+        self.plot_ang_force.setYRange(0.0, 30.0, padding=0.0)
 
         grid.addWidget(self.plot_ang_geo, 0, 0)
         grid.addWidget(self.plot_ang_f, 0, 1)
-        grid.addWidget(self.plot_ang_force, 0, 2)
+        grid.addWidget(self.plot_ang_v, 0, 2)
+        grid.addWidget(self.plot_ang_force, 0, 3)
         outer.addLayout(grid)
         return frame
 
@@ -561,6 +615,7 @@ class PlotWindow(QMainWindow):
 
         self.curve_ang_geo.setData(t_win, arr["angle_n_geo_deg"][mask])
         self.curve_ang_f.setData(t_win, arr["angle_n_f_deg"][mask])
+        self.curve_ang_v.setData(t_win, arr["angle_n_v_deg"][mask])
         self.curve_ang_force.setData(t_win, arr["angle_force_dir_deg"][mask])
 
         x_left = max(0.0, tmax - window)
@@ -569,7 +624,7 @@ class PlotWindow(QMainWindow):
             self.plot_vy, self.plot_vz, self.plot_fx,
             self.plot_lambda, self.plot_mtau, self.plot_vel, self.plot_force,
             self.plot_rho, self.plot_alpha, self.plot_trace,
-            self.plot_ang_geo, self.plot_ang_f, self.plot_ang_force,
+            self.plot_ang_geo, self.plot_ang_f, self.plot_ang_v, self.plot_ang_force,
         ]:
             plot.setXRange(x_left, x_right, padding=0.0)
 
@@ -581,7 +636,7 @@ class PlotWindow(QMainWindow):
             f"rho_f={self._fmt_scalar(latest['rho_f'])}   "
             f"alpha_v={self._fmt_scalar(latest['alpha_v'])}   "
             f"alpha_f={self._fmt_scalar(latest['alpha_f'])}   "
-            f"gt_center=({self.cylinder_center[0]:.2f}, {self.cylinder_center[1]:.2f})"
+            f"env={self.rosbuf.environment_type}"
         )
 
 

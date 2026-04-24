@@ -1,23 +1,37 @@
 <mujoco model="cf21B_scene">
   <include file="cf21B_500.xml"/>
-  <include file="cylinder.xml"/>
+  <include file="wall.xml"/>
+
+  <visual>
+    <rgba haze="0.15 0.25 0.35 1"/>
+    <quality shadowsize="8192"/>
+    <global azimuth="220" elevation="-30"/>
+  </visual>
 
   <asset>
     <texture
-      name="tile_tex"
+      type="skybox"
+      builtin="gradient"
+      rgb1="0.3 0.5 0.7"
+      rgb2="0 0 0"
+      width="512"
+      height="3072"/>
+    <texture
+      name="groundplane"
       type="2d"
       builtin="checker"
-      rgb1="0.98 0.98 0.98"
-      rgb2="0.90 0.90 0.90"
-      width="512"
-      height="512"/>
+      mark="edge"
+      rgb1="0.3 0.4 0.5"
+      rgb2="0.18 0.28 0.38"
+      markrgb="0.8 0.8 0.8"
+      width="300"
+      height="300"/>
     <material
-      name="tile_mat"
-      texture="tile_tex"
-      texrepeat="8 8"
-      reflectance="0.0"
-      shininess="0.0"
-      specular="0.0"/>
+      name="groundplane"
+      texture="groundplane"
+      texuniform="true"
+      texrepeat="5 5"
+      reflectance="0.2"/>
     <material name="wind_pole_mat" rgba="0.08 0.08 0.08 1"/>
     <material name="wind_mast_mat" rgba="0.05 0.25 0.9 1"/>
   </asset>
@@ -34,7 +48,7 @@
       type="plane"
       size="5 5 0.1"
       pos="0 0 0"
-      material="tile_mat"
+      material="groundplane"
       class="env_ground"/>
     <body name="wind_indicator_base" pos="-0.5 0 0">
       <geom name="wind_indicator_pole"

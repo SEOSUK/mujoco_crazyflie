@@ -83,10 +83,10 @@ def generate_launch_description():
 
     normal_vector_debug_node = Node(
         package="flyingpen_plotter",
-        executable="normal_vector_debug",
+        executable="normal_vector_debug",  # normal_vector_debug, mob_consistency
         name="normal_vector_debug",
         output="screen",
-        parameters=[params, normal_params],
+        parameters=[params, normal_params, rviz_visual_params],
     )
 
     # ---------- wrench_observer ----------

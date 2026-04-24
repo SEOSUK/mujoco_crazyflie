@@ -1,9 +1,38 @@
+/**:
+  ros__parameters:
+    environment.type: "wall" # "cylinder" for cylinder.xml, "wall" for wall.xml
+    environment.marker_topic: "/rviz/environment"
+    wind_indicator.enable: true
+    wind_indicator.wind_topic: "/crazyflie/in/wind"
+    wind_indicator.marker_topic: "/rviz/wind_indicator"
+    wind_indicator.origin.x: -0.05
+    wind_indicator.origin.y: 0.0
+    wind_indicator.origin.z: 0.0
+    wind_indicator.pole_height: 0.08
+    wind_indicator.mast_height: 0.34
+    wind_indicator.bend_gain: 4.0
+    wind_indicator.max_bend: 0.14
+    wind_indicator.flutter_gain: 0.35
+    wind_indicator.flutter_hz: 6.0
+    cylinder.pos.x: 1.5
+    cylinder.pos.y: 0.0
+    cylinder.pos.z: 0.0
+    cylinder.radius: 1.0
+    cylinder.half_height: 10.0
+    wall.pos.x: 0.2
+    wall.pos.y: 0.0
+    wall.pos.z: 0.0
+    wall.size.x: 0.1
+    wall.size.y: 2.5
+    wall.size.z: 2.5
+
 rviz_visual:
   ros__parameters:
     mesh_resource: "package://plant/data/assets/cf21B/cf21B_full.stl"
     mesh_scale: 0.001
     mesh_alpha: 1.0
     cylinder.rgba: [0.75, 0.93, 0.75, 0.25]
+    wall.rgba: [0.75, 0.93, 0.75, 0.25]
     publish_hz: 20.0
     history_sample_period: 1.5
     history_duration: 30.0

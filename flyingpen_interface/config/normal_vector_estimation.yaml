@@ -8,23 +8,25 @@ normal_vector_estimation:
     normal_force_threshold: 0.005 # minimum force magnitude [N] required to accept/update a normal estimate
     normal_lpf_alpha: 0.2
 
-    force_observation_source: "mob" # "contact_force", "contact_force_filt", "mob", "mob_2nd", "mob_2nd_tau"
+    force_observation_source: "mob_2nd" # "contact_force", "contact_force_filt", "mob", "mob_2nd", "mob_2nd_tau"
+    raw_mob_wrench_topic: "/crazyflie/out/mob_2nd" # raw MOB force/torque source used only for tau consistency gating below
 
     new_normal:
       velocity_epsilon: 0.005 # [m/s] 이 값보다 작으면 속도 방향을 신뢰하지 않음
-      beta_v: 0.5 # [1/s]geometry/velocity 메모리 L_v의 forgetting gain
-      sigma_v: 1.0 # geometry/velocity evidence의 누적 gain
+      beta_v: 0.3 # [1/s]geometry/velocity 메모리 L_v의 forgetting gain
+      sigma_v: 0.3 # geometry/velocity evidence의 누적 gain
 
       slip_blend_velocity: 0.04 # [m/s] 속도 직교 평면으로 force를 projection할 때 쓰는 slip blending 스케일
-      force_epsilon: 0.004 # [N] 이 값보다 작으면 force 기반 normal candidate를 신뢰하지 않음
-      beta_f: 8.0 # force 메모리 L_f의 forgetting gain
-      sigma_f: 8.0 # force evidence의 누적 gain
+      force_epsilon: 0.01 # [N] 이 값보다 작으면 force 기반 normal candidate를 신뢰하지 않음
+      beta_f: 1.0 # force 메모리 L_f의 forgetting gain
+      sigma_f: 1.0 # force evidence의 누적 gain
 
-      c_v: 0.02 # geometry 신뢰도 바이어스, 클수록 rho_v가 더 보수적으로 올라감
+      c_v: 0.0005 # geometry 신뢰도 바이어스, 클수록 rho_v가 더 보수적으로 올라감
       eps_lambda: 1.0e-4 # 고유값 gap 기반 신뢰도 계산 시 사용하는 수치 안정화 epsilon
-      c_f: 0.015 # force 신뢰도 바이어스, 클수록 rho_f가 더 보수적으로 올라감
-      eta_tau: 0.4 # consistency attenuation m_tau의 최소 바닥값
-      sigma_tau: 0.004 # consistency attenuation 폭, 작을수록 불일치에 더 민감하게 패널티를 줌
+      c_f: 0.05 # force 신뢰도 바이어스, 클수록 rho_f가 더 보수적으로 올라감
+      eta_tau: 0.05 # consistency attenuation m_tau의 최소 바닥값
+      sigma_tau: 2.0e-3 # consistency attenuation 폭, 작을수록 불일치에 더 민감하게 패널티를 줌
+      use_raw_mob_tau_residual: true # true: m_tau를 보정된 consistency observer가 아니라 raw MOB의 tau_hat - (r x F) residual로 계산
 
       eps_alpha: 1.0e-6 # alpha_v / alpha_f 정규화 시 사용하는 수치 안정화 epsilon
       eps_l: 1.0e-6 # L_v, L_f trace 정규화 시 사용하는 수치 안정화 epsilon

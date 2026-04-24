@@ -518,6 +518,7 @@ private:
     return out;
   }
 
+
   void init_allocation()
   {
     const double x[4] = {+a_, -a_, -a_, +a_};

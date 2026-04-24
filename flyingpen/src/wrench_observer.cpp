@@ -261,14 +261,14 @@ private:
     const Vec3 p_lin_residual_world = p_lin_world - state.p_lin_hat_world;
     const Vec3 p_ang_residual_body = p_ang_body - state.p_ang_hat_body;
 
-    const Vec3 torque_ext_hat_body = gainMul(ktau, p_ang_residual_body);
-    state.torque_hat_body = torque_ext_hat_body;
+    const Vec3 torque_hat_dot_body = gainMul(ktau, p_ang_residual_body);
+    state.torque_hat_body += dt * torque_hat_dot_body;
 
-    Vec3 p_ang_hat_dot_body = u_tau_body - cori_body + torque_ext_hat_body;
+    Vec3 p_ang_hat_dot_body = u_tau_body - cori_body + state.torque_hat_body;
     p_ang_hat_dot_body += gainMul(kptau_, p_ang_residual_body);
     state.p_ang_hat_body += dt * p_ang_hat_dot_body;
 
-    const Vec3 torque_ext_hat_world = r_bw * torque_ext_hat_body;
+    const Vec3 torque_ext_hat_world = r_bw * state.torque_hat_body;
     const Vec3 e_tau_world =
       torque_ext_hat_world - ee_offset_world.cross(state.force_hat_world);
     const Vec3 force_update_base_world = gainMul(kf, p_lin_residual_world);
@@ -290,7 +290,7 @@ private:
       state.world_force_hat_ext[i] =
         lpf1(state.world_force_hat_ext[i], -state.force_hat_world[i], mob_alpha);
       state.body_torque_hat_ext[i] =
-        lpf1(state.body_torque_hat_ext[i], -torque_ext_hat_body[i], mob_alpha);
+        lpf1(state.body_torque_hat_ext[i], -state.torque_hat_body[i], mob_alpha);
     }
   }
 
@@ -392,7 +392,8 @@ private:
 
     const double tx = arm_xy_ * ((f3 + f4) - (f1 + f2));
     const double ty = arm_xy_ * ((f2 + f3) - (f1 + f4));
-    const double tz = k_tau_motor_ * (-f1 + f2 - f3 + f4);
+    const double tz = k_tau_motor_ * (
+      motor_dir_[0] * f1 + motor_dir_[1] * f2 + motor_dir_[2] * f3 + motor_dir_[3] * f4);
     const double fz = f1 + f2 + f3 + f4;
 
     const auto &q = pose.pose.orientation;

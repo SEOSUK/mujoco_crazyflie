@@ -15,8 +15,12 @@ class WindJoystick(QtWidgets.QWidget):
         self.node = node
         self.pub = node.create_publisher(Vector3Stamped, "/crazyflie/in/wind", 10)
 
-        self.max_force = 0.08
+        self.max_force = 0.02
         self.deadzone_ratio = 0.12
+        self.half_snap_ratio = 0.50
+        self.half_snap_width = 0.06
+        self.edge_snap_ratio = 0.92
+        self.axis_snap_ratio = 0.18
         self.handle = QtCore.QPointF(0.0, 0.0)
         self.dragging = False
 
@@ -78,10 +82,27 @@ class WindJoystick(QtWidgets.QWidget):
             dy *= r / dist
         return QtCore.QPointF(dx / r, dy / r)
 
+    def snap_to_axis(self, h):
+        x = h.x()
+        y = h.y()
+        half_lo = self.half_snap_ratio - self.half_snap_width
+        half_hi = self.half_snap_ratio + self.half_snap_width
+        if half_lo <= abs(y) <= half_hi and abs(x) <= self.axis_snap_ratio:
+            return QtCore.QPointF(0.0, math.copysign(self.half_snap_ratio, y))
+        if half_lo <= abs(x) <= half_hi and abs(y) <= self.axis_snap_ratio:
+            return QtCore.QPointF(math.copysign(self.half_snap_ratio, x), 0.0)
+        if abs(y) >= self.edge_snap_ratio and abs(x) <= self.axis_snap_ratio:
+            return QtCore.QPointF(0.0, math.copysign(1.0, y))
+        if abs(x) >= self.edge_snap_ratio and abs(y) <= self.axis_snap_ratio:
+            return QtCore.QPointF(math.copysign(1.0, x), 0.0)
+        return h
+
     def set_handle_from_pos(self, pos):
         h = self.point_to_handle(pos)
         if math.hypot(h.x(), h.y()) < self.deadzone_ratio:
             h = QtCore.QPointF(0.0, 0.0)
+        else:
+            h = self.snap_to_axis(h)
         self.handle = h
         self.update_force_label()
         self.update()
@@ -161,6 +182,8 @@ class WindJoystick(QtWidgets.QWidget):
         painter.setBrush(QtGui.QColor(255, 230, 230, 180))
         painter.drawEllipse(c, dead_r, dead_r)
 
+        self.draw_axis_snap_zones(painter, c, r)
+
         handle_pos = QtCore.QPointF(c.x() + self.handle.x() * r, c.y() + self.handle.y() * r)
         painter.setPen(QtGui.QPen(QtGui.QColor(20, 80, 160), 3))
         painter.drawLine(c, handle_pos)
@@ -177,6 +200,45 @@ class WindJoystick(QtWidgets.QWidget):
         )
 
         self.draw_axis_hint(painter)
+
+    def draw_axis_snap_zones(self, painter, center, radius):
+        self.draw_half_snap_zones(painter, center, radius)
+        self.draw_edge_snap_zones(painter, center, radius)
+
+    def draw_half_snap_zones(self, painter, center, radius):
+        zone_len = radius * self.axis_snap_ratio
+        zone_depth = radius * (2.0 * self.half_snap_width)
+        half_offset = radius * self.half_snap_ratio
+        painter.setPen(QtGui.QPen(QtGui.QColor(70, 170, 120), 2))
+        painter.setBrush(QtGui.QColor(215, 245, 225, 170))
+
+        zones = [
+            QtCore.QRectF(center.x() - zone_len, center.y() - half_offset - 0.5 * zone_depth,
+                          2.0 * zone_len, zone_depth),
+            QtCore.QRectF(center.x() - zone_len, center.y() + half_offset - 0.5 * zone_depth,
+                          2.0 * zone_len, zone_depth),
+            QtCore.QRectF(center.x() - half_offset - 0.5 * zone_depth, center.y() - zone_len,
+                          zone_depth, 2.0 * zone_len),
+            QtCore.QRectF(center.x() + half_offset - 0.5 * zone_depth, center.y() - zone_len,
+                          zone_depth, 2.0 * zone_len),
+        ]
+        for zone in zones:
+            painter.drawRoundedRect(zone, 3.0, 3.0)
+
+    def draw_edge_snap_zones(self, painter, center, radius):
+        zone_len = radius * self.axis_snap_ratio
+        zone_depth = radius * (1.0 - self.edge_snap_ratio)
+        painter.setPen(QtGui.QPen(QtGui.QColor(80, 145, 230), 2))
+        painter.setBrush(QtGui.QColor(210, 230, 255, 170))
+
+        zones = [
+            QtCore.QRectF(center.x() - zone_len, center.y() - radius, 2.0 * zone_len, zone_depth),
+            QtCore.QRectF(center.x() - zone_len, center.y() + radius - zone_depth, 2.0 * zone_len, zone_depth),
+            QtCore.QRectF(center.x() - radius, center.y() - zone_len, zone_depth, 2.0 * zone_len),
+            QtCore.QRectF(center.x() + radius - zone_depth, center.y() - zone_len, zone_depth, 2.0 * zone_len),
+        ]
+        for zone in zones:
+            painter.drawRoundedRect(zone, 3.0, 3.0)
 
     def draw_axis_hint(self, painter):
         base = QtCore.QPointF(36.0, self.height() - 36.0)

@@ -39,6 +39,16 @@ public:
     normal_xy_min_ = this->declare_parameter<double>(
       "normal_xy_min", 1e-3);
 
+    velocity_command_frame_ = normalizeFrameName(
+      this->declare_parameter<std::string>("velocity_command_frame", "contact"));
+    if (velocity_command_frame_ != "contact" && velocity_command_frame_ != "world") {
+      RCLCPP_WARN(
+        this->get_logger(),
+        "Unknown velocity_command_frame '%s'. Fallback to 'contact'.",
+        velocity_command_frame_.c_str());
+      velocity_command_frame_ = "contact";
+    }
+
     force_adm_kp_ = this->declare_parameter<double>(
       "force_adm_kp", 5.0);
 
@@ -202,6 +212,7 @@ public:
 
     RCLCPP_INFO(this->get_logger(), "trajectory_generation started");
     RCLCPP_INFO(this->get_logger(), "reference_object = %s", reference_object_.c_str());
+    RCLCPP_INFO(this->get_logger(), "velocity_command_frame = %s", velocity_command_frame_.c_str());
     RCLCPP_INFO(this->get_logger(), "g-key trajectory.type = %s", trajectory_type_.c_str());
     RCLCPP_INFO(this->get_logger(), "EE offset d_B = [%.4f %.4f %.4f]",
                 d_B_.x(), d_B_.y(), d_B_.z());
@@ -262,6 +273,13 @@ private:
       return "square";
     }
     return "lissajous";
+  }
+
+  static std::string normalizeFrameName(std::string frame)
+  {
+    std::transform(frame.begin(), frame.end(), frame.begin(),
+      [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return frame;
   }
 
   static bool isSupportedTrajectoryType(std::string type)
@@ -864,11 +882,15 @@ private:
         contact_frame_ok = contact_frame_received_;
       }
 
-      if (contact_frame_ok) {
+      const bool use_contact_command_frame = (velocity_command_frame_ == "contact");
+      if (contact_frame_ok && use_contact_command_frame) {
         v_w = contact_rotation * v_c;
         Eigen::Vector3d v_act_w = ref.valid ? ref.vel_w : Eigen::Vector3d::Zero();
         Eigen::Vector3d v_act_c = contact_rotation.transpose() * v_act_w;
         publishContactVelocityDebug(v_c, v_act_c, now);
+      } else if (!use_contact_command_frame) {
+        Eigen::Vector3d v_act_w = ref.valid ? ref.vel_w : Eigen::Vector3d::Zero();
+        publishContactVelocityDebug(v_w, v_act_w, now);
       } else {
         geometry_msgs::msg::Vector3Stamped nan_msg;
         nan_msg.header.stamp = now;
@@ -886,7 +908,7 @@ private:
 
       double yaw_next = su_int_ref_yaw_ + vyaw_cmd * dt;
       const bool manual_yaw_cmd_active = std::abs(vyaw_cmd) > 1e-6;
-      if (contact_frame_ok && !manual_yaw_cmd_active) {
+      if (contact_frame_ok && use_contact_command_frame && !manual_yaw_cmd_active) {
         const Eigen::Vector3d n_w = contact_normal;
         const double nxy = std::hypot(n_w.x(), n_w.y());
 
@@ -938,6 +960,7 @@ private:
   std::string reference_object_;
   double yaw_align_kp_{3.0};
   double normal_xy_min_{1e-3};
+  std::string velocity_command_frame_{"contact"};
 
   double force_adm_kp_{5.0};
   double force_adm_kd_{0.005};
