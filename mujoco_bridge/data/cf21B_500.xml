@@ -87,6 +87,7 @@
       </body>
 
       <body name="ee_tip" pos="0.09 0 0.085">
+        <inertial pos="0 0 0" mass="1e-6" diaginertia="1e-12 1e-12 1e-12"/>
         <site name="ee_tip_site" pos="0 0 0" />
         <geom name="ee_tip_sphere"
               type="sphere"
@@ -106,9 +107,9 @@
   </sensor>
 
   <actuator>
-    <motor gear="0 0 1 0 0  0.00344" site="motor0" name="motor0_force" />
-    <motor gear="0 0 1 0 0 -0.00344" site="motor1" name="motor1_force" />
-    <motor gear="0 0 1 0 0  0.00344" site="motor2" name="motor2_force" />
-    <motor gear="0 0 1 0 0 -0.00344" site="motor3" name="motor3_force" />
+    <motor gear="0 0 1 0 0  0.00569278844371417" site="motor0" name="motor0_force" />
+    <motor gear="0 0 1 0 0 -0.00569278844371417" site="motor1" name="motor1_force" />
+    <motor gear="0 0 1 0 0  0.00569278844371417" site="motor2" name="motor2_force" />
+    <motor gear="0 0 1 0 0 -0.00569278844371417" site="motor3" name="motor3_force" />
   </actuator>
 </mujoco>

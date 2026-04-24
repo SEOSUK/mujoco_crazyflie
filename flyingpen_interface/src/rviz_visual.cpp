@@ -10,6 +10,8 @@
 #include <visualization_msgs/msg/marker.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 
+#include <Eigen/Eigenvalues>
+
 #include <tf2/LinearMath/Matrix3x3.h>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2_ros/transform_broadcaster.h>
@@ -17,10 +19,12 @@
 #include <mutex>
 #include <array>
 #include <chrono>
+#include <cctype>
 #include <deque>
 #include <string>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 using namespace std::chrono_literals;
 
@@ -86,8 +90,25 @@ public:
     est_contact_frame_ = this->declare_parameter<std::string>(
       "est_contact_frame", "estimated_contact_frame");
 
-    cylinder_marker_topic_ = this->declare_parameter<std::string>(
-      "cylinder_marker_topic", "/rviz/environment_cylinder");
+    environment_type_ = normalizeEnvironmentType(
+      this->declare_parameter<std::string>("environment.type", "cylinder"));
+    environment_marker_topic_ = this->declare_parameter<std::string>(
+      "environment.marker_topic", "/rviz/environment");
+    wind_indicator_enable_ = this->declare_parameter<bool>("wind_indicator.enable", true);
+    wind_indicator_topic_ = this->declare_parameter<std::string>(
+      "wind_indicator.wind_topic", "/crazyflie/in/wind");
+    wind_indicator_marker_topic_ = this->declare_parameter<std::string>(
+      "wind_indicator.marker_topic", "/rviz/wind_indicator");
+    wind_indicator_origin_x_ = this->declare_parameter<double>("wind_indicator.origin.x", -0.05);
+    wind_indicator_origin_y_ = this->declare_parameter<double>("wind_indicator.origin.y", 0.0);
+    wind_indicator_origin_z_ = this->declare_parameter<double>("wind_indicator.origin.z", 0.0);
+    wind_indicator_pole_height_ = this->declare_parameter<double>("wind_indicator.pole_height", 0.08);
+    wind_indicator_mast_height_ = this->declare_parameter<double>("wind_indicator.mast_height", 0.34);
+    wind_indicator_bend_gain_ = this->declare_parameter<double>("wind_indicator.bend_gain", 4.0);
+    wind_indicator_max_bend_ = this->declare_parameter<double>("wind_indicator.max_bend", 0.14);
+    wind_indicator_flutter_gain_ = this->declare_parameter<double>("wind_indicator.flutter_gain", 0.35);
+    wind_indicator_flutter_hz_ = this->declare_parameter<double>("wind_indicator.flutter_hz", 6.0);
+
     cylinder_pos_x_ = this->declare_parameter<double>("cylinder.pos.x", 1.5);
     cylinder_pos_y_ = this->declare_parameter<double>("cylinder.pos.y", 0.0);
     cylinder_pos_z_ = this->declare_parameter<double>("cylinder.pos.z", 0.0);
@@ -100,6 +121,20 @@ public:
         this->get_logger(),
         "cylinder.rgba must have size 4. Falling back to [0.75, 0.93, 0.75, 0.25].");
       cylinder_rgba_ = {0.75, 0.93, 0.75, 0.25};
+    }
+    wall_pos_x_ = this->declare_parameter<double>("wall.pos.x", 0.2);
+    wall_pos_y_ = this->declare_parameter<double>("wall.pos.y", 0.0);
+    wall_pos_z_ = this->declare_parameter<double>("wall.pos.z", 0.0);
+    wall_size_x_ = this->declare_parameter<double>("wall.size.x", 0.1);
+    wall_size_y_ = this->declare_parameter<double>("wall.size.y", 2.5);
+    wall_size_z_ = this->declare_parameter<double>("wall.size.z", 2.5);
+    wall_rgba_ = this->declare_parameter<std::vector<double>>(
+      "wall.rgba", std::vector<double>{0.75, 0.93, 0.75, 0.25});
+    if (wall_rgba_.size() != 4) {
+      RCLCPP_WARN(
+        this->get_logger(),
+        "wall.rgba must have size 4. Falling back to [0.75, 0.93, 0.75, 0.25].");
+      wall_rgba_ = {0.75, 0.93, 0.75, 0.25};
     }
 
     force_scale_         = this->declare_parameter<double>("force_scale", 10.0);
@@ -185,6 +220,9 @@ public:
     sub_normal_debug_metrics_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
       normal_debug_metrics_topic_, 10,
       std::bind(&RvizVisual::cb_normal_debug_metrics, this, std::placeholders::_1));
+    sub_wind_indicator_ = this->create_subscription<geometry_msgs::msg::Vector3Stamped>(
+      wind_indicator_topic_, 10,
+      std::bind(&RvizVisual::cb_wind_indicator, this, std::placeholders::_1));
 
     // -------------------------
     // Publishers (Markers)
@@ -205,6 +243,10 @@ public:
       "/rviz/true_contact_normal", 10);
     pub_force_based_normal_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
       "/rviz/force_based_normal", 10);
+    pub_lf_only_normal_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
+      "/rviz/lf_only_estimated_normal", 10);
+    pub_lv_only_normal_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
+      "/rviz/lv_only_estimated_normal", 10);
     pub_contact_history_markers_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
       "/rviz/contact_frame_history", 10);
 
@@ -219,8 +261,10 @@ public:
 
     pub_ee_acc_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
       "/rviz/EE_acceleration", 10);
-    pub_cylinder_marker_ = this->create_publisher<visualization_msgs::msg::Marker>(
-      cylinder_marker_topic_, 10);
+    pub_environment_marker_ = this->create_publisher<visualization_msgs::msg::Marker>(
+      environment_marker_topic_, 10);
+    pub_wind_indicator_markers_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
+      wind_indicator_marker_topic_, 10);
 
     // -------------------------
     // Timer
@@ -360,18 +404,116 @@ private:
       return;
     }
 
+    const std::array<float, 3> n_geo{
+      static_cast<float>(msg->data[28]),
+      static_cast<float>(msg->data[29]),
+      static_cast<float>(msg->data[30])};
+    const bool have_n_geo =
+      isFiniteVector(n_geo) && vectorNorm(n_geo) > 1e-9;
+
+    std::array<float, 3> n_f{
+      static_cast<float>(msg->data[31]),
+      static_cast<float>(msg->data[32]),
+      static_cast<float>(msg->data[33])};
+    const bool have_n_f =
+      isFiniteVector(n_f) && vectorNorm(n_f) > 1e-9;
+    if (have_n_f && have_n_geo && dot(n_f, n_geo) < 0.0f) {
+      n_f = scaleVector(n_f, -1.0f);
+    }
+
+    std::array<float, 3> n_v{0.0f, 0.0f, 0.0f};
+    bool have_n_v = false;
+    if (msg->data.size() >= 19) {
+      Eigen::Matrix3d l_v_bar = Eigen::Matrix3d::Zero();
+      bool finite_l_v = true;
+      int idx = 10;
+      for (int r = 0; r < 3; ++r) {
+        for (int c = 0; c < 3; ++c) {
+          const double value = msg->data[idx++];
+          finite_l_v = finite_l_v && std::isfinite(value);
+          l_v_bar(r, c) = value;
+        }
+      }
+
+      if (finite_l_v) {
+        const auto n_v_eigen = velocityEvidenceNormal(l_v_bar);
+        n_v = {
+          static_cast<float>(n_v_eigen.x()),
+          static_cast<float>(n_v_eigen.y()),
+          static_cast<float>(n_v_eigen.z())};
+        have_n_v = isFiniteVector(n_v) && vectorNorm(n_v) > 1e-9;
+        if (have_n_v && have_n_geo && dot(n_v, n_geo) < 0.0f) {
+          n_v = scaleVector(n_v, -1.0f);
+        }
+      }
+    }
+
     std::lock_guard<std::mutex> lk(mtx_);
-    force_based_normal_[0] = static_cast<float>(msg->data[31]);
-    force_based_normal_[1] = static_cast<float>(msg->data[32]);
-    force_based_normal_[2] = static_cast<float>(msg->data[33]);
-    have_force_based_normal_ = std::isfinite(msg->data[31]) &&
-      std::isfinite(msg->data[32]) &&
-      std::isfinite(msg->data[33]);
+    force_based_normal_ = n_f;
+    have_force_based_normal_ = have_n_f;
+    lf_only_normal_ = n_f;
+    have_lf_only_normal_ = have_n_f;
+    lv_only_normal_ = n_v;
+    have_lv_only_normal_ = have_n_v;
+  }
+
+  void cb_wind_indicator(const geometry_msgs::msg::Vector3Stamped::SharedPtr msg)
+  {
+    if (!msg) {
+      return;
+    }
+
+    std::lock_guard<std::mutex> lk(mtx_);
+    wind_indicator_force_ = {
+      static_cast<float>(msg->vector.x),
+      static_cast<float>(msg->vector.y),
+      static_cast<float>(msg->vector.z)};
+    have_wind_indicator_force_ = true;
   }
 
   // =========================
   // Marker helper
   // =========================
+  static bool isFiniteVector(const std::array<float, 3> & v)
+  {
+    return std::isfinite(v[0]) && std::isfinite(v[1]) && std::isfinite(v[2]);
+  }
+
+  static float dot(const std::array<float, 3> & a, const std::array<float, 3> & b)
+  {
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  }
+
+  static float vectorNorm(const std::array<float, 3> & v)
+  {
+    return std::sqrt(dot(v, v));
+  }
+
+  static std::array<float, 3> scaleVector(const std::array<float, 3> & v, float scale)
+  {
+    return {scale * v[0], scale * v[1], scale * v[2]};
+  }
+
+  static Eigen::Vector3d velocityEvidenceNormal(const Eigen::Matrix3d & l_v)
+  {
+    const Eigen::Matrix3d sym = 0.5 * (l_v + l_v.transpose());
+    if (sym.norm() < 1e-12) {
+      return Eigen::Vector3d::Constant(std::numeric_limits<double>::quiet_NaN());
+    }
+
+    Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> solver(sym);
+    if (solver.info() != Eigen::Success) {
+      return Eigen::Vector3d::Constant(std::numeric_limits<double>::quiet_NaN());
+    }
+
+    Eigen::Vector3d n_v = solver.eigenvectors().col(0);
+    const double norm = n_v.norm();
+    if (!(std::isfinite(norm) && norm > 1e-12)) {
+      return Eigen::Vector3d::Constant(std::numeric_limits<double>::quiet_NaN());
+    }
+    return n_v / norm;
+  }
+
   visualization_msgs::msg::Marker make_arrow_marker(
     const std::string &ns,
     int id,
@@ -513,12 +655,208 @@ private:
     return mk;
   }
 
+  visualization_msgs::msg::Marker make_wall_marker(
+    const std::string & ns,
+    int id,
+    const std::string & frame_id,
+    const rclcpp::Time & stamp) const
+  {
+    visualization_msgs::msg::Marker mk;
+    mk.header.stamp = stamp;
+    mk.header.frame_id = frame_id;
+    mk.ns = ns;
+    mk.id = id;
+    mk.type = visualization_msgs::msg::Marker::CUBE;
+    mk.action = visualization_msgs::msg::Marker::ADD;
+
+    mk.pose.position.x = wall_pos_x_;
+    mk.pose.position.y = wall_pos_y_;
+    mk.pose.position.z = wall_pos_z_ + wall_size_z_;
+    mk.pose.orientation.w = 1.0;
+
+    mk.scale.x = 2.0 * wall_size_x_;
+    mk.scale.y = 2.0 * wall_size_y_;
+    mk.scale.z = 2.0 * wall_size_z_;
+
+    mk.color.r = static_cast<float>(wall_rgba_[0]);
+    mk.color.g = static_cast<float>(wall_rgba_[1]);
+    mk.color.b = static_cast<float>(wall_rgba_[2]);
+    mk.color.a = static_cast<float>(wall_rgba_[3]);
+    mk.lifetime = rclcpp::Duration::from_seconds(0.0);
+    return mk;
+  }
+
+  visualization_msgs::msg::Marker make_environment_marker(
+    const std::string & ns,
+    int id,
+    const std::string & frame_id,
+    const rclcpp::Time & stamp) const
+  {
+    if (environment_type_ == "wall") {
+      return make_wall_marker(ns, id, frame_id, stamp);
+    }
+    return make_cylinder_marker(ns, id, frame_id, stamp);
+  }
+
+  visualization_msgs::msg::MarkerArray makeWindIndicatorMarkerArray(
+    const rclcpp::Time & stamp,
+    const std::array<float, 3> & wind_force,
+    bool have_wind_force) const
+  {
+    visualization_msgs::msg::MarkerArray out;
+
+    if (!wind_indicator_enable_) {
+      out.markers.push_back(make_delete_marker("wind_indicator_base", 0, parent_frame_, stamp));
+      out.markers.push_back(make_delete_marker("wind_indicator_mast", 0, parent_frame_, stamp));
+      out.markers.push_back(make_delete_marker("wind_indicator_tip", 0, parent_frame_, stamp));
+      out.markers.push_back(make_delete_marker("wind_indicator_arrow", 0, parent_frame_, stamp));
+      return out;
+    }
+
+    const double pole_height = std::max(1e-3, wind_indicator_pole_height_);
+    const double mast_height = std::max(1e-3, wind_indicator_mast_height_);
+    const double wx = have_wind_force ? static_cast<double>(wind_force[0]) : 0.0;
+    const double wy = have_wind_force ? static_cast<double>(wind_force[1]) : 0.0;
+    const double wind_xy_norm = std::hypot(wx, wy);
+    const bool wind_active = wind_xy_norm > 1e-9;
+    const double dir_x = wind_active ? wx / wind_xy_norm : 0.0;
+    const double dir_y = wind_active ? wy / wind_xy_norm : 0.0;
+    const double bend = std::clamp(
+      wind_indicator_bend_gain_ * wind_xy_norm,
+      0.0,
+      std::max(0.0, wind_indicator_max_bend_));
+    const double t = stamp.seconds();
+    constexpr double kPi = 3.14159265358979323846;
+    const double flutter =
+      wind_active ?
+      wind_indicator_flutter_gain_ * bend *
+      std::sin(2.0 * kPi * wind_indicator_flutter_hz_ * t) :
+      0.0;
+
+    visualization_msgs::msg::Marker base;
+    base.header.stamp = stamp;
+    base.header.frame_id = parent_frame_;
+    base.ns = "wind_indicator_base";
+    base.id = 0;
+    base.type = visualization_msgs::msg::Marker::CYLINDER;
+    base.action = visualization_msgs::msg::Marker::ADD;
+    base.pose.position.x = wind_indicator_origin_x_;
+    base.pose.position.y = wind_indicator_origin_y_;
+    base.pose.position.z = wind_indicator_origin_z_ + 0.5 * pole_height;
+    base.pose.orientation.w = 1.0;
+    base.scale.x = 0.014;
+    base.scale.y = 0.014;
+    base.scale.z = pole_height;
+    base.color.r = 0.08f;
+    base.color.g = 0.08f;
+    base.color.b = 0.08f;
+    base.color.a = 1.0f;
+    base.lifetime = rclcpp::Duration::from_seconds(0.0);
+    out.markers.push_back(base);
+
+    visualization_msgs::msg::Marker mast;
+    mast.header.stamp = stamp;
+    mast.header.frame_id = parent_frame_;
+    mast.ns = "wind_indicator_mast";
+    mast.id = 0;
+    mast.type = visualization_msgs::msg::Marker::LINE_STRIP;
+    mast.action = visualization_msgs::msg::Marker::ADD;
+    mast.scale.x = 0.010;
+    mast.color.r = 0.05f;
+    mast.color.g = 0.25f;
+    mast.color.b = 0.90f;
+    mast.color.a = 1.0f;
+    mast.lifetime = rclcpp::Duration::from_seconds(0.0);
+
+    constexpr int kSegments = 8;
+    geometry_msgs::msg::Point tip_point;
+    for (int i = 0; i <= kSegments; ++i) {
+      const double s = static_cast<double>(i) / static_cast<double>(kSegments);
+      const double eased = s * s;
+      const double side = flutter * std::sin(kPi * s);
+
+      geometry_msgs::msg::Point p;
+      p.x = wind_indicator_origin_x_ + bend * eased * dir_x - side * dir_y;
+      p.y = wind_indicator_origin_y_ + bend * eased * dir_y + side * dir_x;
+      p.z = wind_indicator_origin_z_ + pole_height + mast_height * s;
+      mast.points.push_back(p);
+      tip_point = p;
+    }
+    out.markers.push_back(mast);
+
+    visualization_msgs::msg::Marker tip;
+    tip.header.stamp = stamp;
+    tip.header.frame_id = parent_frame_;
+    tip.ns = "wind_indicator_tip";
+    tip.id = 0;
+    tip.type = visualization_msgs::msg::Marker::SPHERE;
+    tip.action = visualization_msgs::msg::Marker::ADD;
+    tip.pose.position = tip_point;
+    tip.pose.orientation.w = 1.0;
+    tip.scale.x = 0.026;
+    tip.scale.y = 0.026;
+    tip.scale.z = 0.026;
+    tip.color.r = 0.05f;
+    tip.color.g = 0.25f;
+    tip.color.b = 0.90f;
+    tip.color.a = 1.0f;
+    tip.lifetime = rclcpp::Duration::from_seconds(0.0);
+    out.markers.push_back(tip);
+
+    if (wind_active) {
+      auto arrow = make_arrow_marker_with_dims(
+        "wind_indicator_arrow", 0, parent_frame_, stamp,
+        wind_indicator_origin_x_,
+        wind_indicator_origin_y_,
+        wind_indicator_origin_z_ + pole_height + mast_height + 0.05,
+        dir_x, dir_y, 0.0,
+        std::min(0.18, 0.06 + 4.0 * wind_xy_norm),
+        0.006, 0.014, 0.030,
+        0.10, 0.45, 1.00);
+      arrow.lifetime = rclcpp::Duration::from_seconds(0.0);
+      out.markers.push_back(arrow);
+    } else {
+      out.markers.push_back(make_delete_marker("wind_indicator_arrow", 0, parent_frame_, stamp));
+    }
+
+    return out;
+  }
+
+  std::string normalizeEnvironmentType(std::string type) const
+  {
+    std::transform(type.begin(), type.end(), type.begin(), [](unsigned char c) {
+      return static_cast<char>(std::tolower(c));
+    });
+    if (type != "wall" && type != "cylinder") {
+      RCLCPP_WARN(
+        this->get_logger(),
+        "Unknown environment.type '%s'. Falling back to 'cylinder'.",
+        type.c_str());
+      return "cylinder";
+    }
+    return type;
+  }
+
   bool computeTrueNormalAtEE(
     const geometry_msgs::msg::PoseStamped & ee_pose,
     double & nx,
     double & ny,
     double & nz) const
   {
+    if (environment_type_ == "wall") {
+      const double dx = wall_pos_x_ - ee_pose.pose.position.x;
+      if (!std::isfinite(dx)) {
+        nx = 0.0;
+        ny = 0.0;
+        nz = 0.0;
+        return false;
+      }
+      nx = (dx >= 0.0) ? 1.0 : -1.0;
+      ny = 0.0;
+      nz = 0.0;
+      return true;
+    }
+
     const double dx = ee_pose.pose.position.x - cylinder_pos_x_;
     const double dy = ee_pose.pose.position.y - cylinder_pos_y_;
     const double radial_norm = std::sqrt(dx * dx + dy * dy);
@@ -529,7 +867,6 @@ private:
       return false;
     }
 
-    // Contact normal points from the EE-facing surface back toward the cylinder center.
     nx = -dx / radial_norm;
     ny = -dy / radial_norm;
     nz = 0.0;
@@ -766,6 +1103,9 @@ private:
     std::array<float, 3> mob_force_consistency;
     std::array<float, 3> Fcontact;
     std::array<float, 3> force_based_normal;
+    std::array<float, 3> lf_only_normal;
+    std::array<float, 3> lv_only_normal;
+    std::array<float, 3> wind_indicator_force;
     geometry_msgs::msg::Quaternion contact_q;
 
     bool have_pose, have_vel, have_acc;
@@ -774,6 +1114,8 @@ private:
     bool have_drone_ext_force, have_mob_force_2nd_order, have_mob_force_consistency;
     bool have_contact, have_contact_q;
     bool have_force_based_normal;
+    bool have_lf_only_normal, have_lv_only_normal;
+    bool have_wind_indicator_force;
     std::string contact_frame_id;
 
     {
@@ -794,6 +1136,9 @@ private:
       mob_force_consistency = mob_force_consistency_;
       Fcontact = contact_F_;
       force_based_normal = force_based_normal_;
+      lf_only_normal = lf_only_normal_;
+      lv_only_normal = lv_only_normal_;
+      wind_indicator_force = wind_indicator_force_;
       contact_q = contact_q_;
 
       have_pose = have_pose_;
@@ -813,6 +1158,9 @@ private:
       have_contact = have_contact_;
       have_contact_q = have_contact_q_;
       have_force_based_normal = have_force_based_normal_;
+      have_lf_only_normal = have_lf_only_normal_;
+      have_lv_only_normal = have_lv_only_normal_;
+      have_wind_indicator_force = have_wind_indicator_force_;
       contact_frame_id = contact_frame_id_;
     }
 
@@ -995,6 +1343,42 @@ private:
         make_delete_marker("force_based_normal", 0, parent_frame_, stamp));
     }
 
+    if (have_ee_pose && have_lf_only_normal) {
+      auto mk = make_arrow_marker_with_dims(
+        "lf_only_estimated_normal", 0, parent_frame_, stamp,
+        ee_pose.pose.position.x, ee_pose.pose.position.y, ee_pose.pose.position.z,
+        static_cast<double>(lf_only_normal[0]),
+        static_cast<double>(lf_only_normal[1]),
+        static_cast<double>(lf_only_normal[2]),
+        0.96 * normal_scale_,
+        normal_shaft,
+        normal_head_diam,
+        normal_head_len,
+        1.00, 0.42, 0.00);
+      pub_lf_only_normal_arrow_->publish(mk);
+    } else {
+      pub_lf_only_normal_arrow_->publish(
+        make_delete_marker("lf_only_estimated_normal", 0, parent_frame_, stamp));
+    }
+
+    if (have_ee_pose && have_lv_only_normal) {
+      auto mk = make_arrow_marker_with_dims(
+        "lv_only_estimated_normal", 0, parent_frame_, stamp,
+        ee_pose.pose.position.x, ee_pose.pose.position.y, ee_pose.pose.position.z,
+        static_cast<double>(lv_only_normal[0]),
+        static_cast<double>(lv_only_normal[1]),
+        static_cast<double>(lv_only_normal[2]),
+        0.92 * normal_scale_,
+        normal_shaft,
+        normal_head_diam,
+        normal_head_len,
+        0.20, 0.75, 0.20);
+      pub_lv_only_normal_arrow_->publish(mk);
+    } else {
+      pub_lv_only_normal_arrow_->publish(
+        make_delete_marker("lv_only_estimated_normal", 0, parent_frame_, stamp));
+    }
+
     // 9) Marker: estimated normal vector (x-axis of estimated contact frame)
     if (have_ee_pose && have_contact_q) {
       tf2::Quaternion q_wc(contact_q.x, contact_q.y, contact_q.z, contact_q.w);
@@ -1015,7 +1399,7 @@ private:
       pub_estimated_normal_arrow_->publish(mk);
     }
 
-    // 9.5) Marker: true normal vector from the cylinder geometry
+    // 9.5) Marker: true normal vector from the selected environment geometry
     if (have_ee_pose) {
       double nx = 0.0;
       double ny = 0.0;
@@ -1039,8 +1423,10 @@ private:
 
     pub_contact_history_markers_->publish(makeContactHistoryMarkerArray(stamp));
 
-    pub_cylinder_marker_->publish(
-      make_cylinder_marker("environment_cylinder", 0, parent_frame_, stamp));
+    pub_environment_marker_->publish(
+      make_environment_marker("environment", 0, parent_frame_, stamp));
+    pub_wind_indicator_markers_->publish(
+      makeWindIndicatorMarkerArray(stamp, wind_indicator_force, have_wind_indicator_force));
 
     // 10) Marker: drone velocity
     if (have_pose && have_vel) {
@@ -1123,6 +1509,7 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_contact_force_;
   rclcpp::Subscription<geometry_msgs::msg::QuaternionStamped>::SharedPtr sub_contact_frame_quat_;
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_normal_debug_metrics_;
+  rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_wind_indicator_;
 
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_drone_ext_force_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_mob_2nd_order_arrow_;
@@ -1131,12 +1518,15 @@ private:
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_estimated_normal_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_true_normal_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_force_based_normal_arrow_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_lf_only_normal_arrow_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_lv_only_normal_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_contact_history_markers_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_drone_vel_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_drone_acc_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_ee_vel_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_ee_acc_arrow_;
-  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_cylinder_marker_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_environment_marker_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_wind_indicator_markers_;
 
   rclcpp::TimerBase::SharedPtr timer_;
 
@@ -1169,9 +1559,11 @@ private:
   std::array<float, 3> drone_ext_force_{0.0f, 0.0f, 0.0f};
   std::array<float, 3> mob_force_2nd_order_{0.0f, 0.0f, 0.0f};
   std::array<float, 3> mob_force_consistency_{0.0f, 0.0f, 0.0f};
+  std::array<float, 3> wind_indicator_force_{0.0f, 0.0f, 0.0f};
   bool have_drone_ext_force_{false};
   bool have_mob_force_2nd_order_{false};
   bool have_mob_force_consistency_{false};
+  bool have_wind_indicator_force_{false};
 
   std::array<float, 3> contact_F_{0.0f, 0.0f, 0.0f};
   bool have_contact_{false};
@@ -1179,6 +1571,10 @@ private:
 
   std::array<float, 3> force_based_normal_{0.0f, 0.0f, 0.0f};
   bool have_force_based_normal_{false};
+  std::array<float, 3> lf_only_normal_{0.0f, 0.0f, 0.0f};
+  std::array<float, 3> lv_only_normal_{0.0f, 0.0f, 0.0f};
+  bool have_lf_only_normal_{false};
+  bool have_lv_only_normal_{false};
 
   geometry_msgs::msg::Quaternion contact_q_;
   bool have_contact_q_{false};
@@ -1219,7 +1615,10 @@ private:
   std::string contact_frame_quat_topic_;
   std::string normal_debug_metrics_topic_;
   std::string est_contact_frame_;
-  std::string cylinder_marker_topic_;
+  std::string environment_type_{"cylinder"};
+  std::string environment_marker_topic_;
+  std::string wind_indicator_topic_;
+  std::string wind_indicator_marker_topic_;
 
   double force_scale_{10.0};
   double contact_force_scale_{10.0};
@@ -1242,6 +1641,23 @@ private:
   double cylinder_radius_{1.0};
   double cylinder_half_height_{10.0};
   std::vector<double> cylinder_rgba_{0.75, 0.93, 0.75, 0.85};
+  double wall_pos_x_{0.2};
+  double wall_pos_y_{0.0};
+  double wall_pos_z_{0.0};
+  double wall_size_x_{0.1};
+  double wall_size_y_{2.5};
+  double wall_size_z_{2.5};
+  std::vector<double> wall_rgba_{0.75, 0.93, 0.75, 0.85};
+  bool wind_indicator_enable_{true};
+  double wind_indicator_origin_x_{-0.05};
+  double wind_indicator_origin_y_{0.0};
+  double wind_indicator_origin_z_{0.0};
+  double wind_indicator_pole_height_{0.08};
+  double wind_indicator_mast_height_{0.34};
+  double wind_indicator_bend_gain_{4.0};
+  double wind_indicator_max_bend_{0.14};
+  double wind_indicator_flutter_gain_{0.35};
+  double wind_indicator_flutter_hz_{6.0};
 };
 
 int main(int argc, char** argv)

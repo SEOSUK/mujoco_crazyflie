@@ -215,6 +215,9 @@ public:
     sub_mob_2nd_tau_consistency_ = create_subscription<geometry_msgs::msg::WrenchStamped>(
       "/crazyflie/out/mob_2nd_tau_consistency", 10,
       std::bind(&DataLogger::cb_mob_2nd_tau_consistency, this, std::placeholders::_1));
+    sub_wind_ = create_subscription<geometry_msgs::msg::Vector3Stamped>(
+      "/crazyflie/in/wind", 10,
+      std::bind(&DataLogger::cb_wind, this, std::placeholders::_1));
 
 
     // Timer
@@ -263,7 +266,8 @@ private:
       "mob_2nd_tau_kfep_x,mob_2nd_tau_kfep_y,mob_2nd_tau_kfep_z,"
       "mob_2nd_tau_consistency_x,mob_2nd_tau_consistency_y,mob_2nd_tau_consistency_z,"
       "mob_2nd_tau_tauhat_x,mob_2nd_tau_tauhat_y,mob_2nd_tau_tauhat_z,"
-      "mob_2nd_tau_rxf_x,mob_2nd_tau_rxf_y,mob_2nd_tau_rxf_z\n";
+      "mob_2nd_tau_rxf_x,mob_2nd_tau_rxf_y,mob_2nd_tau_rxf_z,"
+      "wind_x,wind_y,wind_z\n";
     csv_.flush();
   }
 
@@ -429,6 +433,13 @@ private:
     have_mob_2nd_tau_consistency_ = true;
   }
 
+  void cb_wind(const geometry_msgs::msg::Vector3Stamped::SharedPtr m)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    wind_force_ << m->vector.x, m->vector.y, m->vector.z;
+    have_wind_ = true;
+  }
+
 
 
 
@@ -441,6 +452,7 @@ private:
     Eigen::Vector3d mob_force_2nd_tau, mob_torque_2nd_tau;
     Eigen::Vector3d mob_2nd_tau_kfep, mob_2nd_tau_consistency_term;
     Eigen::Vector3d mob_2nd_tau_tauhat_world, mob_2nd_tau_rxf_world;
+    Eigen::Vector3d wind_force;
     double cmd_yaw, roll, pitch, yaw;
     double rolld, pitchd, yawd;
     double Fz, cmd_force, F_error_dot_raw, F_error_dot_filt;
@@ -482,6 +494,7 @@ private:
       mob_2nd_tau_consistency_term = mob_2nd_tau_consistency_term_;
       mob_2nd_tau_tauhat_world = mob_2nd_tau_tauhat_world_;
       mob_2nd_tau_rxf_world = mob_2nd_tau_rxf_world_;
+      wind_force = wind_force_;
 
 
       mask = 0u;
@@ -504,13 +517,14 @@ private:
       mask |= (have_mob_wrench_2nd_tau_ ? (1u<<16) : 0u);
       mask |= (have_mob_2nd_tau_terms_ ? (1u<<17) : 0u);
       mask |= (have_mob_2nd_tau_consistency_ ? (1u<<18) : 0u);
+      mask |= (have_wind_ ? (1u<<19) : 0u);
 
     }
 
     const double t = this->get_clock()->now().seconds();
 
     std_msgs::msg::Float64MultiArray msg;
-    msg.data.resize(76);
+    msg.data.resize(79);
 
     msg.data[0]  = t;
 
@@ -605,6 +619,9 @@ private:
     msg.data[73] = mob_2nd_tau_rxf_world.x();
     msg.data[74] = mob_2nd_tau_rxf_world.y();
     msg.data[75] = mob_2nd_tau_rxf_world.z();
+    msg.data[76] = wind_force.x();
+    msg.data[77] = wind_force.y();
+    msg.data[78] = wind_force.z();
 
 
 
@@ -638,7 +655,8 @@ private:
            << msg.data[64] << "," << msg.data[65] << "," << msg.data[66] << ","
            << msg.data[67] << "," << msg.data[68] << "," << msg.data[69] << ","
            << msg.data[70] << "," << msg.data[71] << "," << msg.data[72] << ","
-           << msg.data[73] << "," << msg.data[74] << "," << msg.data[75]
+           << msg.data[73] << "," << msg.data[74] << "," << msg.data[75] << ","
+           << msg.data[76] << "," << msg.data[77] << "," << msg.data[78]
            << "\n";
 
       if (++csv_line_count_ % 200 == 0) {
@@ -685,6 +703,7 @@ private:
   Eigen::Vector3d mob_2nd_tau_consistency_term_{0,0,0};
   Eigen::Vector3d mob_2nd_tau_tauhat_world_{0,0,0};
   Eigen::Vector3d mob_2nd_tau_rxf_world_{0,0,0};
+  Eigen::Vector3d wind_force_{0,0,0};
 
 
   bool have_force_lpf_{false};
@@ -706,6 +725,7 @@ private:
   bool have_mob_wrench_2nd_tau_{false};
   bool have_mob_2nd_tau_terms_{false};
   bool have_mob_2nd_tau_consistency_{false};
+  bool have_wind_{false};
 
   double publish_hz_{400.0};
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr pub_;
@@ -730,6 +750,7 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_wrench_2nd_tau_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_2nd_tau_terms_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_2nd_tau_consistency_;
+  rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_wind_;
 
 
   std::string csv_dir_;

@@ -4,23 +4,23 @@ fk_ik_transform:
 
 wrench_observer:
   ros__parameters:
-    end_effector_offset: [0.09, 0.0, 0.01]
+    end_effector_offset: [0.09, 0.0, 0.085]
     k_tau: 0.00569278844371417
     g: 9.81
 
     # 1st-order MOB tuning
-    mob.Kf_1st_order: 5.0
-    mob.Ktau_1st_order: 5.0
+    mob.Kf_1st_order: 2.0
+    mob.Ktau_1st_order: 2.0
     mob.mob_alpha_1st_order: 1.0
 
     # 2nd-order MOB tuning
-    mob.Kf_2nd_order: 5.0
-    mob.Ktau_2nd_order: 5.0
+    mob.Kf_2nd_order: 15.0
+    mob.Ktau_2nd_order: 15.0
     mob.mob_alpha_2nd_order: 1.0
-    mob.Kp: 3.0
-    mob.KpTau: 3.0
-    mob.Ke: 5.0
-    mob.sigma_tau: 4.0
+    mob.Kp: 7.0
+    mob.KpTau: 7.0
+    mob.Ke: 1.0
+    mob.sigma_tau: 1.0
 
 plant:
   ros__parameters:
@@ -35,7 +35,7 @@ plant:
     thrust_max: 0.20
 
     noise:
-      enable: true
+      enable: false
       seed: 0
       hz: 30.0
       pos_amp: [5e-4, 5e-4, 5e-4]
@@ -115,15 +115,15 @@ low_level_controller:
     # 반응성 높이면 좋음. 좋은게 좋은거.
     # Position loop: pos error -> v_des
     pos:
-      x: { kp: 3.0, kd: 0.01 }
-      y: { kp: 3.0, kd: 0.01 }
-      z: { kp: 3.0, kd: 0.01 }
+      x: { kp: 3.0, ki: 0.0, kd: 0.01, i_limit: 0.5 }
+      y: { kp: 3.0, ki: 0.00, kd: 0.01, i_limit: 0.5 }
+      z: { kp: 3.0, ki: 0.00, kd: 0.01, i_limit: 0.5 }
 
     # Velocity loop: vel error -> a_des
     vel:
-      x: { kp: 5.0, kd: 0.1 }
-      y: { kp: 5.0, kd: 0.1 }
-      z: { kp: 5.0, kd: 0.1 }
+      x: { kp: 5.0, ki: 0.3, kd: 0.1, i_limit: 0.5 }
+      y: { kp: 5.0, ki: 0.3, kd: 0.1, i_limit: 0.5 }
+      z: { kp: 5.0, ki: 0.3, kd: 0.1, i_limit: 0.5 }
 
     # Attitude loop: (roll_d, pitch_d, yaw_d) error -> w_des
     att:

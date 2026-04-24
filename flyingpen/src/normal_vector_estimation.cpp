@@ -75,6 +75,10 @@ public:
       "new_normal.eta_tau", 0.4);
     new_normal_sigma_tau_ = this->declare_parameter<double>(
       "new_normal.sigma_tau", 0.004);
+    new_normal_use_raw_mob_tau_residual_ = this->declare_parameter<bool>(
+      "new_normal.use_raw_mob_tau_residual", false);
+    raw_mob_wrench_topic_ = this->declare_parameter<std::string>(
+      "raw_mob_wrench_topic", "/crazyflie/out/mob_2nd");
 
     new_normal_eps_alpha_ = this->declare_parameter<double>(
       "new_normal.eps_alpha", 1e-6);
@@ -116,6 +120,10 @@ public:
     sub_consistency_match_ = this->create_subscription<geometry_msgs::msg::WrenchStamped>(
       consistency_match_topic_, 10,
       std::bind(&NormalVectorEstimation::consistencyMatchCb, this, std::placeholders::_1));
+
+    sub_raw_mob_wrench_ = this->create_subscription<geometry_msgs::msg::WrenchStamped>(
+      raw_mob_wrench_topic_, 10,
+      std::bind(&NormalVectorEstimation::rawMobWrenchCb, this, std::placeholders::_1));
 
     sub_use_vel_mode_ = this->create_subscription<std_msgs::msg::Float32>(
       use_vel_mode_topic_, 10,
@@ -163,6 +171,9 @@ public:
     RCLCPP_INFO(this->get_logger(), "normal_estimator_method = %s", normal_estimator_method_.c_str());
     RCLCPP_INFO(this->get_logger(), "force_observation_source = %s", force_observation_source_.c_str());
     RCLCPP_INFO(this->get_logger(), "force_observation_topic = %s", contact_force_topic_.c_str());
+    RCLCPP_INFO(
+      this->get_logger(), "new_normal.use_raw_mob_tau_residual = %s",
+      new_normal_use_raw_mob_tau_residual_ ? "true" : "false");
   }
 
 private:
@@ -620,8 +631,37 @@ private:
     const double rho_f_bar = f_perp_norm / (f_perp_norm + new_normal_c_f_ + 1e-12);
 
     double e_tau_norm = 0.0;
-    bool have_consistency = false;
-    {
+    bool have_consistency = true;
+    if (new_normal_use_raw_mob_tau_residual_) {
+      Eigen::Vector3d raw_force_world = Eigen::Vector3d::Zero();
+      Eigen::Vector3d raw_torque_world = Eigen::Vector3d::Zero();
+      bool raw_received = false;
+      {
+        std::lock_guard<std::mutex> lk(raw_mob_mtx_);
+        if (raw_mob_received_) {
+          raw_force_world = raw_mob_force_world_;
+          raw_torque_world = raw_mob_torque_world_;
+          raw_received = true;
+        }
+      }
+
+      Eigen::Vector3d ee_offset_world = Eigen::Vector3d::Zero();
+      bool have_offset = false;
+      {
+        std::lock_guard<std::mutex> lk(state_mtx_);
+        if (pose_received_ && ee_pose_received_) {
+          const Eigen::Vector3d drone_pos_w(pose_w_[0], pose_w_[1], pose_w_[2]);
+          const Eigen::Vector3d ee_pos_w(ee_pose_w_[0], ee_pose_w_[1], ee_pose_w_[2]);
+          ee_offset_world = ee_pos_w - drone_pos_w;
+          have_offset = true;
+        }
+      }
+
+      if (raw_received && have_offset) {
+        e_tau_norm = (raw_torque_world - ee_offset_world.cross(raw_force_world)).norm();
+        have_consistency = true;
+      }
+    } else {
       std::lock_guard<std::mutex> lk(consistency_mtx_);
       if (consistency_received_) {
         e_tau_norm = (torque_hat_world_ - moment_from_force_world_).norm();
@@ -629,11 +669,20 @@ private:
       }
     }
     const double sigma_tau_sq = new_normal_sigma_tau_ * new_normal_sigma_tau_;
-    const double m_tau =
+    const double m_tau_raw =
       have_consistency ?
       (new_normal_eta_tau_ + (1.0 - new_normal_eta_tau_) *
       std::exp(-(e_tau_norm * e_tau_norm) / (sigma_tau_sq + 1e-12))) :
       1.0;
+    const double tau_lpf = 1.0 / (2.0 * M_PI * kMTauLpfCutoffHz);
+    const double m_tau_alpha = std::clamp(dt / (tau_lpf + dt), 0.0, 1.0);
+    if (!m_tau_lpf_initialized_) {
+      m_tau_lpf_ = m_tau_raw;
+      m_tau_lpf_initialized_ = true;
+    } else {
+      m_tau_lpf_ += m_tau_alpha * (m_tau_raw - m_tau_lpf_);
+    }
+    const double m_tau = m_tau_lpf_;
     new_normal_state_.m_tau = m_tau;
 
     const double rho_f = clamp01(rho_f_bar * ((1.0 - rho_v) + rho_v * m_tau));
@@ -841,6 +890,7 @@ private:
     new_normal_state_.angle_n_geo_deg = nan;
     new_normal_state_.angle_n_f_deg = nan;
     new_normal_state_.n_est = Eigen::Vector3d::Zero();
+    m_tau_lpf_initialized_ = false;
   }
 
   void contactForceCb(const geometry_msgs::msg::WrenchStamped::SharedPtr msg)
@@ -860,6 +910,16 @@ private:
     moment_from_force_world_ =
       Eigen::Vector3d(msg->wrench.torque.x, msg->wrench.torque.y, msg->wrench.torque.z);
     consistency_received_ = true;
+  }
+
+  void rawMobWrenchCb(const geometry_msgs::msg::WrenchStamped::SharedPtr msg)
+  {
+    std::lock_guard<std::mutex> lk(raw_mob_mtx_);
+    raw_mob_force_world_ =
+      Eigen::Vector3d(msg->wrench.force.x, msg->wrench.force.y, msg->wrench.force.z);
+    raw_mob_torque_world_ =
+      Eigen::Vector3d(msg->wrench.torque.x, msg->wrench.torque.y, msg->wrench.torque.z);
+    raw_mob_received_ = true;
   }
 
   void useVelModeCb(const std_msgs::msg::Float32::SharedPtr msg)
@@ -1007,6 +1067,7 @@ private:
 
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_contact_force_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_consistency_match_;
+  rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_raw_mob_wrench_;
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_use_vel_mode_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_pose_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_vel_;
@@ -1041,6 +1102,7 @@ private:
   double new_normal_c_f_{0.015};
   double new_normal_eta_tau_{0.4};
   double new_normal_sigma_tau_{0.004};
+  bool new_normal_use_raw_mob_tau_residual_{false};
   double new_normal_eps_alpha_{1e-6};
   double new_normal_eps_l_{1e-6};
   double new_normal_min_confidence_{0.08};
@@ -1056,6 +1118,7 @@ private:
   std::string contact_force_x_topic_;
   std::string normal_debug_metrics_topic_;
   std::string consistency_match_topic_;
+  std::string raw_mob_wrench_topic_;
   std::string use_vel_mode_topic_;
 
   std::mutex force_mtx_;
@@ -1087,6 +1150,15 @@ private:
   Eigen::Vector3d torque_hat_world_{Eigen::Vector3d::Zero()};
   Eigen::Vector3d moment_from_force_world_{Eigen::Vector3d::Zero()};
   bool consistency_received_{false};
+
+  std::mutex raw_mob_mtx_;
+  Eigen::Vector3d raw_mob_force_world_{Eigen::Vector3d::Zero()};
+  Eigen::Vector3d raw_mob_torque_world_{Eigen::Vector3d::Zero()};
+  bool raw_mob_received_{false};
+
+  static constexpr double kMTauLpfCutoffHz = 2.0;
+  double m_tau_lpf_{1.0};
+  bool m_tau_lpf_initialized_{false};
 
   std::mutex mode_mtx_;
   bool use_vel_mode_{false};

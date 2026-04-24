@@ -5,6 +5,7 @@ trajectory_generation:
 
     yaw_align_kp: 3.0
     normal_xy_min: 0.001
+    velocity_command_frame: "contact" # "contact": follow estimated normal frame, "world": keep velocity commands in world frame
     force_adm_kp: 5.0
     force_adm_kd: 0.005
 
