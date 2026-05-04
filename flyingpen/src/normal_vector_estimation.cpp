@@ -830,7 +830,9 @@ private:
 
     Eigen::Matrix3d projector = Eigen::Matrix3d::Identity();
     if (w_s.squaredNorm() > 1e-12) {
-      projector -= gamma_v * (w_s * w_s.transpose());
+      // Slide-aligned soft velocity-admissibility correction:
+      // remove the velocity direction directly, without gamma_v scaling.
+      projector -= (w_s * w_s.transpose());
     }
     const Eigen::Vector3d f_g = projector * force_world;
     const double corrected_force_norm = f_g.norm();

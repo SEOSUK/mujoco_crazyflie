@@ -130,6 +130,7 @@ trajectory_generation:
     # eF = F_cmd - F_meas
     # v_x_cmd += kp * eF + kd * d/dt(eF)_filt
     # This velocity command is expressed in the world frame by default.
+    contact_force_x_topic: "/normal_vector/contact_force_x"
     yaw_align_kp: 3.0
     normal_xy_min: 0.001
     velocity_command_frame: "world"
@@ -143,7 +144,7 @@ data_logger:
 
 panel:
   ros__parameters:
-    selected: "normal_vector_force" # "", "normal_vector_lvlf", "normal_vector_force", "normal_vector_mob"
+    selected: "" # "", "normal_vector_lvlf", "normal_vector_force", "normal_vector_mob"
     delay_sec: 1.5
     history_sec: 3.0
     update_hz: 30.0
