@@ -1,0 +1,18 @@
+# ROS 2 / colcon build artifacts
+build/
+install/
+log/
+
+# Runtime and editor noise
+*.log
+*.tmp
+*.swp
+*.swo
+*~
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Large local recordings
+flyingpen_interface/bag/

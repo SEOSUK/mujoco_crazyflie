@@ -1,5 +1,6 @@
-# 플라잉펜 말고 무조코 시뮬
-## 인스톨
+# Flying Pen MuJoCo Simulation
+
+## Install
 ```bash
 cd <your workspace>/src
 git clone https://github.com/SEOSUK/mujoco_crazyflie --recursive
@@ -8,16 +9,29 @@ cd ..
 colcon build
 ```
 
-## 실행 방법
-### 노드 실행
+## Patch Notes 2026.05.04
+- MuJoCo interface updated
+- Graphics improved
+- Mouse controls improved
+- Propeller rotation graphics added
+
+## How To Run
+
+### Launch MuJoCo
 ```bash
 ros2 launch flyingpen_interface flyingpen.launch.py
 ```
-### 위치 명령 전송
+
+### MuJoCo Basic Example - Figure Eight
+```bash
+ros2 run flyingpen trajectory8
+```
+
+### Send a Position Command
 ```bash
 ros2 topic pub --once /crazyflie/in/pos_cmd std_msgs/msg/Float64MultiArray "{data:[x, y, z, yaw]}"
 ```
-여기서 x, y, z, yaw에 각각 목표 위치[m] 및 yaw[rad] 입력
+Enter target position `[m]` and yaw `[rad]` as `x, y, z, yaw`.
 
 
 # Flying Pen Simulation  
@@ -44,6 +58,5 @@ such as the Flying Pen task.
 
 ## Credits
 - Model and dynamics inspired by: **crazyflow**
-
 
 
