@@ -1,17 +1,16 @@
 normal_vector_estimation:
   ros__parameters:
     reference_object: "end_effector" # "drone" or "end_effector"
-    normal_estimator_method: "new_normal" # "None", "direct", "kroc", "action_normal", "new_normal"
+    normal_estimator_method: "normal_force_based" # "None", "direct", "kroc", "action_normal", "Lf_Lv_fusion", "normal_force_based"
     publish_hz: 100.0
 
     flip_measured_force: false
     normal_force_threshold: 0.005 # minimum force magnitude [N] required to accept/update a normal estimate
     normal_lpf_alpha: 0.2
 
-    force_observation_source: "mob_2nd" # "contact_force", "contact_force_filt", "mob", "mob_2nd", "mob_2nd_tau"
-    raw_mob_wrench_topic: "/crazyflie/out/mob_2nd" # raw MOB force/torque source used only for tau consistency gating below
+    force_observation_source: "mob_2nd_tau" # "contact_force"=filtered contact force, "mob"=momentum observer 1st order, "mob_2nd"=momentum observer 2nd order (pure), "mob_2nd_tau"=consistency correction MOB
 
-    new_normal:
+    Lf_Lv_fusion:
       velocity_epsilon: 0.005 # [m/s] 이 값보다 작으면 속도 방향을 신뢰하지 않음
       beta_v: 0.3 # [1/s]geometry/velocity 메모리 L_v의 forgetting gain
       sigma_v: 0.3 # geometry/velocity evidence의 누적 gain
@@ -31,3 +30,12 @@ normal_vector_estimation:
       eps_alpha: 1.0e-6 # alpha_v / alpha_f 정규화 시 사용하는 수치 안정화 epsilon
       eps_l: 1.0e-6 # L_v, L_f trace 정규화 시 사용하는 수치 안정화 epsilon
       min_confidence: 0.08 # 최종 fused normal estimate를 채택하기 위한 최소 confidence
+
+    normal_force_based:
+      velocity_epsilon: 0.005 # e_s, 접촉점 속도 방향을 신뢰할 최소 속도 [m/s]
+      gamma_epsilon: 1.0e-2 # e_g, gamma_v = ||v_c||^2 / (||v_c||^2 + e_g)
+      force_epsilon: 0.01 # e_f, force-based normal candidate를 신뢰할 최소 힘 [N]
+      algebraic_force_epsilon: 5.0e-3 # e_n, corrected force evidence를 신뢰할 최소 힘 [N]
+      candidate_lpf_alpha: 0.2 # 순각 algebraic candidate에 대한 pure LPF 계수
+      beta_n: 0.3 # projector memory forgetting gain
+      sigma_n: 0.3 # projector memory integration gain

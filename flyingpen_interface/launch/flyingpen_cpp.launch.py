@@ -3,16 +3,30 @@ from launch.actions import TimerAction
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 import os
+import yaml
 
 
 def generate_launch_description():
     # ---------- params.yaml ----------
     pkg_share = get_package_share_directory("flyingpen_interface")
     params = os.path.join(pkg_share, "config", "parameters.yaml")
+    wrench_observer_params = os.path.join(pkg_share, "config", "wrench_observer.yaml")
     trajectory_params = os.path.join(pkg_share, "config", "trajectory_generation.yaml")
     normal_params = os.path.join(pkg_share, "config", "normal_vector_estimation.yaml")
     rviz_visual_params = os.path.join(pkg_share, "config", "rviz_visual.yaml")
     rviz_config = os.path.join(pkg_share, "config", "flyingpen.rviz")
+    with open(params, "r") as f:
+        params_config = yaml.safe_load(f) or {}
+
+    panel_config = (
+        params_config.get("panel", {})
+        .get("ros__parameters", {})
+    )
+    panel_runtime_params = {
+        key: panel_config[key]
+        for key in ("history_sec", "update_hz", "render_hz")
+        if key in panel_config
+    }
 
     # ---------- robot_description (URDF) ----------
     mujoco_bridge_share = get_package_share_directory("mujoco_bridge")
@@ -70,24 +84,73 @@ def generate_launch_description():
         executable="trajectory_generation",
         name="trajectory_generation",
         output="screen",
-        parameters=[trajectory_params],
+        parameters=[trajectory_params, params],
     )
 
-    normal_vector_estimation_node = Node(
+    normal_vector_estimation_pure_node = Node(
         package="flyingpen",
         executable="normal_vector_estimation",
-        name="normal_vector_estimation",
+        name="normal_vector_estimation_pure",
         output="screen",
-        parameters=[params, normal_params],
+        parameters=[params, normal_params, {
+            "force_observation_source": "mob_2nd",
+            "contact_frame_quat_topic": "/estimated_contact_frame_quat_pure",
+            "contact_force_x_topic": "/normal_vector/contact_force_x_pure",
+            "normal_debug_metrics_topic": "/normal_vector/debug_metrics_pure",
+        }],
     )
 
-    normal_vector_debug_node = Node(
-        package="flyingpen_plotter",
-        executable="normal_vector_debug",  # normal_vector_debug, mob_consistency
-        name="normal_vector_debug",
+    normal_vector_estimation_ke_node = Node(
+        package="flyingpen",
+        executable="normal_vector_estimation",
+        name="normal_vector_estimation_ke",
         output="screen",
-        parameters=[params, normal_params, rviz_visual_params],
+        parameters=[params, normal_params, {
+            "force_observation_source": "mob_2nd_tau",
+            "contact_frame_quat_topic": "/estimated_contact_frame_quat",
+            "contact_force_x_topic": "/normal_vector/contact_force_x",
+            "normal_debug_metrics_topic": "/normal_vector/debug_metrics",
+        }],
     )
+
+    normal_vector_estimation_ke_alt_node = Node(
+        package="flyingpen",
+        executable="normal_vector_estimation",
+        name="normal_vector_estimation_ke_alt",
+        output="screen",
+        parameters=[params, normal_params, {
+            "force_observation_source": "mob_2nd_tau_ke_alt",
+            "contact_frame_quat_topic": "/estimated_contact_frame_quat_ke_alt",
+            "contact_force_x_topic": "/normal_vector/contact_force_x_ke_alt",
+            "normal_debug_metrics_topic": "/normal_vector/debug_metrics_ke_alt",
+        }],
+    )
+
+    selected_panel = str(panel_config.get("selected", "")).strip()
+    if not selected_panel:
+        for legacy_key in ("lvlf", "force"):
+            legacy_cfg = panel_config.get(legacy_key, {})
+            if legacy_cfg.get("enable", False):
+                selected_panel = str(
+                    legacy_cfg.get("executable", f"normal_vector_{legacy_key}")
+                ).strip()
+                break
+
+    panel_actions = []
+    if selected_panel:
+        panel_node = Node(
+            package="flyingpen_plotter",
+            executable=selected_panel,
+            name=selected_panel,
+            output="screen",
+            parameters=[params, normal_params, rviz_visual_params, wrench_observer_params, panel_runtime_params],
+        )
+        panel_actions.append(
+            TimerAction(
+                period=float(panel_config.get("delay_sec", 1.5)),
+                actions=[panel_node],
+            )
+        )
 
     # ---------- wrench_observer ----------
     wrench_observer_node = Node(
@@ -95,7 +158,7 @@ def generate_launch_description():
         executable="wrench_observer",
         name="wrench_observer",
         output="screen",
-        parameters=[params],
+        parameters=[wrench_observer_params],
     )
 
     # ---------- rviz_visual ----------
@@ -154,12 +217,14 @@ def generate_launch_description():
         world_to_wall_tf_node,
         controller_node,
         fk_ik_transform_node,
-        normal_vector_estimation_node,
+        normal_vector_estimation_pure_node,
+        normal_vector_estimation_ke_node,
+        normal_vector_estimation_ke_alt_node,
         trajectory_generation_node,
         wrench_observer_node,
         rviz_visual_node,
         data_logger_node,
-        TimerAction(period=1.5, actions=[normal_vector_debug_node]),
+        *panel_actions,
         TimerAction(period=3.0, actions=[mujoco_bridge_node]),
         TimerAction(period=4.5, actions=[wind_joystick_node]),
     ])

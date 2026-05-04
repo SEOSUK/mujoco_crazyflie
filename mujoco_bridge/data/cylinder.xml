@@ -18,7 +18,11 @@
             condim="3"
             contype="2"
             conaffinity="8"
-            friction="0.2 0 0"
+            friction="0.12 0.003 0.001"
+            margin="0.0015"
+            gap="0.0005"
+            solref="0.012 1.0"
+            solimp="0.90 0.95 0.001"
             mass="0"/>
     </body>
   </worldbody>

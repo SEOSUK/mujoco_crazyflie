@@ -1,11 +1,11 @@
 trajectory_generation:
   ros__parameters:
     reference_object: "end_effector" # "drone" or "end_effector"
-    end_effector_offset: [0.09, 0.0, 0.085]
+    end_effector_offset: [0.1, 0.0, 0.04]
 
     yaw_align_kp: 3.0
     normal_xy_min: 0.001
-    velocity_command_frame: "contact" # "contact": follow estimated normal frame, "world": keep velocity commands in world frame
+    velocity_command_frame: "world" # "contact": follow estimated normal frame, "world": keep velocity commands in world frame
     force_adm_kp: 5.0
     force_adm_kd: 0.005
 

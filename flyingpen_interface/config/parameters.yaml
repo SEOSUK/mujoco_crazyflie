@@ -1,32 +1,13 @@
 fk_ik_transform:
   ros__parameters:
-    end_effector_offset: [0.09, 0.0, 0.085]
-
-wrench_observer:
-  ros__parameters:
-    end_effector_offset: [0.09, 0.0, 0.085]
-    k_tau: 0.00569278844371417
-    g: 9.81
-
-    # 1st-order MOB tuning
-    mob.Kf_1st_order: 2.0
-    mob.Ktau_1st_order: 2.0
-    mob.mob_alpha_1st_order: 1.0
-
-    # 2nd-order MOB tuning
-    mob.Kf_2nd_order: 15.0
-    mob.Ktau_2nd_order: 15.0
-    mob.mob_alpha_2nd_order: 1.0
-    mob.Kp: 7.0
-    mob.KpTau: 7.0
-    mob.Ke: 1.0
-    mob.sigma_tau: 1.0
+    end_effector_offset: [0.1, 0.0, 0.04]
 
 plant:
   ros__parameters:
     physics_hz: 1000.0
     pub_hz: 400.0
     viewer_hz: 60.0
+    end_effector_offset: [0.1, 0.0, 0.04]
 
     arm_xy: 0.035355
     k_tau: 0.00569278844371417
@@ -35,14 +16,19 @@ plant:
     thrust_max: 0.20
 
     noise:
-      enable: false
+      enable: true
       seed: 0
-      hz: 30.0
-      pos_amp: [5e-4, 5e-4, 5e-4]
-      vel_amp: [5e-3, 5e-3, 5e-3]
-      att_amp: [2e-4, 2e-4, 2e-4]
+      hz: 1.0                     # update rate: draw new noise every 1/hz seconds
+      pos_amp: [5e-4, 5e-4, 5e-4]      # absolute maximum noise magnitude (per axis)
+      vel_amp: [1e-1, 1e-1, 1e-1]
+      att_amp: [2e-3, 2e-3, 2e-3]
       ang_vel_amp: [2e-4, 2e-4, 2e-4]
       ang_acc_amp: [5e-4, 5e-4, 5e-4]
+      pos_var: [1e-8, 1e-8, 1e-8]      # stationary Gaussian variance before clipping to +/- amp
+      vel_var: [1e-8, 1e-8, 1e-8]
+      att_var: [1e-9, 1e-9, 1e-9]
+      ang_vel_var: [1e-9, 1e-9, 1e-9]
+      ang_acc_var: [1e-8, 1e-8, 1e-8]
       lpf:
         enable: false
         cutoff_hz: 5.0
@@ -94,7 +80,7 @@ plant:
 low_level_controller:
   ros__parameters:
     # ---------------- system ----------------
-    mass: 0.04338
+    mass: 0.04338 #0.041211
     g: 9.81
 
     # limits
@@ -136,8 +122,29 @@ low_level_controller:
       roll:  { kp: 0.005, ki: 0.0005, kd: 0.00001, i_limit: 0.0 }
       pitch: { kp: 0.005, ki: 0.0005, kd: 0.00001, i_limit: 0.0 }
       yaw:   { kp: 0.005, ki: 0.0005, kd: 0.00001, i_limit: 0.0 }
+
+trajectory_generation:
+  ros__parameters:
+    # ---------------- contact / force controller ----------------
+    # Contact-force outer loop:
+    # eF = F_cmd - F_meas
+    # v_x_cmd += kp * eF + kd * d/dt(eF)_filt
+    # This velocity command is expressed in the world frame by default.
+    yaw_align_kp: 3.0
+    normal_xy_min: 0.001
+    velocity_command_frame: "world"
+    force_adm_kp: 5.0
+    force_adm_kd: 1.5
       
 data_logger:
   ros__parameters:
 #    csv_dir: "~/ros2_ws/src/mujoco_crazyflie/flyingpen_interface/bag" # MJ
     csv_dir: "~/mujoco_crazyflie/src/flyingpen_interface/bag" # SU
+
+panel:
+  ros__parameters:
+    selected: "normal_vector_force" # "", "normal_vector_lvlf", "normal_vector_force", "normal_vector_mob"
+    delay_sec: 1.5
+    history_sec: 3.0
+    update_hz: 30.0
+    render_hz: 5.0

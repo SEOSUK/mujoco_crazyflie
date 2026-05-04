@@ -19,10 +19,10 @@
   <!-- End-effector Link -->
   <link name="EE">
     <visual>
-      <origin xyz="-0.087 0 -0.088" rpy="0 0 1.5708"/>
+      <origin xyz="0.0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://mujoco_bridge/data/assets/cf21B/cf21B_end_effector.stl"
-              scale="0.001 0.001 0.001"/>
+        <mesh filename="package://mujoco_bridge/data/assets/cf21B/x.stl"
+              scale="1 1 1"/>
       </geometry>
       <material name="light_yellow">
         <color rgba="1.0 0.95 0.7 1.0"/>
@@ -34,7 +34,7 @@
   <joint name="crazyflie_to_end_effector" type="fixed">
     <parent link="crazyflie"/>
     <child link="EE"/>
-    <origin xyz="0.087 0 0.088" rpy="0 0 0"/>
+    <origin xyz="0.00 0 -0.005" rpy="0 0 3.141592"/>
   </joint>
 
 
@@ -55,7 +55,7 @@
   <joint name="end_effector_to_ft_sensor" type="fixed">
     <parent link="EE"/>
     <child link="cf21B_ft_sensor"/>
-    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <origin xyz="-0.1 0 0.042" rpy="0 0 3.141592"/>
   </joint>
 
 </robot>
