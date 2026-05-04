@@ -1,5 +1,6 @@
 from launch import LaunchDescription
-from launch.actions import TimerAction
+from launch.actions import DeclareLaunchArgument, TimerAction
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 import os
@@ -14,7 +15,7 @@ def generate_launch_description():
     trajectory_params = os.path.join(pkg_share, "config", "trajectory_generation.yaml")
     normal_params = os.path.join(pkg_share, "config", "normal_vector_estimation.yaml")
     rviz_visual_params = os.path.join(pkg_share, "config", "rviz_visual.yaml")
-    rviz_config = os.path.join(pkg_share, "config", "flyingpen.rviz")
+    default_rviz_config = os.path.join(pkg_share, "config", "flyingpen.rviz")
     with open(params, "r") as f:
         params_config = yaml.safe_load(f) or {}
 
@@ -185,7 +186,7 @@ def generate_launch_description():
         executable="rviz2",
         name="rviz2",
         output="screen",
-        arguments=["-d", rviz_config],
+        arguments=["-d", LaunchConfiguration("rviz_config")],
     )
 
     # ---------- fk_ik_transform ----------
@@ -211,7 +212,14 @@ def generate_launch_description():
         ],
     )
 
+    rviz_config_arg = DeclareLaunchArgument(
+        "rviz_config",
+        default_value=default_rviz_config,
+        description="Path to the RViz config file loaded at startup.",
+    )
+
     return LaunchDescription([
+        rviz_config_arg,
         rviz2_node,
         robot_state_publisher_node,
         world_to_wall_tf_node,
