@@ -1,84 +1,94 @@
-# 플라잉펜 말고 크플-무조코 시뮬레이션만 있는 버전
-crazyflie firmware-like Cascade PID가 구현되어 있음.
-## 인스톨
+# Legacy Version
+
+MuJoCo-based Flying Pen legacy branch.
+
+This version contains multiple normal estimation logics and supporting RViz / teleop utilities for the contact-aware Flying Pen simulation.
+
+## Included Normal Estimation Methods
+
+The normal estimator supports the following methods through `normal_estimator_method` in [normal_vector_estimation.yaml](/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/config/normal_vector_estimation.yaml:4):
+
+- `direct`
+- `kroc`
+- `action_normal`
+- `Lf_Lv_fusion`
+- `normal_force_based`
+- `None`
+
+### Main Variants
+
+- `Lf_Lv_fusion`
+  Combines force evidence and velocity-geometry evidence with consistency weighting.
+- `normal_force_based`
+  Uses force-dominant constrained normal estimation with velocity-admissibility correction and projector-memory smoothing.
+- `direct`
+  Direct normal construction from measured force direction.
+- `kroc`
+  Legacy estimator path kept for comparison.
+- `action_normal`
+  Action-based legacy estimator path kept for comparison.
+
+## Build
+
 ```bash
-cd <your workspace>/src
-git clone https://github.com/SEOSUK/mujoco_crazyflie --recursive
-git checkout just_flight
-cd ..
+cd ~/mujoco_crazyflie
 colcon build
+source install/setup.bash
 ```
 
-## 실행 방법
-### 노드 실행
+If you are using a separate Python environment for MuJoCo, activate it before launching.
+
+## Launch
+
+Main simulation launch:
+
 ```bash
-ros2 launch flyingpen_interface flyingpen.launch.py
-```
-### 위치 명령 전송
-```bash
-ros2 topic pub --once /crazyflie/in/pos_cmd std_msgs/msg/Float64MultiArray "{data:[x, y, z, yaw]}"
-```
-여기서 x, y, z, yaw에 각각 목표 위치[m] 및 yaw[rad] 입력
-
-
-
-
-
-# Flying Pen Simulation  
-### From Gazebo to MuJoCo
-
-This repository contains a **Flying Pen** simulation that has been migrated  
-from **Gazebo** to **MuJoCo**.
-
-The simulation model and dynamics are based on the **crazyflow** framework,  
-and adapted to enable more efficient, stable, and scalable simulation  
-in the MuJoCo environment.
-
-## Overview
-- Original simulator: Gazebo
-- Target simulator: MuJoCo
-- Platform: Crazyflie-based aerial manipulation
-- Model source: `crazyflow`
-
-## Motivation
-MuJoCo provides faster simulation, better contact dynamics,  
-and improved numerical stability compared to Gazebo,  
-making it more suitable for contact-aware aerial manipulation research  
-such as the Flying Pen task.
-
-## Credits
-- Model and dynamics inspired by: **crazyflow**
-
-## For Flying Pen (Ubuntu 24.04)
-Python 패키지 충돌을 방지하기 위해 MuJoCo는 ROS 2와 분리된 Python 가상환경에서 실행합니다.
-
-1. Python 가상환경 준비 (venv 생성)
-```bash
-sudo apt update
-sudo apt install -y python3-full python3-venv
+cd ~/mujoco_crazyflie
+source install/setup.bash
+ros2 launch flyingpen_interface flyingpen_cpp.launch.py
 ```
 
-2. 가상환경 생성
-```bash
-python3 -m venv ~/venvs/mujoco
-```
+This launch brings up the main Flying Pen stack including:
 
-3. MuJuCo 가상환경 활성화
-```bash
-source ~/venvs/mujoco/bin/activate
-```
+- `mujoco_bridge`
+- `low_level_controller`
+- `trajectory_generation`
+- `normal_vector_estimation`
+- `wrench_observer`
+- `rviz_visual`
+- `rviz2`
+- `data_logger`
 
-4. ROS 2 워크스페이스 환경 설정
-```bash
-source ~/<your workspace>/install/setup.bash
-```
+## Keyboard Teleop
 
-5. Flying Pen 노드 실행
-```bash
-ros2 launch flyingpen_interface flyingpen.launch.py
-```
+Run the keyboard teleop node in a separate terminal:
 
-6. 키보드 입력 노드 실행
 ```bash
+cd ~/mujoco_crazyflie
+source install/setup.bash
 ros2 run flyingpen_interface command_publisher
 ```
+
+### Default Key Bindings
+
+- `w / s`: x command
+- `a / d`: y command
+- `e / q`: z command
+- `z / c`: yaw command
+- `x`: reset position command
+- `i`: toggle position / velocity mode
+- `j / k / l`: force command increase / decrease / reset
+- `g`: toggle yz trajectory in velocity mode
+- `t`: quit teleop
+
+## Useful Config Files
+
+- [parameters.yaml](/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/config/parameters.yaml:1)
+- [normal_vector_estimation.yaml](/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/config/normal_vector_estimation.yaml:1)
+- [trajectory_generation.yaml](/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/config/trajectory_generation.yaml:1)
+- [flyingpen_cpp.launch.py](/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/launch/flyingpen_cpp.launch.py:1)
+
+## Notes
+
+- RViz starts from the saved config in [flyingpen.rviz](/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/config/flyingpen.rviz:1).
+- The default normal estimator config currently selects `normal_force_based`.
