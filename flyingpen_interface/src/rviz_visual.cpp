@@ -73,19 +73,29 @@ public:
       "cmd_active_topic", "/crazyflie/debug/cmd_active");
 
     drone_wrench_topic_ = this->declare_parameter<std::string>(
-      "drone_wrench_topic", "/crazyflie/out/mob");
+      "drone_wrench_topic", "/crazyflie/out/ee_applied_mob");
     mob_topic_2nd_order_ = this->declare_parameter<std::string>(
-      "mob_topic_2nd_order", "/crazyflie/out/mob_2nd");
+      "mob_topic_2nd_order", "/crazyflie/out/ee_applied_mob_2nd");
     mob_topic_consistency_ = this->declare_parameter<std::string>(
-      "mob_topic_consistency", "/crazyflie/out/mob_2nd_tau");
+      "mob_topic_consistency", "/crazyflie/out/ee_applied_mob_2nd_tau");
+    mob_topic_consistency_alt_ = this->declare_parameter<std::string>(
+      "mob_topic_consistency_alt", "/crazyflie/out/ee_applied_mob_2nd_tau_ke_alt");
 
     contact_force_topic_ = this->declare_parameter<std::string>(
       "contact_force_topic", "/crazyflie/out/EE_contact_force_filt");
 
+    contact_frame_quat_topic_pure_ = this->declare_parameter<std::string>(
+      "contact_frame_quat_topic_pure", "/estimated_contact_frame_quat_pure");
     contact_frame_quat_topic_ = this->declare_parameter<std::string>(
       "contact_frame_quat_topic", "/estimated_contact_frame_quat");
+    contact_frame_quat_topic_k2_ = this->declare_parameter<std::string>(
+      "contact_frame_quat_topic_k2", "/estimated_contact_frame_quat_ke_alt");
+    normal_debug_metrics_topic_pure_ = this->declare_parameter<std::string>(
+      "normal_debug_metrics_topic_pure", "/normal_vector/debug_metrics_pure");
     normal_debug_metrics_topic_ = this->declare_parameter<std::string>(
       "normal_debug_metrics_topic", "/normal_vector/debug_metrics");
+    normal_debug_metrics_topic_k2_ = this->declare_parameter<std::string>(
+      "normal_debug_metrics_topic_k2", "/normal_vector/debug_metrics_ke_alt");
 
     est_contact_frame_ = this->declare_parameter<std::string>(
       "est_contact_frame", "estimated_contact_frame");
@@ -209,17 +219,32 @@ public:
     sub_mob_consistency_ = this->create_subscription<geometry_msgs::msg::WrenchStamped>(
       mob_topic_consistency_, 10,
       std::bind(&RvizVisual::cb_mob_consistency, this, std::placeholders::_1));
+    sub_mob_consistency_alt_ = this->create_subscription<geometry_msgs::msg::WrenchStamped>(
+      mob_topic_consistency_alt_, 10,
+      std::bind(&RvizVisual::cb_mob_consistency_alt, this, std::placeholders::_1));
 
     sub_contact_force_ = this->create_subscription<geometry_msgs::msg::WrenchStamped>(
       contact_force_topic_, 10,
       std::bind(&RvizVisual::cb_contact_force, this, std::placeholders::_1));
 
+    sub_contact_frame_quat_pure_ = this->create_subscription<geometry_msgs::msg::QuaternionStamped>(
+      contact_frame_quat_topic_pure_, 10,
+      std::bind(&RvizVisual::cb_contact_frame_quat_pure, this, std::placeholders::_1));
     sub_contact_frame_quat_ = this->create_subscription<geometry_msgs::msg::QuaternionStamped>(
       contact_frame_quat_topic_, 10,
       std::bind(&RvizVisual::cb_contact_frame_quat, this, std::placeholders::_1));
+    sub_contact_frame_quat_k2_ = this->create_subscription<geometry_msgs::msg::QuaternionStamped>(
+      contact_frame_quat_topic_k2_, 10,
+      std::bind(&RvizVisual::cb_contact_frame_quat_k2, this, std::placeholders::_1));
+    sub_normal_debug_metrics_pure_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
+      normal_debug_metrics_topic_pure_, 10,
+      std::bind(&RvizVisual::cb_normal_debug_metrics_pure, this, std::placeholders::_1));
     sub_normal_debug_metrics_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
       normal_debug_metrics_topic_, 10,
       std::bind(&RvizVisual::cb_normal_debug_metrics, this, std::placeholders::_1));
+    sub_normal_debug_metrics_k2_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
+      normal_debug_metrics_topic_k2_, 10,
+      std::bind(&RvizVisual::cb_normal_debug_metrics_k2, this, std::placeholders::_1));
     sub_wind_indicator_ = this->create_subscription<geometry_msgs::msg::Vector3Stamped>(
       wind_indicator_topic_, 10,
       std::bind(&RvizVisual::cb_wind_indicator, this, std::placeholders::_1));
@@ -234,11 +259,17 @@ public:
       "/rviz/drone_external_force_mob_2nd_order", 10);
     pub_mob_consistency_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
       "/rviz/drone_external_force_mob_2nd_tau", 10);
+    pub_mob_consistency_alt_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
+      "/rviz/drone_external_force_mob_2nd_tau_ke_alt", 10);
 
     pub_contact_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
       "/rviz/EE_contact_force", 10);
+    pub_estimated_normal_pure_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
+      "/rviz/estimated_contact_normal_pure", 10);
     pub_estimated_normal_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
-      "/rviz/estimated_contact_normal", 10);
+      "/rviz/estimated_contact_normal_ke", 10);
+    pub_estimated_normal_k2_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
+      "/rviz/estimated_contact_normal_ke_alt", 10);
     pub_true_normal_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
       "/rviz/true_contact_normal", 10);
     pub_force_based_normal_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
@@ -381,6 +412,15 @@ private:
     have_mob_force_consistency_ = true;
   }
 
+  void cb_mob_consistency_alt(const geometry_msgs::msg::WrenchStamped::SharedPtr msg)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    mob_force_consistency_alt_[0] = static_cast<float>(msg->wrench.force.x);
+    mob_force_consistency_alt_[1] = static_cast<float>(msg->wrench.force.y);
+    mob_force_consistency_alt_[2] = static_cast<float>(msg->wrench.force.z);
+    have_mob_force_consistency_alt_ = true;
+  }
+
   void cb_contact_force(const geometry_msgs::msg::WrenchStamped::SharedPtr msg)
   {
     std::lock_guard<std::mutex> lk(mtx_);
@@ -391,11 +431,50 @@ private:
     contact_frame_id_ = msg->header.frame_id;
   }
 
+  static bool extractEstimatedNormalWorld(
+    const std_msgs::msg::Float64MultiArray::SharedPtr msg,
+    std::array<float, 3> & normal_out)
+  {
+    if (msg->data.size() < 31) {
+      return false;
+    }
+
+    normal_out = {
+      static_cast<float>(msg->data[28]),
+      static_cast<float>(msg->data[29]),
+      static_cast<float>(msg->data[30])};
+    return isFiniteVector(normal_out) && vectorNorm(normal_out) > 1e-9f;
+  }
+
+  void cb_contact_frame_quat_pure(const geometry_msgs::msg::QuaternionStamped::SharedPtr msg)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    contact_q_pure_ = msg->quaternion;
+    have_contact_q_pure_ = true;
+  }
+
   void cb_contact_frame_quat(const geometry_msgs::msg::QuaternionStamped::SharedPtr msg)
   {
     std::lock_guard<std::mutex> lk(mtx_);
     contact_q_ = msg->quaternion;
     have_contact_q_ = true;
+  }
+
+  void cb_contact_frame_quat_k2(const geometry_msgs::msg::QuaternionStamped::SharedPtr msg)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    contact_q_k2_ = msg->quaternion;
+    have_contact_q_k2_ = true;
+  }
+
+  void cb_normal_debug_metrics_pure(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
+  {
+    std::array<float, 3> estimated_normal{0.0f, 0.0f, 0.0f};
+    const bool have_estimated_normal = extractEstimatedNormalWorld(msg, estimated_normal);
+
+    std::lock_guard<std::mutex> lk(mtx_);
+    estimated_normal_pure_ = estimated_normal;
+    have_estimated_normal_pure_ = have_estimated_normal;
   }
 
   void cb_normal_debug_metrics(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
@@ -449,12 +528,24 @@ private:
     }
 
     std::lock_guard<std::mutex> lk(mtx_);
+    estimated_normal_k1_ = n_geo;
+    have_estimated_normal_k1_ = have_n_geo;
     force_based_normal_ = n_f;
     have_force_based_normal_ = have_n_f;
     lf_only_normal_ = n_f;
     have_lf_only_normal_ = have_n_f;
     lv_only_normal_ = n_v;
     have_lv_only_normal_ = have_n_v;
+  }
+
+  void cb_normal_debug_metrics_k2(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
+  {
+    std::array<float, 3> estimated_normal{0.0f, 0.0f, 0.0f};
+    const bool have_estimated_normal = extractEstimatedNormalWorld(msg, estimated_normal);
+
+    std::lock_guard<std::mutex> lk(mtx_);
+    estimated_normal_k2_ = estimated_normal;
+    have_estimated_normal_k2_ = have_estimated_normal;
   }
 
   void cb_wind_indicator(const geometry_msgs::msg::Vector3Stamped::SharedPtr msg)
@@ -512,6 +603,37 @@ private:
       return Eigen::Vector3d::Constant(std::numeric_limits<double>::quiet_NaN());
     }
     return n_v / norm;
+  }
+
+  static bool resolveNormalWorld(
+    const std::array<float, 3> & metrics_normal,
+    bool have_metrics_normal,
+    const geometry_msgs::msg::Quaternion & quat,
+    bool have_quat,
+    std::array<float, 3> & normal_world_out)
+  {
+    if (have_metrics_normal && isFiniteVector(metrics_normal) && vectorNorm(metrics_normal) > 1e-9f) {
+      normal_world_out = metrics_normal;
+      return true;
+    }
+
+    if (!have_quat) {
+      return false;
+    }
+
+    tf2::Quaternion q_wc(quat.x, quat.y, quat.z, quat.w);
+    if (!std::isfinite(q_wc.x()) || !std::isfinite(q_wc.y()) ||
+        !std::isfinite(q_wc.z()) || !std::isfinite(q_wc.w())) {
+      return false;
+    }
+    q_wc.normalize();
+
+    tf2::Matrix3x3 r_wc(q_wc);
+    normal_world_out = {
+      static_cast<float>(r_wc[0][0]),
+      static_cast<float>(r_wc[1][0]),
+      static_cast<float>(r_wc[2][0])};
+    return isFiniteVector(normal_world_out) && vectorNorm(normal_world_out) > 1e-9f;
   }
 
   visualization_msgs::msg::Marker make_arrow_marker(
@@ -1101,18 +1223,27 @@ private:
     std::array<float, 3> drone_ext_force;
     std::array<float, 3> mob_force_2nd_order;
     std::array<float, 3> mob_force_consistency;
+    std::array<float, 3> mob_force_consistency_alt;
     std::array<float, 3> Fcontact;
+    std::array<float, 3> estimated_normal_pure;
+    std::array<float, 3> estimated_normal_k1;
+    std::array<float, 3> estimated_normal_k2;
     std::array<float, 3> force_based_normal;
     std::array<float, 3> lf_only_normal;
     std::array<float, 3> lv_only_normal;
     std::array<float, 3> wind_indicator_force;
+    geometry_msgs::msg::Quaternion contact_q_pure;
     geometry_msgs::msg::Quaternion contact_q;
+    geometry_msgs::msg::Quaternion contact_q_k2;
 
     bool have_pose, have_vel, have_acc;
     bool have_ee_pose, have_ee_vel, have_ee_acc;
     bool have_cmd_drone_pose, have_cmd_ee_pose, have_cmd_active_pose;
     bool have_drone_ext_force, have_mob_force_2nd_order, have_mob_force_consistency;
+    bool have_mob_force_consistency_alt;
     bool have_contact, have_contact_q;
+    bool have_contact_q_pure, have_contact_q_k2;
+    bool have_estimated_normal_pure, have_estimated_normal_k1, have_estimated_normal_k2;
     bool have_force_based_normal;
     bool have_lf_only_normal, have_lv_only_normal;
     bool have_wind_indicator_force;
@@ -1134,12 +1265,18 @@ private:
       drone_ext_force = drone_ext_force_;
       mob_force_2nd_order = mob_force_2nd_order_;
       mob_force_consistency = mob_force_consistency_;
+      mob_force_consistency_alt = mob_force_consistency_alt_;
       Fcontact = contact_F_;
+      estimated_normal_pure = estimated_normal_pure_;
+      estimated_normal_k1 = estimated_normal_k1_;
+      estimated_normal_k2 = estimated_normal_k2_;
       force_based_normal = force_based_normal_;
       lf_only_normal = lf_only_normal_;
       lv_only_normal = lv_only_normal_;
       wind_indicator_force = wind_indicator_force_;
+      contact_q_pure = contact_q_pure_;
       contact_q = contact_q_;
+      contact_q_k2 = contact_q_k2_;
 
       have_pose = have_pose_;
       have_vel = have_vel_;
@@ -1155,8 +1292,14 @@ private:
       have_drone_ext_force = have_drone_ext_force_;
       have_mob_force_2nd_order = have_mob_force_2nd_order_;
       have_mob_force_consistency = have_mob_force_consistency_;
+      have_mob_force_consistency_alt = have_mob_force_consistency_alt_;
       have_contact = have_contact_;
+      have_contact_q_pure = have_contact_q_pure_;
       have_contact_q = have_contact_q_;
+      have_contact_q_k2 = have_contact_q_k2_;
+      have_estimated_normal_pure = have_estimated_normal_pure_;
+      have_estimated_normal_k1 = have_estimated_normal_k1_;
+      have_estimated_normal_k2 = have_estimated_normal_k2_;
       have_force_based_normal = have_force_based_normal_;
       have_lf_only_normal = have_lf_only_normal_;
       have_lv_only_normal = have_lv_only_normal_;
@@ -1311,6 +1454,21 @@ private:
       pub_mob_consistency_arrow_->publish(mk);
     }
 
+    if (have_ee_pose && have_mob_force_consistency_alt) {
+      auto mk = make_arrow_marker_with_dims(
+        "drone_external_force_mob_2nd_tau_ke_alt", 0, parent_frame_, stamp,
+        ee_pose.pose.position.x, ee_pose.pose.position.y, ee_pose.pose.position.z,
+        static_cast<double>(mob_force_consistency_alt[0]),
+        static_cast<double>(mob_force_consistency_alt[1]),
+        static_cast<double>(mob_force_consistency_alt[2]),
+        1.725 * force_scale_,
+        source_shaft,
+        source_head_diam,
+        source_head_len,
+        0.20, 0.90, 0.35);
+      pub_mob_consistency_alt_arrow_->publish(mk);
+    }
+
     // 8) Marker: contact force
     if (have_ee_pose && have_contact) {
       auto mk = make_arrow_marker_with_dims(
@@ -1379,24 +1537,78 @@ private:
         make_delete_marker("lv_only_estimated_normal", 0, parent_frame_, stamp));
     }
 
-    // 9) Marker: estimated normal vector (x-axis of estimated contact frame)
-    if (have_ee_pose && have_contact_q) {
-      tf2::Quaternion q_wc(contact_q.x, contact_q.y, contact_q.z, contact_q.w);
-      q_wc.normalize();
-
-      tf2::Matrix3x3 r_wc(q_wc);
-      tf2::Vector3 n_w = r_wc.getColumn(0);
-
+    // 9) Marker: estimated normal vectors, expressed directly in the world frame
+    std::array<float, 3> estimated_normal_world{0.0f, 0.0f, 0.0f};
+    if (
+      have_ee_pose &&
+      resolveNormalWorld(
+        estimated_normal_pure, have_estimated_normal_pure,
+        contact_q_pure, have_contact_q_pure,
+        estimated_normal_world))
+    {
       auto mk = make_arrow_marker_with_dims(
-        "estimated_contact_normal", 0, parent_frame_, stamp,
+        "estimated_contact_normal_pure", 0, parent_frame_, stamp,
         ee_pose.pose.position.x, ee_pose.pose.position.y, ee_pose.pose.position.z,
-        n_w.x(), n_w.y(), n_w.z(),
+        static_cast<double>(estimated_normal_world[0]),
+        static_cast<double>(estimated_normal_world[1]),
+        static_cast<double>(estimated_normal_world[2]),
+        0.96 * normal_scale_,
+        normal_shaft,
+        normal_head_diam,
+        normal_head_len,
+        0.15, 0.45, 0.95);
+      pub_estimated_normal_pure_arrow_->publish(mk);
+    } else {
+      pub_estimated_normal_pure_arrow_->publish(
+        make_delete_marker("estimated_contact_normal_pure", 0, parent_frame_, stamp));
+    }
+
+    if (
+      have_ee_pose &&
+      resolveNormalWorld(
+        estimated_normal_k1, have_estimated_normal_k1,
+        contact_q, have_contact_q,
+        estimated_normal_world))
+    {
+      auto mk = make_arrow_marker_with_dims(
+        "estimated_contact_normal_ke", 0, parent_frame_, stamp,
+        ee_pose.pose.position.x, ee_pose.pose.position.y, ee_pose.pose.position.z,
+        static_cast<double>(estimated_normal_world[0]),
+        static_cast<double>(estimated_normal_world[1]),
+        static_cast<double>(estimated_normal_world[2]),
         1.00 * normal_scale_,
         normal_shaft,
         normal_head_diam,
         normal_head_len,
         0.00, 0.85, 0.95);
       pub_estimated_normal_arrow_->publish(mk);
+    } else {
+      pub_estimated_normal_arrow_->publish(
+        make_delete_marker("estimated_contact_normal_ke", 0, parent_frame_, stamp));
+    }
+
+    if (
+      have_ee_pose &&
+      resolveNormalWorld(
+        estimated_normal_k2, have_estimated_normal_k2,
+        contact_q_k2, have_contact_q_k2,
+        estimated_normal_world))
+    {
+      auto mk = make_arrow_marker_with_dims(
+        "estimated_contact_normal_ke_alt", 0, parent_frame_, stamp,
+        ee_pose.pose.position.x, ee_pose.pose.position.y, ee_pose.pose.position.z,
+        static_cast<double>(estimated_normal_world[0]),
+        static_cast<double>(estimated_normal_world[1]),
+        static_cast<double>(estimated_normal_world[2]),
+        1.04 * normal_scale_,
+        normal_shaft,
+        normal_head_diam,
+        normal_head_len,
+        0.20, 0.90, 0.35);
+      pub_estimated_normal_k2_arrow_->publish(mk);
+    } else {
+      pub_estimated_normal_k2_arrow_->publish(
+        make_delete_marker("estimated_contact_normal_ke_alt", 0, parent_frame_, stamp));
     }
 
     // 9.5) Marker: true normal vector from the selected environment geometry
@@ -1506,16 +1718,24 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_drone_wrench_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_2nd_order_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_consistency_;
+  rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_consistency_alt_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_contact_force_;
+  rclcpp::Subscription<geometry_msgs::msg::QuaternionStamped>::SharedPtr sub_contact_frame_quat_pure_;
   rclcpp::Subscription<geometry_msgs::msg::QuaternionStamped>::SharedPtr sub_contact_frame_quat_;
+  rclcpp::Subscription<geometry_msgs::msg::QuaternionStamped>::SharedPtr sub_contact_frame_quat_k2_;
+  rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_normal_debug_metrics_pure_;
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_normal_debug_metrics_;
+  rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_normal_debug_metrics_k2_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_wind_indicator_;
 
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_drone_ext_force_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_mob_2nd_order_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_mob_consistency_arrow_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_mob_consistency_alt_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_contact_arrow_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_estimated_normal_pure_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_estimated_normal_arrow_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_estimated_normal_k2_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_true_normal_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_force_based_normal_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_lf_only_normal_arrow_;
@@ -1559,10 +1779,12 @@ private:
   std::array<float, 3> drone_ext_force_{0.0f, 0.0f, 0.0f};
   std::array<float, 3> mob_force_2nd_order_{0.0f, 0.0f, 0.0f};
   std::array<float, 3> mob_force_consistency_{0.0f, 0.0f, 0.0f};
+  std::array<float, 3> mob_force_consistency_alt_{0.0f, 0.0f, 0.0f};
   std::array<float, 3> wind_indicator_force_{0.0f, 0.0f, 0.0f};
   bool have_drone_ext_force_{false};
   bool have_mob_force_2nd_order_{false};
   bool have_mob_force_consistency_{false};
+  bool have_mob_force_consistency_alt_{false};
   bool have_wind_indicator_force_{false};
 
   std::array<float, 3> contact_F_{0.0f, 0.0f, 0.0f};
@@ -1570,14 +1792,24 @@ private:
   std::string contact_frame_id_;
 
   std::array<float, 3> force_based_normal_{0.0f, 0.0f, 0.0f};
+  std::array<float, 3> estimated_normal_pure_{0.0f, 0.0f, 0.0f};
+  std::array<float, 3> estimated_normal_k1_{0.0f, 0.0f, 0.0f};
+  std::array<float, 3> estimated_normal_k2_{0.0f, 0.0f, 0.0f};
+  bool have_estimated_normal_pure_{false};
+  bool have_estimated_normal_k1_{false};
+  bool have_estimated_normal_k2_{false};
   bool have_force_based_normal_{false};
   std::array<float, 3> lf_only_normal_{0.0f, 0.0f, 0.0f};
   std::array<float, 3> lv_only_normal_{0.0f, 0.0f, 0.0f};
   bool have_lf_only_normal_{false};
   bool have_lv_only_normal_{false};
 
+  geometry_msgs::msg::Quaternion contact_q_pure_;
   geometry_msgs::msg::Quaternion contact_q_;
+  geometry_msgs::msg::Quaternion contact_q_k2_;
+  bool have_contact_q_pure_{false};
   bool have_contact_q_{false};
+  bool have_contact_q_k2_{false};
 
   std::mutex history_mtx_;
   std::deque<HistorySample> contact_frame_history_;
@@ -1611,9 +1843,14 @@ private:
   std::string drone_wrench_topic_;
   std::string mob_topic_2nd_order_;
   std::string mob_topic_consistency_;
+  std::string mob_topic_consistency_alt_;
   std::string contact_force_topic_;
+  std::string contact_frame_quat_topic_pure_;
   std::string contact_frame_quat_topic_;
+  std::string contact_frame_quat_topic_k2_;
+  std::string normal_debug_metrics_topic_pure_;
   std::string normal_debug_metrics_topic_;
+  std::string normal_debug_metrics_topic_k2_;
   std::string est_contact_frame_;
   std::string environment_type_{"cylinder"};
   std::string environment_marker_topic_;

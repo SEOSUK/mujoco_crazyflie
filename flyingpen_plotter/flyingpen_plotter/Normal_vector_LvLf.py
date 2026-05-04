@@ -115,10 +115,11 @@ def load_cylinder_geometry() -> Tuple[np.ndarray, float]:
 
 class ROSDataBuffer(Node):
     def __init__(self):
-        super().__init__("normal_vector_debug")
+        super().__init__("normal_vector_lvlf")
 
         self.declare_parameter("history_sec", 3.0)
         self.declare_parameter("update_hz", 30.0)
+        self.declare_parameter("render_hz", 3.0)
         self.declare_parameter("contact_quat_topic", "/estimated_contact_frame_quat")
         self.declare_parameter("ee_pose_topic", "/crazyflie/out/EE_pose")
         self.declare_parameter("vel_cmd_topic", "/su/debug/contact_vel_cmd")
@@ -140,6 +141,7 @@ class ROSDataBuffer(Node):
 
         self.history_sec = float(self.get_parameter("history_sec").value)
         self.update_hz = float(self.get_parameter("update_hz").value)
+        self.render_hz = max(0.1, float(self.get_parameter("render_hz").value))
         self.eta_tau = float(self.get_parameter("eta_tau").value)
         self.sigma_tau = float(self.get_parameter("sigma_tau").value)
         self.environment_type = str(self.get_parameter("environment.type").value).lower()
@@ -155,7 +157,7 @@ class ROSDataBuffer(Node):
             "c_hat_vz_cmd", "c_hat_vz_act",
             "c_hat_fx_cmd", "c_hat_fx_act",
             "lambda1", "lambda2", "lambda3",
-            "m_tau", "vel_norm", "force_norm",
+            "m_tau", "e_tau_norm", "vel_norm", "force_norm",
             "rho_v", "rho_f",
             "alpha_v", "alpha_f",
             "tr_l_v", "tr_l_f",
@@ -241,7 +243,7 @@ class ROSDataBuffer(Node):
             self.create_subscription(Float64MultiArray, packed_topic, self.cb_packed_debug, 10)
 
         self.timer = self.create_timer(1.0 / self.update_hz, self.log_snapshot)
-        self.get_logger().info("normal_vector_debug started")
+        self.get_logger().info("normal_vector_lvlf started")
 
     def cb_contact_quat(self, msg: QuaternionStamped) -> None:
         q = msg.quaternion
@@ -306,6 +308,8 @@ class ROSDataBuffer(Node):
             self.latest["lambda2"] = float(data[1])
             self.latest["lambda3"] = float(data[2])
             self.latest["m_tau"] = float(data[3])
+            if len(data) > 52:
+                self.latest["e_tau_norm"] = float(data[52])
             self.latest["vel_norm"] = float(data[4])
             self.latest["force_norm"] = float(data[5])
             self.latest["rho_v"] = float(data[6])
@@ -374,7 +378,7 @@ class PlotWindow(QMainWindow):
     def __init__(self, rosbuf: ROSDataBuffer):
         super().__init__()
         self.rosbuf = rosbuf
-        self.setWindowTitle("normal_vector_debug")
+        self.setWindowTitle("normal_vector_lvlf")
 
         pg.setConfigOptions(antialias=True)
 
@@ -398,7 +402,7 @@ class PlotWindow(QMainWindow):
 
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_all)
-        self.timer.start(350)
+        self.timer.start(max(1, int(round(1000.0 / self.rosbuf.render_hz))))
 
         self.setFixedWidth(720)
         self.resize(720, 1460)
@@ -488,9 +492,8 @@ class PlotWindow(QMainWindow):
         self.curve_l3 = self.plot_lambda.plot(name="lambda3", pen=pg.mkPen((40, 90, 220), width=2))
         self.plot_lambda.setYRange(0.0, 1.1, padding=0.0)
 
-        self.plot_mtau = self._make_plot("m_tau", "ratio", min_height=125)
-        self.curve_mtau = self.plot_mtau.plot(name="m_tau", pen=pg.mkPen((120, 80, 220), width=2))
-        self.plot_mtau.setYRange(0.0, 1.1, padding=0.0)
+        self.plot_mtau = self._make_plot("e_tau_norm", "torque [N m]", min_height=125)
+        self.curve_mtau = self.plot_mtau.plot(name="e_tau_norm", pen=pg.mkPen((120, 80, 220), width=2))
 
         self.plot_vel = self._make_plot("|v_c|", "vel [m/s]", min_height=125)
         self.curve_vel = self.plot_vel.plot(name="|v_c|", pen=pg.mkPen((80, 180, 120), width=2))
@@ -602,7 +605,7 @@ class PlotWindow(QMainWindow):
         self.curve_l1.setData(t_win, arr["lambda1"][mask])
         self.curve_l2.setData(t_win, arr["lambda2"][mask])
         self.curve_l3.setData(t_win, arr["lambda3"][mask])
-        self.curve_mtau.setData(t_win, arr["m_tau"][mask])
+        self.curve_mtau.setData(t_win, arr["e_tau_norm"][mask])
         self.curve_vel.setData(t_win, arr["vel_norm"][mask])
         self.curve_force.setData(t_win, arr["force_norm"][mask])
 

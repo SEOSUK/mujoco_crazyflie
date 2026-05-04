@@ -15,6 +15,7 @@
 
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/vector3_stamped.hpp>
+#include <geometry_msgs/msg/quaternion_stamped.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
 #include <geometry_msgs/msg/wrench_stamped.hpp>
@@ -34,6 +35,7 @@
 #include <string>
 #include <ctime>
 #include <filesystem>
+#include <limits>
 #include <cstdlib>
 #include <cerrno>
 #include <cstring>
@@ -57,6 +59,11 @@ static inline double pitch_from_quat(double x, double y, double z, double w)
 static inline double yaw_from_quat(double x, double y, double z, double w)
 {
   return std::atan2(2.0*(w*z + x*y), 1.0 - 2.0*(y*y + z*z));
+}
+
+static inline double quiet_nan()
+{
+  return std::numeric_limits<double>::quiet_NaN();
 }
 
 static std::string expand_user(const std::string& path)
@@ -155,6 +162,9 @@ public:
     sub_pose_ = create_subscription<geometry_msgs::msg::PoseStamped>(
       "/crazyflie/out/pose", 10,
       std::bind(&DataLogger::cb_pose, this, std::placeholders::_1));
+    sub_ee_pose_ = create_subscription<geometry_msgs::msg::PoseStamped>(
+      "/crazyflie/out/EE_pose", 10,
+      std::bind(&DataLogger::cb_ee_pose, this, std::placeholders::_1));
 
     sub_vel_ = create_subscription<geometry_msgs::msg::Vector3Stamped>(
       "/crazyflie/out/vel", 10,
@@ -195,6 +205,27 @@ public:
     sub_cmd_force_ = create_subscription<std_msgs::msg::Float32>(
       "su/cmd_force", 10,
       std::bind(&DataLogger::cb_cmd_force, this, std::placeholders::_1));
+    sub_contact_vel_cmd_ = create_subscription<geometry_msgs::msg::Vector3Stamped>(
+      "/su/debug/contact_vel_cmd", 10,
+      std::bind(&DataLogger::cb_contact_vel_cmd, this, std::placeholders::_1));
+    sub_contact_vel_actual_ = create_subscription<geometry_msgs::msg::Vector3Stamped>(
+      "/su/debug/contact_vel_actual", 10,
+      std::bind(&DataLogger::cb_contact_vel_actual, this, std::placeholders::_1));
+    sub_force_actual_ = create_subscription<std_msgs::msg::Float32>(
+      "/su/contact_force_x", 10,
+      std::bind(&DataLogger::cb_force_actual, this, std::placeholders::_1));
+    sub_normal_debug_metrics_ = create_subscription<std_msgs::msg::Float64MultiArray>(
+      "/normal_vector/debug_metrics", 10,
+      std::bind(&DataLogger::cb_normal_debug_metrics, this, std::placeholders::_1));
+    sub_normal_quat_pure_ = create_subscription<geometry_msgs::msg::QuaternionStamped>(
+      "/estimated_contact_frame_quat_pure", 10,
+      std::bind(&DataLogger::cb_normal_quat_pure, this, std::placeholders::_1));
+    sub_normal_quat_ke_ = create_subscription<geometry_msgs::msg::QuaternionStamped>(
+      "/estimated_contact_frame_quat", 10,
+      std::bind(&DataLogger::cb_normal_quat_ke, this, std::placeholders::_1));
+    sub_normal_quat_ke_alt_ = create_subscription<geometry_msgs::msg::QuaternionStamped>(
+      "/estimated_contact_frame_quat_ke_alt", 10,
+      std::bind(&DataLogger::cb_normal_quat_ke_alt, this, std::placeholders::_1));
 
     sub_force_lpf_ = create_subscription<std_msgs::msg::Float64MultiArray>(
       "/su/force_lpf", 10,
@@ -209,6 +240,9 @@ public:
     sub_mob_wrench_2nd_tau_ = create_subscription<geometry_msgs::msg::WrenchStamped>(
       "/crazyflie/out/mob_2nd_tau", 10,
       std::bind(&DataLogger::cb_mob_wrench_2nd_tau, this, std::placeholders::_1));
+    sub_mob_wrench_2nd_tau_ke_alt_ = create_subscription<geometry_msgs::msg::WrenchStamped>(
+      "/crazyflie/out/mob_2nd_tau_ke_alt", 10,
+      std::bind(&DataLogger::cb_mob_wrench_2nd_tau_ke_alt, this, std::placeholders::_1));
     sub_mob_2nd_tau_terms_ = create_subscription<geometry_msgs::msg::WrenchStamped>(
       "/crazyflie/out/mob_2nd_tau_terms", 10,
       std::bind(&DataLogger::cb_mob_2nd_tau_terms, this, std::placeholders::_1));
@@ -267,7 +301,27 @@ private:
       "mob_2nd_tau_consistency_x,mob_2nd_tau_consistency_y,mob_2nd_tau_consistency_z,"
       "mob_2nd_tau_tauhat_x,mob_2nd_tau_tauhat_y,mob_2nd_tau_tauhat_z,"
       "mob_2nd_tau_rxf_x,mob_2nd_tau_rxf_y,mob_2nd_tau_rxf_z,"
-      "wind_x,wind_y,wind_z\n";
+      "wind_x,wind_y,wind_z,"
+      "ee_pos_x,ee_pos_y,ee_pos_z,"
+      "c_hat_vy_cmd,c_hat_vy_act,c_hat_vz_cmd,c_hat_vz_act,"
+      "c_hat_fx_act,"
+      "n_geo_x,n_geo_y,n_geo_z,"
+      "n_f_x,n_f_y,n_f_z,"
+      "n_alg_x,n_alg_y,n_alg_z,"
+      "f_g_x,f_g_y,f_g_z,"
+      "offline_mob1_fx,offline_mob1_fy,offline_mob1_fz,offline_mob1_tx,offline_mob1_ty,offline_mob1_tz,"
+      "offline_mob2_fx,offline_mob2_fy,offline_mob2_fz,offline_mob2_tx,offline_mob2_ty,offline_mob2_tz,"
+      "offline_mobc_fx,offline_mobc_fy,offline_mobc_fz,offline_mobc_tx,offline_mobc_ty,offline_mobc_tz,"
+      "offline_mobc2_fx,offline_mobc2_fy,offline_mobc2_fz,offline_mobc2_tx,offline_mobc2_ty,offline_mobc2_tz,"
+      "offline_tauhat_x,offline_tauhat_y,offline_tauhat_z,"
+      "offline_rxf_x,offline_rxf_y,offline_rxf_z,"
+      "offline_etau_x,offline_etau_y,offline_etau_z,offline_rho_tau,"
+      "offline_normal_pure_nx,offline_normal_pure_ny,offline_normal_pure_nz,"
+      "offline_normal_k1_nx,offline_normal_k1_ny,offline_normal_k1_nz,"
+      "offline_normal_k2_nx,offline_normal_k2_ny,offline_normal_k2_nz,"
+      "offline_normal_k2_nolpf_nx,offline_normal_k2_nolpf_ny,offline_normal_k2_nolpf_nz,"
+      "offline_normal_k2_novcorr_nx,offline_normal_k2_novcorr_ny,offline_normal_k2_novcorr_nz,"
+      "offline_contact_force_x\n";
     csv_.flush();
   }
 
@@ -305,6 +359,13 @@ private:
     yaw_   = yaw_from_quat(qx, qy, qz, qw);
 
     have_pose_ = true;
+  }
+
+  void cb_ee_pose(const geometry_msgs::msg::PoseStamped::SharedPtr m)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    ee_pos_ << m->pose.position.x, m->pose.position.y, m->pose.position.z;
+    have_ee_pose_ = true;
   }
 
   void cb_vel(const geometry_msgs::msg::Vector3Stamped::SharedPtr m)
@@ -383,6 +444,70 @@ private:
     have_cmd_force_ = true;
   }
 
+  void cb_contact_vel_cmd(const geometry_msgs::msg::Vector3Stamped::SharedPtr m)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    c_hat_v_cmd_ << m->vector.x, m->vector.y, m->vector.z;
+    have_contact_vel_cmd_ = true;
+  }
+
+  void cb_contact_vel_actual(const geometry_msgs::msg::Vector3Stamped::SharedPtr m)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    c_hat_v_act_ << m->vector.x, m->vector.y, m->vector.z;
+    have_contact_vel_actual_ = true;
+  }
+
+  void cb_force_actual(const std_msgs::msg::Float32::SharedPtr m)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    c_hat_fx_act_ = static_cast<double>(m->data);
+    have_force_actual_ = true;
+  }
+
+  void cb_normal_debug_metrics(const std_msgs::msg::Float64MultiArray::SharedPtr m)
+  {
+    if (m->data.size() < 43) return;
+    std::lock_guard<std::mutex> lk(mtx_);
+    n_geo_ << m->data[28], m->data[29], m->data[30];
+    n_f_ << m->data[31], m->data[32], m->data[33];
+    n_alg_ << m->data[34], m->data[35], m->data[36];
+    f_g_ << m->data[40], m->data[41], m->data[42];
+    have_normal_debug_metrics_ = true;
+  }
+
+  Eigen::Vector3d quat_to_normal_world(const geometry_msgs::msg::QuaternionStamped::SharedPtr & m) const
+  {
+    const Eigen::Quaterniond q(
+      m->quaternion.w, m->quaternion.x, m->quaternion.y, m->quaternion.z);
+    if (q.norm() < 1.0e-9) {
+      return Eigen::Vector3d(quiet_nan(), quiet_nan(), quiet_nan());
+    }
+    const Eigen::Matrix3d rot = q.normalized().toRotationMatrix();
+    return rot.col(0);
+  }
+
+  void cb_normal_quat_pure(const geometry_msgs::msg::QuaternionStamped::SharedPtr m)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    normal_pure_ = quat_to_normal_world(m);
+    have_normal_quat_pure_ = true;
+  }
+
+  void cb_normal_quat_ke(const geometry_msgs::msg::QuaternionStamped::SharedPtr m)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    normal_ke_ = quat_to_normal_world(m);
+    have_normal_quat_ke_ = true;
+  }
+
+  void cb_normal_quat_ke_alt(const geometry_msgs::msg::QuaternionStamped::SharedPtr m)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    normal_ke_alt_ = quat_to_normal_world(m);
+    have_normal_quat_ke_alt_ = true;
+  }
+
 
   void cb_force_lpf(const std_msgs::msg::Float64MultiArray::SharedPtr m)
   {
@@ -415,6 +540,14 @@ private:
     mob_force_2nd_tau_ << m->wrench.force.x, m->wrench.force.y, m->wrench.force.z;
     mob_torque_2nd_tau_ << m->wrench.torque.x, m->wrench.torque.y, m->wrench.torque.z;
     have_mob_wrench_2nd_tau_ = true;
+  }
+
+  void cb_mob_wrench_2nd_tau_ke_alt(const geometry_msgs::msg::WrenchStamped::SharedPtr m)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    mob_force_2nd_tau_ke_alt_ << m->wrench.force.x, m->wrench.force.y, m->wrench.force.z;
+    mob_torque_2nd_tau_ke_alt_ << m->wrench.torque.x, m->wrench.torque.y, m->wrench.torque.z;
+    have_mob_wrench_2nd_tau_ke_alt_ = true;
   }
 
   void cb_mob_2nd_tau_terms(const geometry_msgs::msg::WrenchStamped::SharedPtr m)
@@ -450,12 +583,15 @@ private:
     Eigen::Vector3d cmd_pos, pos, vel, w, acc, angacc, vdes, wdes, tau, contact_F_raw, contact_F_filt;
     Eigen::Vector3d mob_force, mob_torque, mob_force_2nd_order, mob_torque_2nd_order;
     Eigen::Vector3d mob_force_2nd_tau, mob_torque_2nd_tau;
+    Eigen::Vector3d mob_force_2nd_tau_ke_alt, mob_torque_2nd_tau_ke_alt;
     Eigen::Vector3d mob_2nd_tau_kfep, mob_2nd_tau_consistency_term;
     Eigen::Vector3d mob_2nd_tau_tauhat_world, mob_2nd_tau_rxf_world;
     Eigen::Vector3d wind_force;
+    Eigen::Vector3d ee_pos, c_hat_v_cmd, c_hat_v_act, n_geo, n_f, n_alg, f_g;
+    Eigen::Vector3d normal_pure, normal_ke, normal_ke_alt;
     double cmd_yaw, roll, pitch, yaw;
     double rolld, pitchd, yawd;
-    double Fz, cmd_force, F_error_dot_raw, F_error_dot_filt;
+    double Fz, cmd_force, F_error_dot_raw, F_error_dot_filt, c_hat_fx_act;
 
 
     uint32_t mask;
@@ -490,11 +626,24 @@ private:
       mob_torque_2nd_order = mob_torque_2nd_order_;
       mob_force_2nd_tau = mob_force_2nd_tau_;
       mob_torque_2nd_tau = mob_torque_2nd_tau_;
+      mob_force_2nd_tau_ke_alt = mob_force_2nd_tau_ke_alt_;
+      mob_torque_2nd_tau_ke_alt = mob_torque_2nd_tau_ke_alt_;
       mob_2nd_tau_kfep = mob_2nd_tau_kfep_;
       mob_2nd_tau_consistency_term = mob_2nd_tau_consistency_term_;
       mob_2nd_tau_tauhat_world = mob_2nd_tau_tauhat_world_;
       mob_2nd_tau_rxf_world = mob_2nd_tau_rxf_world_;
       wind_force = wind_force_;
+      ee_pos = ee_pos_;
+      c_hat_v_cmd = c_hat_v_cmd_;
+      c_hat_v_act = c_hat_v_act_;
+      c_hat_fx_act = c_hat_fx_act_;
+      n_geo = n_geo_;
+      n_f = n_f_;
+      n_alg = n_alg_;
+      f_g = f_g_;
+      normal_pure = normal_pure_;
+      normal_ke = normal_ke_;
+      normal_ke_alt = normal_ke_alt_;
 
 
       mask = 0u;
@@ -518,13 +667,22 @@ private:
       mask |= (have_mob_2nd_tau_terms_ ? (1u<<17) : 0u);
       mask |= (have_mob_2nd_tau_consistency_ ? (1u<<18) : 0u);
       mask |= (have_wind_ ? (1u<<19) : 0u);
+      mask |= (have_ee_pose_ ? (1u<<20) : 0u);
+      mask |= (have_contact_vel_cmd_ ? (1u<<21) : 0u);
+      mask |= (have_contact_vel_actual_ ? (1u<<22) : 0u);
+      mask |= (have_force_actual_ ? (1u<<23) : 0u);
+      mask |= (have_normal_debug_metrics_ ? (1u<<24) : 0u);
+      mask |= (have_mob_wrench_2nd_tau_ke_alt_ ? (1u<<25) : 0u);
+      mask |= (have_normal_quat_pure_ ? (1u<<26) : 0u);
+      mask |= (have_normal_quat_ke_ ? (1u<<27) : 0u);
+      mask |= (have_normal_quat_ke_alt_ ? (1u<<28) : 0u);
 
     }
 
     const double t = this->get_clock()->now().seconds();
 
     std_msgs::msg::Float64MultiArray msg;
-    msg.data.resize(79);
+    msg.data.resize(99);
 
     msg.data[0]  = t;
 
@@ -622,6 +780,26 @@ private:
     msg.data[76] = wind_force.x();
     msg.data[77] = wind_force.y();
     msg.data[78] = wind_force.z();
+    msg.data[79] = ee_pos.x();
+    msg.data[80] = ee_pos.y();
+    msg.data[81] = ee_pos.z();
+    msg.data[82] = c_hat_v_cmd.y();
+    msg.data[83] = c_hat_v_act.y();
+    msg.data[84] = c_hat_v_cmd.z();
+    msg.data[85] = c_hat_v_act.z();
+    msg.data[86] = c_hat_fx_act;
+    msg.data[87] = n_geo.x();
+    msg.data[88] = n_geo.y();
+    msg.data[89] = n_geo.z();
+    msg.data[90] = n_f.x();
+    msg.data[91] = n_f.y();
+    msg.data[92] = n_f.z();
+    msg.data[93] = n_alg.x();
+    msg.data[94] = n_alg.y();
+    msg.data[95] = n_alg.z();
+    msg.data[96] = f_g.x();
+    msg.data[97] = f_g.y();
+    msg.data[98] = f_g.z();
 
 
 
@@ -656,7 +834,32 @@ private:
            << msg.data[67] << "," << msg.data[68] << "," << msg.data[69] << ","
            << msg.data[70] << "," << msg.data[71] << "," << msg.data[72] << ","
            << msg.data[73] << "," << msg.data[74] << "," << msg.data[75] << ","
-           << msg.data[76] << "," << msg.data[77] << "," << msg.data[78]
+           << msg.data[76] << "," << msg.data[77] << "," << msg.data[78] << ","
+           << msg.data[79] << "," << msg.data[80] << "," << msg.data[81] << ","
+           << msg.data[82] << "," << msg.data[83] << "," << msg.data[84] << "," << msg.data[85] << ","
+           << msg.data[86] << ","
+           << msg.data[87] << "," << msg.data[88] << "," << msg.data[89] << ","
+           << msg.data[90] << "," << msg.data[91] << "," << msg.data[92] << ","
+           << msg.data[93] << "," << msg.data[94] << "," << msg.data[95] << ","
+           << msg.data[96] << "," << msg.data[97] << "," << msg.data[98] << ","
+           << mob_force.x() << "," << mob_force.y() << "," << mob_force.z() << ","
+           << mob_torque.x() << "," << mob_torque.y() << "," << mob_torque.z() << ","
+           << mob_force_2nd_order.x() << "," << mob_force_2nd_order.y() << "," << mob_force_2nd_order.z() << ","
+           << mob_torque_2nd_order.x() << "," << mob_torque_2nd_order.y() << "," << mob_torque_2nd_order.z() << ","
+           << mob_force_2nd_tau.x() << "," << mob_force_2nd_tau.y() << "," << mob_force_2nd_tau.z() << ","
+           << mob_torque_2nd_tau.x() << "," << mob_torque_2nd_tau.y() << "," << mob_torque_2nd_tau.z() << ","
+           << mob_force_2nd_tau_ke_alt.x() << "," << mob_force_2nd_tau_ke_alt.y() << "," << mob_force_2nd_tau_ke_alt.z() << ","
+           << mob_torque_2nd_tau_ke_alt.x() << "," << mob_torque_2nd_tau_ke_alt.y() << "," << mob_torque_2nd_tau_ke_alt.z() << ","
+           << mob_2nd_tau_tauhat_world.x() << "," << mob_2nd_tau_tauhat_world.y() << "," << mob_2nd_tau_tauhat_world.z() << ","
+           << mob_2nd_tau_rxf_world.x() << "," << mob_2nd_tau_rxf_world.y() << "," << mob_2nd_tau_rxf_world.z() << ","
+           << mob_2nd_tau_consistency_term.x() << "," << mob_2nd_tau_consistency_term.y() << "," << mob_2nd_tau_consistency_term.z() << ","
+           << quiet_nan() << ","
+           << normal_pure.x() << "," << normal_pure.y() << "," << normal_pure.z() << ","
+           << normal_ke.x() << "," << normal_ke.y() << "," << normal_ke.z() << ","
+           << normal_ke_alt.x() << "," << normal_ke_alt.y() << "," << normal_ke_alt.z() << ","
+           << quiet_nan() << "," << quiet_nan() << "," << quiet_nan() << ","
+           << quiet_nan() << "," << quiet_nan() << "," << quiet_nan() << ","
+           << c_hat_fx_act
            << "\n";
 
       if (++csv_line_count_ % 200 == 0) {
@@ -672,6 +875,7 @@ private:
   double cmd_yaw_{0.0};
 
   Eigen::Vector3d pos_{0,0,0};
+  Eigen::Vector3d ee_pos_{0,0,0};
   double roll_{0.0}, pitch_{0.0}, yaw_{0.0};
 
   Eigen::Vector3d vel_{0,0,0};
@@ -691,6 +895,16 @@ private:
 
 
   double cmd_force_{0.0};
+  Eigen::Vector3d c_hat_v_cmd_{0,0,0};
+  Eigen::Vector3d c_hat_v_act_{0,0,0};
+  double c_hat_fx_act_{0.0};
+  Eigen::Vector3d n_geo_{0,0,0};
+  Eigen::Vector3d n_f_{0,0,0};
+  Eigen::Vector3d n_alg_{0,0,0};
+  Eigen::Vector3d f_g_{0,0,0};
+  Eigen::Vector3d normal_pure_{quiet_nan(), quiet_nan(), quiet_nan()};
+  Eigen::Vector3d normal_ke_{quiet_nan(), quiet_nan(), quiet_nan()};
+  Eigen::Vector3d normal_ke_alt_{quiet_nan(), quiet_nan(), quiet_nan()};
   double F_error_dot_raw_{0.0};
   double F_error_dot_filt_{0.0};
   Eigen::Vector3d mob_force_v1_{0,0,0};
@@ -699,6 +913,8 @@ private:
   Eigen::Vector3d mob_torque_2nd_order_{0,0,0};
   Eigen::Vector3d mob_force_2nd_tau_{0,0,0};
   Eigen::Vector3d mob_torque_2nd_tau_{0,0,0};
+  Eigen::Vector3d mob_force_2nd_tau_ke_alt_{0,0,0};
+  Eigen::Vector3d mob_torque_2nd_tau_ke_alt_{0,0,0};
   Eigen::Vector3d mob_2nd_tau_kfep_{0,0,0};
   Eigen::Vector3d mob_2nd_tau_consistency_term_{0,0,0};
   Eigen::Vector3d mob_2nd_tau_tauhat_world_{0,0,0};
@@ -709,6 +925,7 @@ private:
   bool have_force_lpf_{false};
   bool have_cmd_{false};
   bool have_pose_{false};
+  bool have_ee_pose_{false};
   bool have_vel_{false};
   bool have_w_{false};
   bool have_acc_{false};
@@ -718,14 +935,22 @@ private:
   bool have_wdes_{false};
   bool have_input_{false};
   bool have_cmd_force_{false};
+  bool have_contact_vel_cmd_{false};
+  bool have_contact_vel_actual_{false};
+  bool have_force_actual_{false};
+  bool have_normal_debug_metrics_{false};
   bool have_contact_raw_{false};
   bool have_contact_filt_{false};
   bool have_mob_wrench_{false};
   bool have_mob_wrench_2nd_order_{false};
   bool have_mob_wrench_2nd_tau_{false};
+  bool have_mob_wrench_2nd_tau_ke_alt_{false};
   bool have_mob_2nd_tau_terms_{false};
   bool have_mob_2nd_tau_consistency_{false};
   bool have_wind_{false};
+  bool have_normal_quat_pure_{false};
+  bool have_normal_quat_ke_{false};
+  bool have_normal_quat_ke_alt_{false};
 
   double publish_hz_{400.0};
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr pub_;
@@ -734,6 +959,7 @@ private:
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_cmd_;
   rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr sub_input_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_pose_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_ee_pose_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_vel_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_w_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_acc_;
@@ -744,10 +970,18 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_contact_raw_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_contact_filt_;
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_cmd_force_;
+  rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_contact_vel_cmd_;
+  rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_contact_vel_actual_;
+  rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_force_actual_;
+  rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_normal_debug_metrics_;
+  rclcpp::Subscription<geometry_msgs::msg::QuaternionStamped>::SharedPtr sub_normal_quat_pure_;
+  rclcpp::Subscription<geometry_msgs::msg::QuaternionStamped>::SharedPtr sub_normal_quat_ke_;
+  rclcpp::Subscription<geometry_msgs::msg::QuaternionStamped>::SharedPtr sub_normal_quat_ke_alt_;
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_force_lpf_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_wrench_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_wrench_2nd_order_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_wrench_2nd_tau_;
+  rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_wrench_2nd_tau_ke_alt_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_2nd_tau_terms_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_2nd_tau_consistency_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_wind_;

@@ -180,18 +180,23 @@ inline std::array<double, 4> quat_nlerp_wxyz(
   });
 }
 
-inline std::array<double, 3> sine3(
-  const double t,
-  const double hz,
+inline std::array<double, 3> sample_truncated_gaussian3(
+  std::mt19937 & rng,
   const std::array<double, 3>& amp,
-  const std::array<double, 3>& phase)
+  const std::array<double, 3>& var)
 {
-  const double w = 2.0 * M_PI * hz;
-  return {
-    amp[0] * std::sin(w*t + phase[0]),
-    amp[1] * std::sin(w*t + phase[1]),
-    amp[2] * std::sin(w*t + phase[2])
-  };
+  std::array<double, 3> out{};
+  for (int i = 0; i < 3; ++i) {
+    const double sigma = std::sqrt(std::max(0.0, var[i]));
+    double sample = 0.0;
+    if (sigma > 0.0) {
+      std::normal_distribution<double> dist(0.0, sigma);
+      sample = dist(rng);
+    }
+    const double limit = std::max(0.0, amp[i]);
+    out[i] = std::clamp(sample, -limit, limit);
+  }
+  return out;
 }
 
 inline std::array<double, 3> to_amp3(const std::vector<double>& v)
@@ -237,7 +242,7 @@ public:
   {
     declare_parameters();
     load_parameters();
-    init_noise_phase();
+    init_noise_generator();
 
     load_model();
     bind_handles();
@@ -298,6 +303,11 @@ private:
     declare_parameter("noise.att_amp", std::vector<double>{0.0, 0.0, 0.0});
     declare_parameter("noise.ang_vel_amp", std::vector<double>{0.0, 0.0, 0.0});
     declare_parameter("noise.ang_acc_amp", std::vector<double>{0.0, 0.0, 0.0});
+    declare_parameter("noise.pos_var", std::vector<double>{0.0, 0.0, 0.0});
+    declare_parameter("noise.vel_var", std::vector<double>{0.0, 0.0, 0.0});
+    declare_parameter("noise.att_var", std::vector<double>{0.0, 0.0, 0.0});
+    declare_parameter("noise.ang_vel_var", std::vector<double>{0.0, 0.0, 0.0});
+    declare_parameter("noise.ang_acc_var", std::vector<double>{0.0, 0.0, 0.0});
     declare_parameter("noise.lpf.enable", false);
     declare_parameter("noise.lpf.cutoff_hz", 30.0);
 
@@ -326,6 +336,7 @@ private:
     declare_parameter("wind.indicator_force_gain", 1.0);
     declare_parameter("wind.indicator_flutter_gain", 0.15);
     declare_parameter("wind.indicator_flutter_hz", 6.0);
+    declare_parameter("end_effector_offset", std::vector<double>{0.09, 0.0, 0.085});
 
     declare_parameter("viewer.orbit_sensitivity", 1.0);
     declare_parameter("viewer.pan_sensitivity", 1.2);
@@ -385,6 +396,11 @@ private:
     att_amp_ = to_amp3(get_parameter("noise.att_amp").as_double_array());
     ang_vel_amp_ = to_amp3(get_parameter("noise.ang_vel_amp").as_double_array());
     ang_acc_amp_ = to_amp3(get_parameter("noise.ang_acc_amp").as_double_array());
+    pos_var_ = to_amp3(get_parameter("noise.pos_var").as_double_array());
+    vel_var_ = to_amp3(get_parameter("noise.vel_var").as_double_array());
+    att_var_ = to_amp3(get_parameter("noise.att_var").as_double_array());
+    ang_vel_var_ = to_amp3(get_parameter("noise.ang_vel_var").as_double_array());
+    ang_acc_var_ = to_amp3(get_parameter("noise.ang_acc_var").as_double_array());
 
     act_delay_enable_ = get_parameter("actuator.delay.enable").as_bool();
     act_delay_sec_ = get_parameter("actuator.delay.sec").as_double();
@@ -397,6 +413,7 @@ private:
     wind_indicator_force_gain_ = get_parameter("wind.indicator_force_gain").as_double();
     wind_indicator_flutter_gain_ = get_parameter("wind.indicator_flutter_gain").as_double();
     wind_indicator_flutter_hz_ = get_parameter("wind.indicator_flutter_hz").as_double();
+    end_effector_offset_ = vec3_from_parameter("end_effector_offset");
 
     viewer_orbit_sensitivity_ = get_parameter("viewer.orbit_sensitivity").as_double();
     viewer_pan_sensitivity_ = get_parameter("viewer.pan_sensitivity").as_double();
@@ -422,6 +439,22 @@ private:
     model_ = mj_loadXML(xml_path.c_str(), nullptr, error, sizeof(error));
     if (!model_) {
       throw std::runtime_error(std::string("mj_loadXML failed: ") + error);
+    }
+
+    const int bid_ee_tip = mj_name2id(model_, mjOBJ_BODY, "ee_tip");
+    if (bid_ee_tip < 0) {
+      RCLCPP_WARN(
+        get_logger(),
+        "Body 'ee_tip' not found. end_effector_offset was not applied to MuJoCo tip.");
+    } else {
+      const int adr = 3 * bid_ee_tip;
+      model_->body_pos[adr + 0] = end_effector_offset_[0];
+      model_->body_pos[adr + 1] = end_effector_offset_[1];
+      model_->body_pos[adr + 2] = end_effector_offset_[2];
+      RCLCPP_INFO(
+        get_logger(),
+        "Applied MuJoCo ee_tip offset = [%.4f %.4f %.4f]",
+        end_effector_offset_[0], end_effector_offset_[1], end_effector_offset_[2]);
     }
 
     data_ = mj_makeData(model_);
@@ -783,19 +816,10 @@ private:
     return read_sensor_vec3(imu_gyro_sid_);
   }
 
-  void init_noise_phase()
+  void init_noise_generator()
   {
     std::seed_seq seq{static_cast<unsigned int>(rng_seed_ == 0 ? 1 : rng_seed_)};
-    std::mt19937 gen(seq);
-    std::uniform_real_distribution<double> uni(0.0, 2.0 * M_PI);
-
-    for (int i = 0; i < 3; ++i) {
-      pos_phase_[i] = uni(gen);
-      vel_phase_[i] = uni(gen);
-      att_phase_[i] = uni(gen);
-      ang_vel_phase_[i] = uni(gen);
-      ang_acc_phase_[i] = uni(gen);
-    }
+    noise_rng_ = std::mt19937(seq);
   }
 
   void update_noise()
@@ -810,16 +834,25 @@ private:
     }
 
     const auto now = get_clock()->now();
-    if (noise_t0_.nanoseconds() == 0) {
-      noise_t0_ = now;
+    if (noise_last_update_.nanoseconds() == 0) {
+      noise_last_update_ = now;
+      pos_noise_ = sample_truncated_gaussian3(noise_rng_, pos_amp_, pos_var_);
+      vel_noise_ = sample_truncated_gaussian3(noise_rng_, vel_amp_, vel_var_);
+      att_noise_ = sample_truncated_gaussian3(noise_rng_, att_amp_, att_var_);
+      ang_vel_noise_ = sample_truncated_gaussian3(noise_rng_, ang_vel_amp_, ang_vel_var_);
+      ang_acc_noise_ = sample_truncated_gaussian3(noise_rng_, ang_acc_amp_, ang_acc_var_);
+      return;
     }
 
-    const double t = (now - noise_t0_).seconds();
-    pos_noise_ = sine3(t, noise_hz_, pos_amp_, pos_phase_);
-    vel_noise_ = sine3(t, noise_hz_, vel_amp_, vel_phase_);
-    att_noise_ = sine3(t, noise_hz_, att_amp_, att_phase_);
-    ang_vel_noise_ = sine3(t, noise_hz_, ang_vel_amp_, ang_vel_phase_);
-    ang_acc_noise_ = sine3(t, noise_hz_, ang_acc_amp_, ang_acc_phase_);
+    const double sample_period = (noise_hz_ > 1e-9) ? (1.0 / noise_hz_) : 0.0;
+    if (sample_period <= 0.0 || (now - noise_last_update_).seconds() >= sample_period) {
+      noise_last_update_ = now;
+      pos_noise_ = sample_truncated_gaussian3(noise_rng_, pos_amp_, pos_var_);
+      vel_noise_ = sample_truncated_gaussian3(noise_rng_, vel_amp_, vel_var_);
+      att_noise_ = sample_truncated_gaussian3(noise_rng_, att_amp_, att_var_);
+      ang_vel_noise_ = sample_truncated_gaussian3(noise_rng_, ang_vel_amp_, ang_vel_var_);
+      ang_acc_noise_ = sample_truncated_gaussian3(noise_rng_, ang_acc_amp_, ang_acc_var_);
+    }
   }
 
   void publish_outputs(const double dt_pub)
@@ -1328,14 +1361,15 @@ private:
   std::array<double, 3> att_amp_{{0.0, 0.0, 0.0}};
   std::array<double, 3> ang_vel_amp_{{0.0, 0.0, 0.0}};
   std::array<double, 3> ang_acc_amp_{{0.0, 0.0, 0.0}};
+  std::array<double, 3> pos_var_{{0.0, 0.0, 0.0}};
+  std::array<double, 3> vel_var_{{0.0, 0.0, 0.0}};
+  std::array<double, 3> att_var_{{0.0, 0.0, 0.0}};
+  std::array<double, 3> ang_vel_var_{{0.0, 0.0, 0.0}};
+  std::array<double, 3> ang_acc_var_{{0.0, 0.0, 0.0}};
+  std::array<double, 3> end_effector_offset_{{0.09, 0.0, 0.085}};
 
-  std::array<double, 3> pos_phase_{{0.0, 0.0, 0.0}};
-  std::array<double, 3> vel_phase_{{0.0, 0.0, 0.0}};
-  std::array<double, 3> att_phase_{{0.0, 0.0, 0.0}};
-  std::array<double, 3> ang_vel_phase_{{0.0, 0.0, 0.0}};
-  std::array<double, 3> ang_acc_phase_{{0.0, 0.0, 0.0}};
-
-  rclcpp::Time noise_t0_{0, 0, RCL_ROS_TIME};
+  std::mt19937 noise_rng_{1u};
+  rclcpp::Time noise_last_update_{0, 0, RCL_ROS_TIME};
   bool noise_lpf_initialized_{false};
   bool state_lpf_initialized_{false};
 

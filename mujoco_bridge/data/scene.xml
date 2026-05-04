@@ -3,7 +3,8 @@
   <include file="wall.xml"/>
 
   <visual>
-    <rgba haze="0.15 0.25 0.35 1"/>
+    <rgba haze="0.28 0.36 0.44 1"/>
+    <headlight ambient="0.38 0.38 0.38" diffuse="0.72 0.72 0.72" specular="0.08 0.08 0.08"/>
     <quality shadowsize="8192"/>
     <global azimuth="220" elevation="-30"/>
   </visual>
@@ -12,8 +13,8 @@
     <texture
       type="skybox"
       builtin="gradient"
-      rgb1="0.3 0.5 0.7"
-      rgb2="0 0 0"
+      rgb1="0.45 0.62 0.8"
+      rgb2="0.12 0.18 0.24"
       width="512"
       height="3072"/>
     <texture
@@ -31,7 +32,7 @@
       texture="groundplane"
       texuniform="true"
       texrepeat="5 5"
-      reflectance="0.2"/>
+      reflectance="0"/>
     <material name="wind_pole_mat" rgba="0.08 0.08 0.08 1"/>
     <material name="wind_mast_mat" rgba="0.05 0.25 0.9 1"/>
   </asset>
@@ -43,6 +44,14 @@
   </default>
 
   <worldbody>
+    <light
+      name="fill_light"
+      pos="0 0 2.5"
+      dir="0 0 -1"
+      directional="true"
+      diffuse="0.35 0.35 0.35"
+      specular="0.05 0.05 0.05"
+      castshadow="false"/>
     <geom
       name="ground"
       type="plane"

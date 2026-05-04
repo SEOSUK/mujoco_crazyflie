@@ -30,7 +30,9 @@ setup(
             'data_logging_arrow_pwm = flyingpen_plotter.data_logging_arrow_pwm:main',                        
             'data_logging_rpy_acceleration = flyingpen_plotter.data_logging_rpy_acceleration:main',
             'data_logging_chat_frame = flyingpen_plotter.data_logging_chat_frame:main',
-            'normal_vector_debug = flyingpen_plotter.Normal_vector_debug:main',
+            'normal_vector_lvlf = flyingpen_plotter.Normal_vector_LvLf:main',
+            'normal_vector_force = flyingpen_plotter.Normal_vector_force:main',
+            'normal_vector_mob = flyingpen_plotter.Normal_vector_mob:main',
             'mob_consistency = flyingpen_plotter.MOB_consistency:main',
 
         ],
