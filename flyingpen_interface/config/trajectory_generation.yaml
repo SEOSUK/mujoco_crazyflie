@@ -9,15 +9,15 @@ trajectory_generation:
     force_adm_kp: 5.0
     force_adm_kd: 0.005
 
-    # g key trajectory selector: "lissajous", "circle", or "square"
+    # g key trajectory selector: "lissajous", "circle", "square", or "constant_accel"
     trajectory:
-      type: "circle"
+      type: "lissajous"
       ramp_sec: 2.0
 
     lissajous:
-      amp_y: 0.40
-      amp_z: 0.20
-      period_y: 20.0
+      amp_y: 0.20
+      amp_z: 0.00
+      period_y: 15.0
       period_z: 10.0
 
     circle:
@@ -34,3 +34,7 @@ trajectory_generation:
       center_y: 0.0
       center_z: 0.0
       phase: 0.0
+
+    constant_accel:
+      acc_y: 0.005
+      acc_z: 0.00

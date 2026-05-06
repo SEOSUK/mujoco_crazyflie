@@ -66,34 +66,24 @@ else
 end
 
 if size(A, 2) >= 58
-    mob1_force = [col(47), col(48), col(49)];
-    mob1_torque = [col(50), col(51), col(52)];
-    mob2_force = [col(53), col(54), col(55)];
-    mob2_torque = [col(56), col(57), col(58)];
+    mob2_force = [col(47), col(48), col(49)];
+    mob2_torque = [col(50), col(51), col(52)];
+    mob3_force = [col(53), col(54), col(55)];
+    mob3_torque = [col(56), col(57), col(58)];
     mob_compare_valid = true;
 else
     z3 = zeros(size(A,1), 3);
-    mob1_force = z3; mob1_torque = z3;
     mob2_force = z3; mob2_torque = z3;
+    mob3_force = z3; mob3_torque = z3;
     mob_compare_valid = false;
     warning('MOB and second-order force/torque columns not found. Re-log with updated data_logger for 3x2 MOB compare figure.');
 end
 
-if size(A, 2) >= 64
-    mob3_force = [col(59), col(60), col(61)];
-    mob3_torque = [col(62), col(63), col(64)];
-    mob_compare_3way_valid = true;
-else
-    z3 = zeros(size(A,1), 3);
-    mob3_force = z3; mob3_torque = z3;
-    mob_compare_3way_valid = false;
-end
-
-if size(A, 2) >= 76
-    mob_tau_kfep = [col(65), col(66), col(67)];
-    mob_tau_consistency = [col(68), col(69), col(70)];
-    mob_tau_tauhat = [col(71), col(72), col(73)];
-    mob_tau_rxf = [col(74), col(75), col(76)];
+if size(A, 2) >= 70
+    mob_tau_kfep = [col(59), col(60), col(61)];
+    mob_tau_consistency = [col(62), col(63), col(64)];
+    mob_tau_tauhat = [col(65), col(66), col(67)];
+    mob_tau_rxf = [col(68), col(69), col(70)];
     mob_tau_debug_valid = true;
 else
     z3 = zeros(size(A,1), 3);
@@ -104,25 +94,25 @@ else
     mob_tau_debug_valid = false;
 end
 
-if size(A, 2) >= 79
-    wind_force = [col(77), col(78), col(79)];
+if size(A, 2) >= 73
+    wind_force = [col(71), col(72), col(73)];
     wind_valid = true;
 else
     wind_force = zeros(size(A,1), 3);
     wind_valid = false;
 end
 
-if size(A, 2) >= 99
-    ee_pos = [col(80), col(81), col(82)];
-    c_hat_vy_cmd = col(83);
-    c_hat_vy_act = col(84);
-    c_hat_vz_cmd = col(85);
-    c_hat_vz_act = col(86);
-    c_hat_fx_act = col(87);
-    n_geo = [col(88), col(89), col(90)];
-    n_f = [col(91), col(92), col(93)];
-    n_alg = [col(94), col(95), col(96)];
-    f_g = [col(97), col(98), col(99)];
+if size(A, 2) >= 93
+    ee_pos = [col(74), col(75), col(76)];
+    c_hat_vy_cmd = col(77);
+    c_hat_vy_act = col(78);
+    c_hat_vz_cmd = col(79);
+    c_hat_vz_act = col(80);
+    c_hat_fx_act = col(81);
+    n_geo = [col(82), col(83), col(84)];
+    n_f = [col(85), col(86), col(87)];
+    n_alg = [col(88), col(89), col(90)];
+    f_g = [col(91), col(92), col(93)];
     normal_force_panel_valid = true;
 else
     ee_pos = nan(size(A, 1), 3);
@@ -147,15 +137,6 @@ mobc_torque = [ ...
     get_any(["offline_mobc_tx"]), ...
     get_any(["offline_mobc_ty"]), ...
     get_any(["offline_mobc_tz"])];
-mob_ke_alt_force = [ ...
-    get_any(["offline_mobc2_fx", "mob_2nd_tau_ke_alt_Fx", "mob_2nd_tau_ke2_Fx"]), ...
-    get_any(["offline_mobc2_fy", "mob_2nd_tau_ke_alt_Fy", "mob_2nd_tau_ke2_Fy"]), ...
-    get_any(["offline_mobc2_fz", "mob_2nd_tau_ke_alt_Fz", "mob_2nd_tau_ke2_Fz"])];
-mob_ke_alt_torque = [ ...
-    get_any(["offline_mobc2_tx", "mob_2nd_tau_ke_alt_Tx", "mob_2nd_tau_ke2_Tx"]), ...
-    get_any(["offline_mobc2_ty", "mob_2nd_tau_ke_alt_Ty", "mob_2nd_tau_ke2_Ty"]), ...
-    get_any(["offline_mobc2_tz", "mob_2nd_tau_ke_alt_Tz", "mob_2nd_tau_ke2_Tz"])];
-
 normal_est_pure = [ ...
     get_any(["offline_normal_pure_nx"]), ...
     get_any(["offline_normal_pure_ny"]), ...
@@ -164,26 +145,36 @@ normal_est_ke = [ ...
     get_any(["offline_normal_k1_nx", "offline_normal_ke_nx"]), ...
     get_any(["offline_normal_k1_ny", "offline_normal_ke_ny"]), ...
     get_any(["offline_normal_k1_nz", "offline_normal_ke_nz"])];
-normal_est_ke_alt = [ ...
-    get_any(["offline_normal_k2_nx", "offline_normal_ke_alt_nx", "offline_normal_ke2_nx"]), ...
-    get_any(["offline_normal_k2_ny", "offline_normal_ke_alt_ny", "offline_normal_ke2_ny"]), ...
-    get_any(["offline_normal_k2_nz", "offline_normal_ke_alt_nz", "offline_normal_ke2_nz"])];
+normal_est_ke_raw = [ ...
+    get_any(["offline_normal_ke_raw_nx"]), ...
+    get_any(["offline_normal_ke_raw_ny"]), ...
+    get_any(["offline_normal_ke_raw_nz"])];
+normal_est_ke_gamma_proj = [ ...
+    get_any(["offline_normal_ke_gamma_proj_nx"]), ...
+    get_any(["offline_normal_ke_gamma_proj_ny"]), ...
+    get_any(["offline_normal_ke_gamma_proj_nz"])];
+w_s_logged = [ ...
+    get_any(["offline_ws_x"]), ...
+    get_any(["offline_ws_y"]), ...
+    get_any(["offline_ws_z"])];
+gamma_v_logged = get_any(["offline_gamma_v"]);
+normal_est_vel_eps0 = [ ...
+    get_any(["offline_normal_vel_eps0_nx"]), ...
+    get_any(["offline_normal_vel_eps0_ny"]), ...
+    get_any(["offline_normal_vel_eps0_nz"])];
+normal_est_vel_eps = [ ...
+    get_any(["offline_normal_vel_eps_nx"]), ...
+    get_any(["offline_normal_vel_eps_ny"]), ...
+    get_any(["offline_normal_vel_eps_nz"])];
+normal_est_vel_eps0_gamma = [ ...
+    get_any(["offline_normal_vel_eps0_gamma_nx"]), ...
+    get_any(["offline_normal_vel_eps0_gamma_ny"]), ...
+    get_any(["offline_normal_vel_eps0_gamma_nz"])];
 
 if ~any(isfinite(mobc_force(:)))
     mobc_force = mob3_force;
     mobc_torque = mob3_torque;
 end
-if ~any(isfinite(mob_ke_alt_force(:)))
-    mob_ke_alt_force = [ ...
-        get_any(["mob_2nd_tau_ke_alt_Fx", "mob_2nd_tau_ke2_Fx"]), ...
-        get_any(["mob_2nd_tau_ke_alt_Fy", "mob_2nd_tau_ke2_Fy"]), ...
-        get_any(["mob_2nd_tau_ke_alt_Fz", "mob_2nd_tau_ke2_Fz"])];
-    mob_ke_alt_torque = [ ...
-        get_any(["mob_2nd_tau_ke_alt_Tx", "mob_2nd_tau_ke2_Tx"]), ...
-        get_any(["mob_2nd_tau_ke_alt_Ty", "mob_2nd_tau_ke2_Ty"]), ...
-        get_any(["mob_2nd_tau_ke_alt_Tz", "mob_2nd_tau_ke2_Tz"])];
-end
-
 %% ---- comparison signals ----
 mass_nominal = 0.04338;
 mass_acc = mass_nominal .* acc_xyz;
@@ -197,7 +188,6 @@ cylinder_center = [1.5, 0.0, 0.0];
 [~, r_world] = thrust_world_from_pose_and_fz(att_pose(:,1), att_pose(:,2), att_pose(:,3), Fz, ee_offset_body);
 rxf_pure = cross_rows(r_world, mob2_force);
 rxf_consistency = cross_rows(r_world, mobc_force);
-rxf_ke_alt = cross_rows(r_world, mob_ke_alt_force);
 n_gt = estimate_gt_normal(ee_pos, environment_type, wall_x, cylinder_center);
 angle_n_geo_deg = angle_deg_rows(n_gt, normalize_rows(n_geo));
 angle_n_f_deg = angle_deg_rows(n_gt, normalize_rows(n_f));
@@ -205,16 +195,44 @@ angle_n_alg_deg = angle_deg_rows(n_gt, normalize_rows(n_alg));
 
 normal_est_pure = normalize_rows(normal_est_pure);
 normal_est_ke = normalize_rows(normal_est_ke);
-normal_est_ke_alt = normalize_rows(normal_est_ke_alt);
+normal_est_ke_raw = normalize_rows(normal_est_ke_raw);
+normal_est_ke_gamma_proj = normalize_rows(normal_est_ke_gamma_proj);
+normal_est_vel_eps0 = normalize_rows(normal_est_vel_eps0);
+normal_est_vel_eps = normalize_rows(normal_est_vel_eps);
+normal_est_vel_eps0_gamma = normalize_rows(normal_est_vel_eps0_gamma);
 if ~any(isfinite(normal_est_ke(:))) && normal_force_panel_valid
     normal_est_ke = normalize_rows(n_geo);
 end
+if ~any(isfinite(normal_est_ke_raw(:))) && normal_force_panel_valid
+    normal_est_ke_raw = normalize_rows(n_f);
+end
+if ~any(isfinite(normal_est_ke_raw(:)))
+    normal_est_ke_raw = normalize_rows(-mobc_force);
+end
+ke_force_ee_applied = -mobc_force;
+if ~any(isfinite(w_s_logged(:)))
+    w_s_logged = normalize_rows(vel_xyz);
+end
+if ~any(isfinite(gamma_v_logged))
+    speed_for_gamma = sqrt(sum(vel_xyz.^2, 2));
+    gamma_v_logged = (speed_for_gamma.^2) ./ (speed_for_gamma.^2 + 1.0e-2);
+end
+if ~any(isfinite(normal_est_ke_gamma_proj(:)))
+    normal_est_ke_gamma_proj = normalize_rows(project_rows_with_ws_gamma(ke_force_ee_applied, normalize_rows(vel_xyz), gamma_v_logged));
+end
+if ~any(isfinite(normal_est_vel_eps0(:)))
+    normal_est_vel_eps0 = normalize_rows(project_rows_with_ws(ke_force_ee_applied, normalize_rows(vel_xyz), true));
+end
+if ~any(isfinite(normal_est_vel_eps(:)))
+    normal_est_vel_eps = normalize_rows(project_rows_with_ws(ke_force_ee_applied, w_s_logged));
+end
+if ~any(isfinite(normal_est_vel_eps0_gamma(:)))
+    normal_est_vel_eps0_gamma = normalize_rows(project_rows_with_ws_gamma(ke_force_ee_applied, normalize_rows(vel_xyz), gamma_v_logged));
+end
 angle_true_pure_deg = angle_deg_rows(n_gt, normal_est_pure);
 angle_true_ke_deg = angle_deg_rows(n_gt, normal_est_ke);
-angle_true_ke_alt_deg = angle_deg_rows(n_gt, normal_est_ke_alt);
 mob2_force_norm = sqrt(sum(mob2_force.^2, 2));
 mobc_force_norm = sqrt(sum(mobc_force.^2, 2));
-mob_ke_alt_force_norm = sqrt(sum(mob_ke_alt_force.^2, 2));
 cmd_xyz = cmd_xyzyaw(:, 1:3);
 att_cmd = att_des_u;
 
@@ -236,160 +254,59 @@ disp("Done. Variables prepared:");
 disp("- pose_xyz / cmd_xyzyaw");
 disp("- mass_acc / force_world_default_cmp");
 disp("- att_pose / att_des_u");
-disp("- mob1_force / mob2_force / mob3_force");
+disp("- mob2_force / mob3_force");
 disp("- mob_tau_tauhat / rxf_pure / rxf_consistency");
 
-%% 6) Force/Torque Comparison Figure
-xlim_fig6 = [158 208];
-ylim_fig6_force = [-0.1 0.1; -0.1 0.1; -0.1 0.1];
-ylim_fig6_torque_milli = 1.0e-2 * [-0.5 0.5; -0.8 0.2; -0.5 0.5];
-rbf_world_neg_fig6 = -force_world_default_cmp;
-rbf_world_neg_fig6(:, 3) = rbf_world_neg_fig6(:, 3) + 0.46;
+%% Panel 0) Position / s / gamma_v and projected-normal comparisons
+xlim_panel0 = [30, 70];
+ylim_panel0_pos = [nan nan; nan nan; nan nan];
+ylim_panel0_vel = [nan nan; nan nan; nan nan];
+ylim_panel0_ws = [-1.1 1.1; -1.1 1.1; -1.1 1.1];
+ylim_panel0_normal = [-0.1 2.1; -1.1 1.1; -1.1 1.1];
+true_wall_normal = repmat([1.0, 0.0, 0.0], size(time, 1), 1);
 
-f_cmp = figure('Name', 'Offline Force Torque Comparison', 'NumberTitle', 'off', ...
-               'Color', 'w', 'Units', 'normalized', 'Position', [0.05 0.06 0.90 0.84]);
+f0 = figure('Name','Panel 0 - Position, s, gamma_v, and projected-normal comparisons','NumberTitle','off', ...
+            'Color','w','Units','normalized','Position',[0.05 0.05 0.90 0.88]);
 
-left2 = 0.04; right2 = 0.02; top2 = 0.05; bottom2 = 0.06;
-hgap2 = 0.025; vgap2 = 0.05;
-ncol2 = 3; nrow2 = 2;
-w2 = (1-left2-right2-hgap2*(ncol2-1))/ncol2;
-h2 = (1-top2-bottom2-vgap2*(nrow2-1))/nrow2;
-getPos2 = @(row, col)[ ...
-    left2 + (col-1)*(w2+hgap2), ...
-    1 - top2 - row*h2 - (row-1)*vgap2, ...
-    w2, h2];
+p_panel0_vel = uipanel('Parent', f0, 'Units', 'normalized', 'Position', [0.03 0.54 0.29 0.41], ...
+    'BackgroundColor', 'w', 'BorderType', 'none');
+plot_cmd_meas_triplet_panel(p_panel0_vel, time, cmd_xyz, pose_xyz, pos_names, ...
+    'command', cmd_color, 'measured', meas_color, 'Position command vs measured', '[m]', ...
+    ylim_panel0_pos, xlim_panel0, 1.25, lw2);
 
-p_cmp_11 = uipanel('Parent', f_cmp, 'Position', getPos2(1,1), 'BackgroundColor', 'w', 'BorderType', 'none');
-plot_compare_triplet_or_message(p_cmp_11, time, rbf_world_neg_fig6, mob2_force, axis_names, ...
-    '-R_B * F', rbf_color, 'Pure MOB 2nd', pure_color, ...
-    '-R_B * F vs Pure MOB', '[N]', lw1, lw2, ylim_fig6_force, xlim_fig6, ...
-    any(isfinite(mob2_force(:))), 'Pure MOB columns are not logged in this CSV');
+p_panel0_ws = uipanel('Parent', f0, 'Units', 'normalized', 'Position', [0.35 0.54 0.29 0.41], ...
+    'BackgroundColor', 'w', 'BorderType', 'none');
+plot_single_triplet_panel(p_panel0_ws, time, w_s_logged, pos_names, ...
+    [0.10 0.55 0.20], 's = v / |v|', '[-]', ylim_panel0_ws, xlim_panel0, lw2);
 
-p_cmp_12 = uipanel('Parent', f_cmp, 'Position', getPos2(1,2), 'BackgroundColor', 'w', 'BorderType', 'none');
-plot_compare_triplet_or_message(p_cmp_12, time, rbf_world_neg_fig6, mobc_force, axis_names, ...
-    '-R_B * F', rbf_color, 'Consistency MOB Ke1', pure_color, ...
-    '-R_B * F vs MOB Ke1', '[N]', lw1, lw2, ylim_fig6_force, xlim_fig6, ...
-    any(isfinite(mobc_force(:))), 'Ke1 force columns are not logged in this CSV');
+p_panel0_gamma = uipanel('Parent', f0, 'Units', 'normalized', 'Position', [0.67 0.54 0.29 0.41], ...
+    'BackgroundColor', 'w', 'BorderType', 'none');
+plot_scalar_or_message(p_panel0_gamma, time, gamma_v_logged, [0.10 0.45 0.95], ...
+    '\gamma_v', '[-]', [0 1.05], xlim_panel0, any(isfinite(gamma_v_logged)), ...
+    '\gamma_v is not logged in this CSV');
 
-p_cmp_13 = uipanel('Parent', f_cmp, 'Position', getPos2(1,3), 'BackgroundColor', 'w', 'BorderType', 'none');
-plot_compare_triplet_or_message(p_cmp_13, time, rbf_world_neg_fig6, mob_ke_alt_force, axis_names, ...
-    '-R_B * F', rbf_color, 'Consistency MOB Ke2', pure_color, ...
-    '-R_B * F vs MOB Ke2', '[N]', lw1, lw2, ylim_fig6_force, xlim_fig6, ...
-    any(isfinite(mob_ke_alt_force(:))), 'Ke2 force columns are not logged in this CSV');
+p_panel0_ke = uipanel('Parent', f0, 'Units', 'normalized', 'Position', [0.03 0.07 0.29 0.41], ...
+    'BackgroundColor', 'w', 'BorderType', 'none');
+plot_compare_triplet_or_message(p_panel0_ke, time, true_wall_normal, normal_est_ke_raw, axis_names, ...
+    'true normal (1,0,0)', [0.15 0.15 0.15], 'without projection', cons_color, ...
+    'True normal vs without projection', '[-]', lw1, lw2, ylim_panel0_normal, xlim_panel0, ...
+    any(isfinite(normal_est_ke_raw(:))), 'without-projection normal is not logged in this CSV');
 
-p_cmp_21 = uipanel('Parent', f_cmp, 'Position', getPos2(2,1), 'BackgroundColor', 'w', 'BorderType', 'none');
-plot_compare_triplet_or_message(p_cmp_21, time, 1.0e3 * rxf_pure, 1.0e3 * mob2_torque, axis_names, ...
-    'r x Pure MOB force', cons_color, 'Pure MOB tau', tau_color, ...
-    'r x Pure MOB Force vs Pure MOB Tau', '[N m] x10^{-3}', lw1, lw2, 1.0e3 * ylim_fig6_torque_milli, xlim_fig6, ...
-    any(isfinite(mob2_torque(:))), 'Pure MOB torque columns are not logged in this CSV');
+p_panel0_ke_proj = uipanel('Parent', f0, 'Units', 'normalized', 'Position', [0.35 0.07 0.29 0.41], ...
+    'BackgroundColor', 'w', 'BorderType', 'none');
+plot_compare_triplet_or_message(p_panel0_ke_proj, time, true_wall_normal, normal_est_vel_eps, axis_names, ...
+    'true normal (1,0,0)', [0.15 0.15 0.15], 'with projection (\epsilon_v)', tau_color, ...
+    'True normal vs with projection (velocity\_epsilon)', '[-]', lw1, lw2, ylim_panel0_normal, xlim_panel0, ...
+    any(isfinite(normal_est_vel_eps(:))), 'velocity\_epsilon-aware normal is not logged in this CSV');
 
-p_cmp_22 = uipanel('Parent', f_cmp, 'Position', getPos2(2,2), 'BackgroundColor', 'w', 'BorderType', 'none');
-plot_compare_triplet_or_message(p_cmp_22, time, 1.0e3 * rxf_consistency, 1.0e3 * mobc_torque, axis_names, ...
-    'r x MOB Ke1 force', cons_color, 'MOB Ke1 tau', tau_color, ...
-    'r x MOB Ke1 Force vs MOB Ke1 Tau', '[N m] x10^{-3}', lw1, lw2, 1.0e3 * ylim_fig6_torque_milli, xlim_fig6, ...
-    any(isfinite(mobc_torque(:))), 'Ke1 torque columns are not logged in this CSV');
+p_panel0_proj_raw = uipanel('Parent', f0, 'Units', 'normalized', 'Position', [0.67 0.07 0.29 0.41], ...
+    'BackgroundColor', 'w', 'BorderType', 'none');
+plot_compare_triplet_or_message(p_panel0_proj_raw, time, true_wall_normal, normal_est_ke_gamma_proj, axis_names, ...
+    'true normal (1,0,0)', [0.15 0.15 0.15], 'with projection (\gamma_v)', [0.10 0.45 0.95], ...
+    'True normal vs with projection (\gamma_v)', '[-]', lw1, lw2, ylim_panel0_normal, xlim_panel0, ...
+    any(isfinite(normal_est_ke_gamma_proj(:))), '\gamma_v-projected normal is not logged in this CSV');
 
-p_cmp_23 = uipanel('Parent', f_cmp, 'Position', getPos2(2,3), 'BackgroundColor', 'w', 'BorderType', 'none');
-plot_compare_triplet_or_message(p_cmp_23, time, 1.0e3 * rxf_ke_alt, 1.0e3 * mob_ke_alt_torque, axis_names, ...
-    'r x MOB Ke2 force', cons_color, 'MOB Ke2 tau', tau_color, ...
-    'r x MOB Ke2 Force vs MOB Ke2 Tau', '[N m] x10^{-3}', lw1, lw2, 1.0e3 * ylim_fig6_torque_milli, xlim_fig6, ...
-    any(isfinite(mob_ke_alt_torque(:))), 'Ke2 torque columns are not logged in this CSV');
-
-apply_yaxis_display_scale(findall(f_cmp, 'Type', 'axes'), 0.1);
-
-%% Normal estimation comparison figure
-xlim_fig_normal = xlim_fig6;
-ylim_fig_normal_angle_deg = [158 208];
-ylim_fig_normal_component = [-1.1 1.1; -1.1 1.1; -1.1 1.1];
-
-f_norm = figure('Name', 'Offline Normal Comparison', 'NumberTitle', 'off', ...
-                'Color', 'w', 'Units', 'normalized', 'Position', [0.05 0.06 0.90 0.84]);
-
-p_norm_11 = uipanel('Parent', f_norm, 'Position', getPos2(1,1), 'BackgroundColor', 'w', 'BorderType', 'none');
-plot_scalar_or_message(p_norm_11, time, angle_true_pure_deg, pure_color, ...
-    'acos(true normal \cdot pure est)', '[deg]', ylim_fig_normal_angle_deg, xlim_fig_normal, ...
-    any(isfinite(angle_true_pure_deg)), 'Pure normal estimate is not logged in this CSV');
-
-p_norm_12 = uipanel('Parent', f_norm, 'Position', getPos2(1,2), 'BackgroundColor', 'w', 'BorderType', 'none');
-plot_scalar_or_message(p_norm_12, time, angle_true_ke_deg, cons_color, ...
-    'acos(true normal \cdot ke1 est)', '[deg]', ylim_fig_normal_angle_deg, xlim_fig_normal, ...
-    any(isfinite(angle_true_ke_deg)), 'Ke1 normal estimate is not logged in this CSV');
-
-p_norm_13 = uipanel('Parent', f_norm, 'Position', getPos2(1,3), 'BackgroundColor', 'w', 'BorderType', 'none');
-plot_scalar_or_message(p_norm_13, time, angle_true_ke_alt_deg, tau_color, ...
-    'acos(true normal \cdot ke2 est)', '[deg]', ylim_fig_normal_angle_deg, xlim_fig_normal, ...
-    any(isfinite(angle_true_ke_alt_deg)), 'Ke2 normal estimate is not logged in this CSV');
-
-p_norm_21 = uipanel('Parent', f_norm, 'Position', getPos2(2,1), 'BackgroundColor', 'w', 'BorderType', 'none');
-plot_compare_triplet_or_message(p_norm_21, time, normal_est_pure, normal_est_pure, axis_names, ...
-    'Pure normal est', pure_color, 'Pure normal est', pure_color, ...
-    'Pure vs Pure Normal Estimate', '[-]', lw1, lw2, ylim_fig_normal_component, xlim_fig_normal, ...
-    any(isfinite(normal_est_pure(:))), 'Pure normal estimate is not logged in this CSV');
-
-p_norm_22 = uipanel('Parent', f_norm, 'Position', getPos2(2,2), 'BackgroundColor', 'w', 'BorderType', 'none');
-plot_compare_triplet_or_message(p_norm_22, time, normal_est_pure, normal_est_ke, axis_names, ...
-    'Pure normal est', pure_color, 'Ke1 normal est', cons_color, ...
-    'Pure vs Ke1 Normal Estimate', '[-]', lw1, lw2, ylim_fig_normal_component, xlim_fig_normal, ...
-    any(isfinite(normal_est_pure(:))) && any(isfinite(normal_est_ke(:))), ...
-    'Pure/Ke1 normal estimates are not fully logged in this CSV');
-
-p_norm_23 = uipanel('Parent', f_norm, 'Position', getPos2(2,3), 'BackgroundColor', 'w', 'BorderType', 'none');
-plot_compare_triplet_or_message(p_norm_23, time, normal_est_pure, normal_est_ke_alt, axis_names, ...
-    'Pure normal est', pure_color, 'Ke2 normal est', tau_color, ...
-    'Pure vs Ke2 Normal Estimate', '[-]', lw1, lw2, ylim_fig_normal_component, xlim_fig_normal, ...
-    any(isfinite(normal_est_pure(:))) && any(isfinite(normal_est_ke_alt(:))), ...
-    'Pure/Ke2 normal estimates are not fully logged in this CSV');
-
-%% Normal sensitivity comparison figure
-xlim_fig_normal_sens = [158 208];
-ylim_fig_normal_sens_11_angle_deg = [0 90];
-ylim_fig_normal_sens_12_force_norm = [0 0.2];
-ylim_fig_normal_sens_13_pos = [0.5 1.1; -0.3 0.3; 0.8 1.4];
-ylim_fig_normal_sens_21_component = [0.0 2.0; -1.0 1.0; -1.0 1.0];
-ylim_fig_normal_sens_22_force = [-0.05 0.05; -0.05 0.05; -0.05 0.05];
-att_cmd_lpf_cutoff_hz_fig_normal_sens_23 = 1.0;
-ylim_fig_normal_sens_23_att = [-0.1 0.1; -0.1 0.1; -0.2 0.2];
-
-att_cmd_fig_normal_sens_23 = lowpass_triplet_by_time(time, att_cmd, att_cmd_lpf_cutoff_hz_fig_normal_sens_23);
-
-f_norm_sens = figure('Name', 'Offline Normal Sensitivity Comparison', 'NumberTitle', 'off', ...
-                     'Color', 'w', 'Units', 'normalized', 'Position', [0.05 0.06 0.90 0.84]);
-
-p_norm_sens_11 = uipanel('Parent', f_norm_sens, 'Position', getPos2(1,1), 'BackgroundColor', 'w', 'BorderType', 'none');
-plot_three_scalar_panel_solid_or_message(p_norm_sens_11, time, angle_true_pure_deg, angle_true_ke_deg, angle_true_ke_alt_deg, ...
-    'Pure', pure_color, 'Ke1', cons_color, 'Ke2', tau_color, ...
-    'Normal Angle by Consistency Gain', '[deg]', ylim_fig_normal_sens_11_angle_deg, xlim_fig_normal_sens, ...
-    any(isfinite(angle_true_pure_deg)) && any(isfinite(angle_true_ke_deg)) && any(isfinite(angle_true_ke_alt_deg)), ...
-    'Normal angle comparison data are not fully logged in this CSV');
-
-p_norm_sens_12 = uipanel('Parent', f_norm_sens, 'Position', getPos2(1,2), 'BackgroundColor', 'w', 'BorderType', 'none');
-plot_three_scalar_panel_solid_or_message(p_norm_sens_12, time, mob2_force_norm, mobc_force_norm, mob_ke_alt_force_norm, ...
-    'Pure MOB', pure_color, 'MOB Ke1', cons_color, 'MOB Ke2', tau_color, ...
-    'MOB Force Norm', '[N]', ylim_fig_normal_sens_12_force_norm, xlim_fig_normal_sens, ...
-    any(isfinite(mob2_force_norm)) && any(isfinite(mobc_force_norm)) && any(isfinite(mob_ke_alt_force_norm)), ...
-    'MOB force norm data are not fully logged in this CSV');
-
-p_norm_sens_13 = uipanel('Parent', f_norm_sens, 'Position', getPos2(1,3), 'BackgroundColor', 'w', 'BorderType', 'none');
-plot_cmd_meas_triplet_panel(p_norm_sens_13, time, cmd_xyz, pose_xyz, pos_names, ...
-    'command', cmd_color, 'measured', meas_color, 'Position', '[m]', ylim_fig_normal_sens_13_pos, xlim_fig_normal_sens, 1.25, lw2);
-
-p_norm_sens_21 = uipanel('Parent', f_norm_sens, 'Position', getPos2(2,1), 'BackgroundColor', 'w', 'BorderType', 'none');
-plot_three_triplet_panel_solid_or_message(p_norm_sens_21, time, normal_est_pure, normal_est_ke, normal_est_ke_alt, axis_names, ...
-    'Pure normal est', pure_color, 'Ke1 normal est', cons_color, 'Ke2 normal est', tau_color, ...
-    'Normal Components by Consistency Gain', '[-]', lw1, lw2, lw2, ylim_fig_normal_sens_21_component, xlim_fig_normal_sens, ...
-    any(isfinite(normal_est_pure(:))) && any(isfinite(normal_est_ke(:))) && any(isfinite(normal_est_ke_alt(:))), ...
-    'Normal component comparison data are not fully logged in this CSV');
-
-p_norm_sens_22 = uipanel('Parent', f_norm_sens, 'Position', getPos2(2,2), 'BackgroundColor', 'w', 'BorderType', 'none');
-plot_three_triplet_panel_solid_or_message(p_norm_sens_22, time, mob2_force, mobc_force, mob_ke_alt_force, axis_names, ...
-    'Pure MOB', pure_color, 'MOB Ke1', cons_color, 'MOB Ke2', tau_color, ...
-    'MOB Force Components', '[N]', lw1, lw2, lw2, ylim_fig_normal_sens_22_force, xlim_fig_normal_sens, ...
-    any(isfinite(mob2_force(:))) && any(isfinite(mobc_force(:))) && any(isfinite(mob_ke_alt_force(:))), ...
-    'MOB force comparison data are not fully logged in this CSV');
-
-p_norm_sens_23 = uipanel('Parent', f_norm_sens, 'Position', getPos2(2,3), 'BackgroundColor', 'w', 'BorderType', 'none');
-plot_cmd_meas_triplet_panel(p_norm_sens_23, time, att_cmd_fig_normal_sens_23, att_pose, att_names, ...
-    'command', cmd_color, 'measured', meas_color, 'Attitude', '[rad]', ylim_fig_normal_sens_23_att, xlim_fig_normal_sens, 1.25, lw2);
+set(findall(f0, 'Type', 'axes'), 'FontSize', 9, 'Color', 'w');
 
 %% Panel 1) Y-axis focused MOB compare
 xlim_panel1_row1 = [5.5 25.5];
@@ -403,7 +320,6 @@ tl1 = tiledlayout(f1, 2, 3, 'TileSpacing', 'compact', 'Padding', 'compact');
 ax_panel1_row1 = gobjects(0);
 ax_panel1_row2 = gobjects(0);
 
-panel1_colors.mob1 = [0.15 0.15 0.15];
 panel1_colors.mob2 = [0.20 0.50 0.95];
 panel1_colors.mobc = [0.90 0.30 0.18];
 panel1_colors.wind = [0.15 0.60 0.30];
@@ -412,21 +328,21 @@ panel1_colors.rxf_pure = [0.20 0.50 0.95];
 panel1_colors.rxf_consistency = [0.90 0.30 0.18];
 
 row1_series = {
-    {wind_force(:,2), mob1_force(:,2)}
+    {wind_force(:,2), mob2_force(:,2)}
     {wind_force(:,2), mob2_force(:,2)}
     {wind_force(:,2), mob2_force(:,2), mob3_force(:,2)}
 };
 row1_labels = {
-    {'Wind external', 'MOB 1st order'}
+    {'Wind external', 'MOB 2nd order'}
     {'Wind external', 'MOB 2nd order'}
     {'Wind external', 'MOB 2nd order', 'Consistency residual'}
 };
 row1_colors = {
-    {panel1_colors.wind, panel1_colors.mob1}
+    {panel1_colors.wind, panel1_colors.mob2}
     {panel1_colors.wind, panel1_colors.mob2}
     {panel1_colors.wind, panel1_colors.mob2, panel1_colors.mobc}
 };
-row1_titles = {'MOB 1st vs wind (Y)', 'MOB 2nd vs wind (Y)', 'MOB 2nd / consistency / wind (Y)'};
+row1_titles = {'MOB 2nd vs wind (Y)', 'MOB 2nd vs wind (Y)', 'MOB 2nd / consistency / wind (Y)'};
 
 for col_idx = 1:3
     ax = nexttile(tl1, col_idx); ax_panel1_row1(end+1) = ax; %#ok<SAGROW>
@@ -609,7 +525,6 @@ tl4 = tiledlayout(f4, 2, 3, 'TileSpacing', 'compact', 'Padding', 'compact');
 ax_panel4_row1 = gobjects(0);
 ax_panel4_row2 = gobjects(0);
 
-panel4_colors.mob1 = [0.15 0.15 0.15];
 panel4_colors.mob2 = [0.20 0.50 0.95];
 panel4_colors.wind = [0.15 0.60 0.30];
 panel4_colors.att_meas = [0.00 0.45 0.74];
@@ -618,14 +533,13 @@ panel4_colors.att_cmd = [0.85 0.325 0.098];
 for i = 1:3
     ax = nexttile(tl4, i); ax_panel4_row1(end+1) = ax; %#ok<SAGROW>
     plot(time, wind_force(:,i), '-', 'LineWidth', lw_wind, 'Color', panel4_colors.wind); hold on;
-    plot(time, mob1_force(:,i), '-', 'LineWidth', lw_main, 'Color', panel4_colors.mob1);
     plot(time, mob2_force(:,i), '-', 'LineWidth', lw_main, 'Color', panel4_colors.mob2);
     grid on;
-    apply_user_ylim(ax, ylim_panel4_row1, i, [mob1_force(:,i); mob2_force(:,i); wind_force(:,i)]);
+    apply_user_ylim(ax, ylim_panel4_row1, i, [mob2_force(:,i); wind_force(:,i)]);
     ylabel('force [N]');
     title(sprintf('Force %s', axis_names{i}));
     if i == 1
-        legend({'Wind external', 'MOB 1st order', 'MOB 2nd order'}, 'Location', 'best');
+        legend({'Wind external', 'MOB 2nd order'}, 'Location', 'best');
     end
     xlabel('time [s]');
 
@@ -679,6 +593,58 @@ function vhat = normalize_rows(v)
         if isfinite(n) && n > 1e-12
             vhat(k, :) = v(k, :) / n;
         end
+    end
+end
+
+function proj = project_rows_with_ws(force_rows, ws_rows, use_identity_on_invalid)
+    if nargin < 3
+        use_identity_on_invalid = false;
+    end
+    proj = nan(size(force_rows));
+    for k = 1:size(force_rows, 1)
+        f = force_rows(k, :);
+        w = ws_rows(k, :);
+        if any(~isfinite(f))
+            continue;
+        end
+        if any(~isfinite(w))
+            if use_identity_on_invalid
+                proj(k, :) = f;
+            end
+            continue;
+        end
+        nw = norm(w);
+        if nw < 1e-12
+            if use_identity_on_invalid
+                proj(k, :) = f;
+            end
+            continue;
+        end
+        wn = w / nw;
+        proj(k, :) = f - dot(f, wn) * wn;
+    end
+end
+
+function proj = project_rows_with_ws_gamma(force_rows, ws_rows, gamma_v)
+    proj = nan(size(force_rows));
+    for k = 1:size(force_rows, 1)
+        f = force_rows(k, :);
+        w = ws_rows(k, :);
+        g = gamma_v(k);
+        if any(~isfinite(f)) || ~isfinite(g)
+            continue;
+        end
+        if any(~isfinite(w))
+            proj(k, :) = f;
+            continue;
+        end
+        nw = norm(w);
+        if nw < 1e-12
+            proj(k, :) = f;
+            continue;
+        end
+        wn = w / nw;
+        proj(k, :) = f - g * dot(f, wn) * wn;
     end
 end
 
@@ -788,6 +754,26 @@ function plot_cmd_meas_triplet_panel(parent_panel, time, cmd_data, meas_data, na
     linkaxes(ax_list, 'x');
     if numel(xlims) == 2 && all(isfinite(xlims))
         xlim(ax_list, xlims);
+    end
+end
+
+function plot_single_triplet_panel(parent_panel, time, data, names, line_color, panel_title, unit_suffix, ylims, xlims, lw)
+    tl = tiledlayout(parent_panel, 3, 1, 'TileSpacing', 'compact', 'Padding', 'compact');
+    for i = 1:3
+        ax = nexttile(tl, i);
+        plot(time, data(:, i), '-', 'LineWidth', lw, 'Color', line_color); hold(ax, 'on');
+        grid(ax, 'on');
+        apply_user_ylim(ax, ylims, i, data(:, i));
+        if numel(xlims) == 2 && all(isfinite(xlims))
+            xlim(ax, xlims);
+        end
+        ylabel(ax, sprintf('%s %s', names{i}, unit_suffix));
+        if i == 1
+            title(ax, panel_title);
+        end
+        if i == 3
+            xlabel(ax, 'time [s]');
+        end
     end
 end
 

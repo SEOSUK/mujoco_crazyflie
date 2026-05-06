@@ -33,13 +33,19 @@ rviz_visual:
     mesh_alpha: 1.0
     mob_topic_2nd_order: "/crazyflie/out/ee_applied_mob_2nd"
     mob_topic_consistency: "/crazyflie/out/ee_applied_mob_2nd_tau"
-    mob_topic_consistency_alt: "/crazyflie/out/ee_applied_mob_2nd_tau_ke_alt"
     contact_frame_quat_topic_pure: "/estimated_contact_frame_quat_pure"
     contact_frame_quat_topic: "/estimated_contact_frame_quat"
-    contact_frame_quat_topic_k2: "/estimated_contact_frame_quat_ke_alt"
     normal_debug_metrics_topic_pure: "/normal_vector/debug_metrics_pure"
     normal_debug_metrics_topic: "/normal_vector/debug_metrics"
-    normal_debug_metrics_topic_k2: "/normal_vector/debug_metrics_ke_alt"
+    ke_normal_velocity_epsilon: 0.01
+    ke_normal_force_epsilon: 0.005
+    ke_raw_normal:
+      beta_n: 0.3
+      sigma_n: 0.3
+    ke_projected_normal:
+      beta_n: 0.3
+      sigma_n: 0.3
+    contact_force_lpf_omega: 12.0
     cylinder.rgba: [0.75, 0.93, 0.75, 0.25]
     wall.rgba: [0.75, 0.93, 0.75, 0.25]
     publish_hz: 20.0

@@ -101,6 +101,11 @@ public:
     square_phase_ = this->declare_parameter<double>(
       "square.phase", 0.0);
 
+    constant_accel_y_ = this->declare_parameter<double>(
+      "constant_accel.acc_y", 0.40);
+    constant_accel_z_ = this->declare_parameter<double>(
+      "constant_accel.acc_z", 0.0);
+
     auto ee_off = this->declare_parameter<std::vector<double>>(
       "end_effector_offset", {0.09, 0.0, 0.085});
     if (ee_off.size() != 3) {
@@ -272,6 +277,9 @@ private:
     if (type == "square") {
       return "square";
     }
+    if (type == "constant_accel" || type == "const_accel" || type == "constant-accel") {
+      return "constant_accel";
+    }
     return "lissajous";
   }
 
@@ -287,7 +295,8 @@ private:
     std::transform(type.begin(), type.end(), type.begin(),
       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return type == "lissajous" || type == "circle" ||
-      type == "circular" || type == "square";
+      type == "circular" || type == "square" ||
+      type == "constant_accel" || type == "const_accel" || type == "constant-accel";
   }
 
   static inline double positivePeriod(double period_sec)
@@ -360,6 +369,14 @@ private:
         y_ref_dot = 0.0;
         z_ref_dot = -speed;
       }
+      return;
+    }
+
+    if (trajectory_type_ == "constant_accel") {
+      y_ref = 0.5 * constant_accel_y_ * t * t;
+      z_ref = 0.5 * constant_accel_z_ * t * t;
+      y_ref_dot = constant_accel_y_ * t;
+      z_ref_dot = constant_accel_z_ * t;
       return;
     }
 
@@ -836,6 +853,12 @@ private:
           trajectory_elapsed_sec_, ramp_sec, trajectory_gain_, trajectory_gain_dot);
         trajectory_phase_time_ += dt;
       } else {
+        if (trajectory_type_ == "constant_accel") {
+          trajectory_elapsed_sec_ = 0.0;
+          trajectory_gain_ = 0.0;
+          trajectory_gain_dot = 0.0;
+          trajectory_phase_time_ = 0.0;
+        } else {
         trajectory_elapsed_sec_ = std::max(0.0, trajectory_elapsed_sec_ - dt);
         smoothstepQuintic(
           trajectory_elapsed_sec_, ramp_sec, trajectory_gain_, trajectory_gain_dot);
@@ -844,6 +867,7 @@ private:
           trajectory_phase_time_ += dt;
         } else {
           trajectory_phase_time_ = 0.0;
+        }
         }
       }
 
@@ -981,6 +1005,8 @@ private:
   double square_center_y_{0.0};
   double square_center_z_{0.0};
   double square_phase_{0.0};
+  double constant_accel_y_{0.40};
+  double constant_accel_z_{0.0};
 
   Eigen::Vector3d d_B_{0.0, 0.0, 0.0};
 

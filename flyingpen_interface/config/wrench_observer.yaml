@@ -4,19 +4,13 @@ wrench_observer:
     k_tau: 0.00569278844371417
     g: 9.81
 
-    # 1st-order MOB tuning
-    mob.Kf_1st_order: 0.5
-    mob.Ktau_1st_order: 0.5
-    mob.mob_alpha_1st_order: 1.0
-
-    # 2nd-order MOB tuning
+    # 2nd-order MOB / consistency observer tuning
     mob.Kf_2nd_order: 30.0
     mob.Ktau_2nd_order: 30.0
     mob.mob_alpha_2nd_order: 1.0
     mob.Kp: 10.9544511501
     mob.KpTau: 10.9544511501
     mob.Ke: 50.0 # consistency correction gain in F_hat_dot_con = Kf(p-p_hat_con) + Ke [r]_x^T e_tau
-    mob.Ke_alt: 500.0
     mob.epsilon_tau: 1.0e-6
     # critical damping 되려면 kf = kp^2 / 4
     # critical damping 되려면 kp = 2 * sqrt(kf)

@@ -58,14 +58,10 @@ public:
     pose_topic_ = declare_parameter<std::string>("pose_topic", "/crazyflie/out/pose");
     vel_topic_ = declare_parameter<std::string>("vel_topic", "/crazyflie/out/vel");
     angvel_topic_ = declare_parameter<std::string>("angvel_topic", "/crazyflie/out/ang_vel");
-    drone_wrench_topic_ = declare_parameter<std::string>(
-      "drone_wrench_topic", "/crazyflie/out/mob");
     drone_wrench_topic_2nd_order_ = declare_parameter<std::string>(
       "drone_wrench_topic_2nd_order", "/crazyflie/out/mob_2nd");
     drone_wrench_topic_consistency_ = declare_parameter<std::string>(
       "drone_wrench_topic_consistency", "/crazyflie/out/mob_2nd_tau");
-    drone_wrench_topic_consistency_alt_ = declare_parameter<std::string>(
-      "drone_wrench_topic_consistency_alt", "/crazyflie/out/mob_2nd_tau_ke_alt");
     drone_wrench_topic_consistency_terms_ = declare_parameter<std::string>(
       "drone_wrench_topic_consistency_terms", "/crazyflie/out/mob_2nd_tau_terms");
     drone_wrench_topic_consistency_base_ = declare_parameter<std::string>(
@@ -74,14 +70,10 @@ public:
       "drone_wrench_topic_consistency_match", "/crazyflie/out/mob_2nd_tau_consistency");
     drone_wrench_topic_consistency_residual_ = declare_parameter<std::string>(
       "drone_wrench_topic_consistency_residual", "/crazyflie/out/mob_2nd_tau_residual");
-    ee_applied_wrench_topic_ = declare_parameter<std::string>(
-      "ee_applied_wrench_topic", "/crazyflie/out/ee_applied_mob");
     ee_applied_wrench_topic_2nd_order_ = declare_parameter<std::string>(
       "ee_applied_wrench_topic_2nd_order", "/crazyflie/out/ee_applied_mob_2nd");
     ee_applied_wrench_topic_consistency_ = declare_parameter<std::string>(
       "ee_applied_wrench_topic_consistency", "/crazyflie/out/ee_applied_mob_2nd_tau");
-    ee_applied_wrench_topic_consistency_alt_ = declare_parameter<std::string>(
-      "ee_applied_wrench_topic_consistency_alt", "/crazyflie/out/ee_applied_mob_2nd_tau_ke_alt");
     ee_applied_wrench_topic_consistency_base_ = declare_parameter<std::string>(
       "ee_applied_wrench_topic_consistency_base", "/crazyflie/out/ee_applied_mob_2nd_tau_base");
 
@@ -98,11 +90,6 @@ public:
     jyy_ = declare_parameter<double>("mob.Jyy", 2.3951e-5);
     jzz_ = declare_parameter<double>("mob.Jzz", 3.2347e-5);
 
-    // 1st-order MOB tuning
-    kf_1st_order_ = declare_parameter<double>("mob.Kf_1st_order", 5.0);
-    ktau_1st_order_ = declare_parameter<double>("mob.Ktau_1st_order", 20.0);
-    mob_alpha_1st_order_ = declare_parameter<double>("mob.mob_alpha_1st_order", 0.2);
-
     // 2nd-order MOB tuning
     kf_2nd_order_ = declare_parameter<double>("mob.Kf_2nd_order", 5.0);
     ktau_2nd_order_ = declare_parameter<double>("mob.Ktau_2nd_order", 20.0);
@@ -110,7 +97,6 @@ public:
     kp_ = declare_parameter<double>("mob.Kp", 2.0);
     kptau_ = declare_parameter<double>("mob.KpTau", 10.0);
     ke_ = declare_parameter<double>("mob.Ke", 10.0);
-    ke_alt_ = declare_parameter<double>("mob.Ke_alt", ke_);
     epsilon_tau_ = declare_parameter<double>("mob.epsilon_tau", 1.0e-6);
 
     arm_xy_ = declare_parameter<double>("arm_xy", 0.035355);
@@ -148,13 +134,10 @@ public:
     sub_angvel_ = create_subscription<geometry_msgs::msg::Vector3Stamped>(
       angvel_topic_, qos, std::bind(&WrenchObserver::angVelCb, this, std::placeholders::_1));
 
-    pub_drone_wrench_ = create_publisher<geometry_msgs::msg::WrenchStamped>(drone_wrench_topic_, 10);
     pub_drone_wrench_2nd_order_ = create_publisher<geometry_msgs::msg::WrenchStamped>(
       drone_wrench_topic_2nd_order_, 10);
     pub_drone_wrench_consistency_ = create_publisher<geometry_msgs::msg::WrenchStamped>(
       drone_wrench_topic_consistency_, 10);
-    pub_drone_wrench_consistency_alt_ = create_publisher<geometry_msgs::msg::WrenchStamped>(
-      drone_wrench_topic_consistency_alt_, 10);
     pub_drone_wrench_consistency_terms_ = create_publisher<geometry_msgs::msg::WrenchStamped>(
       drone_wrench_topic_consistency_terms_, 10);
     pub_drone_wrench_consistency_base_ = create_publisher<geometry_msgs::msg::WrenchStamped>(
@@ -163,14 +146,10 @@ public:
       drone_wrench_topic_consistency_match_, 10);
     pub_drone_wrench_consistency_residual_ = create_publisher<geometry_msgs::msg::WrenchStamped>(
       drone_wrench_topic_consistency_residual_, 10);
-    pub_ee_applied_wrench_ = create_publisher<geometry_msgs::msg::WrenchStamped>(
-      ee_applied_wrench_topic_, 10);
     pub_ee_applied_wrench_2nd_order_ = create_publisher<geometry_msgs::msg::WrenchStamped>(
       ee_applied_wrench_topic_2nd_order_, 10);
     pub_ee_applied_wrench_consistency_ = create_publisher<geometry_msgs::msg::WrenchStamped>(
       ee_applied_wrench_topic_consistency_, 10);
-    pub_ee_applied_wrench_consistency_alt_ = create_publisher<geometry_msgs::msg::WrenchStamped>(
-      ee_applied_wrench_topic_consistency_alt_, 10);
     pub_ee_applied_wrench_consistency_base_ = create_publisher<geometry_msgs::msg::WrenchStamped>(
       ee_applied_wrench_topic_consistency_base_, 10);
 
@@ -184,8 +163,8 @@ public:
     RCLCPP_INFO(get_logger(), "wrench_observer started");
     RCLCPP_INFO(get_logger(), "sub: %s | %s | %s | %s",
       input_topic_.c_str(), pose_topic_.c_str(), vel_topic_.c_str(), angvel_topic_.c_str());
-    RCLCPP_INFO(get_logger(), "pub: %s | %s | %s",
-      drone_wrench_topic_.c_str(), drone_wrench_topic_2nd_order_.c_str(),
+    RCLCPP_INFO(get_logger(), "pub: %s | %s",
+      drone_wrench_topic_2nd_order_.c_str(),
       drone_wrench_topic_consistency_.c_str());
   }
 
@@ -529,10 +508,6 @@ private:
     const Vec3 grav_world(0.0, 0.0, mass_obs * gravity_);
 
     runObserverVariant(
-      observer_v1_, p_lin_world, p_ang_body, world_force_input, body_torque_input,
-      grav_world, cori_body, dt, false, false,
-      kf_1st_order_, ktau_1st_order_, mob_alpha_1st_order_);
-    runObserverVariant(
       observer_v4_, p_lin_world, p_ang_body, world_force_input, body_torque_input,
       grav_world, cori_body, dt, true, true,
       kf_2nd_order_, ktau_2nd_order_, mob_alpha_2nd_order_);
@@ -541,20 +516,6 @@ private:
       observer_consistency_, p_lin_world, p_ang_body, world_force_input, body_torque_input,
       grav_world, cori_body, ee_offset_world, r_bw, dt,
       kf_2nd_order_, ktau_2nd_order_, mob_alpha_2nd_order_, ke_);
-    runConsistencyResidualObserver(
-      observer_consistency_alt_, p_lin_world, p_ang_body, world_force_input, body_torque_input,
-      grav_world, cori_body, ee_offset_world, r_bw, dt,
-      kf_2nd_order_, ktau_2nd_order_, mob_alpha_2nd_order_, ke_alt_);
-
-    const Vec3 drone_force_world(
-      observer_v1_.world_force_hat_ext[0],
-      observer_v1_.world_force_hat_ext[1],
-      observer_v1_.world_force_hat_ext[2]);
-    const Vec3 drone_torque_body(
-      observer_v1_.body_torque_hat_ext[0],
-      observer_v1_.body_torque_hat_ext[1],
-      observer_v1_.body_torque_hat_ext[2]);
-    const Vec3 drone_torque_world = r_bw * drone_torque_body;
     const Vec3 drone_force_world_2nd_order(
       observer_v4_.world_force_hat_ext[0],
       observer_v4_.world_force_hat_ext[1],
@@ -573,32 +534,17 @@ private:
       observer_consistency_.body_torque_hat_ext[1],
       observer_consistency_.body_torque_hat_ext[2]);
     const Vec3 drone_torque_world_consistency = r_bw * drone_torque_body_consistency;
-    const Vec3 drone_force_world_consistency_alt(
-      observer_consistency_alt_.world_force_hat_ext[0],
-      observer_consistency_alt_.world_force_hat_ext[1],
-      observer_consistency_alt_.world_force_hat_ext[2]);
-    const Vec3 drone_torque_body_consistency_alt(
-      observer_consistency_alt_.body_torque_hat_ext[0],
-      observer_consistency_alt_.body_torque_hat_ext[1],
-      observer_consistency_alt_.body_torque_hat_ext[2]);
-    const Vec3 drone_torque_world_consistency_alt = r_bw * drone_torque_body_consistency_alt;
     const Vec3 drone_force_world_consistency_base = observer_consistency_.force_hat_base_world;
-    pub_drone_wrench_->publish(makeWrenchMsg(t_now, drone_force_world, drone_torque_world));
     pub_drone_wrench_2nd_order_->publish(
       makeWrenchMsg(t_now, drone_force_world_2nd_order, drone_torque_world_2nd_order));
     pub_drone_wrench_consistency_->publish(
       makeWrenchMsg(t_now, drone_force_world_consistency, drone_torque_world_consistency));
-    pub_drone_wrench_consistency_alt_->publish(
-      makeWrenchMsg(t_now, drone_force_world_consistency_alt, drone_torque_world_consistency_alt));
     pub_drone_wrench_consistency_base_->publish(
       makeWrenchMsg(t_now, drone_force_world_consistency_base, drone_torque_world_consistency));
-    pub_ee_applied_wrench_->publish(makeWrenchMsg(t_now, -drone_force_world, -drone_torque_world));
     pub_ee_applied_wrench_2nd_order_->publish(
       makeWrenchMsg(t_now, -drone_force_world_2nd_order, -drone_torque_world_2nd_order));
     pub_ee_applied_wrench_consistency_->publish(
       makeWrenchMsg(t_now, -drone_force_world_consistency, -drone_torque_world_consistency));
-    pub_ee_applied_wrench_consistency_alt_->publish(
-      makeWrenchMsg(t_now, -drone_force_world_consistency_alt, -drone_torque_world_consistency_alt));
     pub_ee_applied_wrench_consistency_base_->publish(
       makeWrenchMsg(t_now, -drone_force_world_consistency_base, -drone_torque_world_consistency));
     pub_drone_wrench_consistency_terms_->publish(
@@ -625,18 +571,14 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_vel_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_angvel_;
 
-  rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_drone_wrench_;
   rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_drone_wrench_2nd_order_;
   rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_drone_wrench_consistency_;
-  rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_drone_wrench_consistency_alt_;
   rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_drone_wrench_consistency_terms_;
   rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_drone_wrench_consistency_base_;
   rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_drone_wrench_consistency_match_;
   rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_drone_wrench_consistency_residual_;
-  rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_ee_applied_wrench_;
   rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_ee_applied_wrench_2nd_order_;
   rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_ee_applied_wrench_consistency_;
-  rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_ee_applied_wrench_consistency_alt_;
   rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_ee_applied_wrench_consistency_base_;
   rclcpp::TimerBase::SharedPtr timer_est_;
 
@@ -644,18 +586,14 @@ private:
   std::string pose_topic_;
   std::string vel_topic_;
   std::string angvel_topic_;
-  std::string drone_wrench_topic_;
   std::string drone_wrench_topic_2nd_order_;
   std::string drone_wrench_topic_consistency_;
-  std::string drone_wrench_topic_consistency_alt_;
   std::string drone_wrench_topic_consistency_terms_;
   std::string drone_wrench_topic_consistency_base_;
   std::string drone_wrench_topic_consistency_match_;
   std::string drone_wrench_topic_consistency_residual_;
-  std::string ee_applied_wrench_topic_;
   std::string ee_applied_wrench_topic_2nd_order_;
   std::string ee_applied_wrench_topic_consistency_;
-  std::string ee_applied_wrench_topic_consistency_alt_;
   std::string ee_applied_wrench_topic_consistency_base_;
 
   double observer_hz_{250.0};
@@ -671,11 +609,6 @@ private:
   double jyy_{2.3951e-5};
   double jzz_{3.2347e-5};
 
-  // 1st-order MOB tuning
-  double kf_1st_order_{1.0};
-  double ktau_1st_order_{1.0};
-  double mob_alpha_1st_order_{0.2};
-
   // 2nd-order MOB tuning
   double kf_2nd_order_{1.0};
   double ktau_2nd_order_{1.0};
@@ -683,7 +616,6 @@ private:
   double kp_{2.0};
   double kptau_{2.0};
   double ke_{1.0};
-  double ke_alt_{1.0};
   double epsilon_tau_{1.0e-6};
 
   double arm_xy_{0.035355};
@@ -711,10 +643,8 @@ private:
   Eigen::Vector3d vel_filt_{0.0, 0.0, 0.0};
   Eigen::Vector3d angvel_filt_{0.0, 0.0, 0.0};
 
-  ObserverState observer_v1_;
   ObserverState observer_v4_;
   ConsistencyObserverState observer_consistency_;
-  ConsistencyObserverState observer_consistency_alt_;
 };
 
 int main(int argc, char ** argv)
