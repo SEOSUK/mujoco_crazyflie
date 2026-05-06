@@ -1,84 +1,227 @@
-# 플라잉펜 말고 크플-무조코 시뮬레이션만 있는 버전
-crazyflie firmware-like Cascade PID가 구현되어 있음.
-## 인스톨
+# Legacy Version
+
+MuJoCo-based Flying Pen legacy branch.
+
+This branch contains the legacy Flying Pen simulation stack, RViz visualization, keyboard teleop, and contact-aware normal estimation experiments built around the second-order MOB pipeline.
+
+## Included Normal Estimation Methods
+
+`normal_estimator_method` supports only the following three modes in [normal_vector_estimation.yaml](/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/config/normal_vector_estimation.yaml:4):
+
+- `direction`
+- `normal_force_based`
+- `None`
+
+### Method Summary
+
+- `direction`
+  Normalizes the measured force direction and uses it directly as the contact normal.
+- `normal_force_based`
+  Removes the velocity direction component from the force direction and estimates the normal from the corrected force. This is the latest version.
+- `None`
+  Disables normal estimation.
+
+## Build
+
 ```bash
-cd <your workspace>/src
-git clone https://github.com/SEOSUK/mujoco_crazyflie --recursive
-git checkout just_flight
-cd ..
+cd ~/mujoco_crazyflie
 colcon build
+source install/setup.bash
 ```
 
-## 실행 방법
-### 노드 실행
+If you are using a dedicated Python environment for MuJoCo, activate it before launching.
+
+## Launch
+
+Main simulation launch:
+
 ```bash
-ros2 launch flyingpen_interface flyingpen.launch.py
-```
-### 위치 명령 전송
-```bash
-ros2 topic pub --once /crazyflie/in/pos_cmd std_msgs/msg/Float64MultiArray "{data:[x, y, z, yaw]}"
-```
-여기서 x, y, z, yaw에 각각 목표 위치[m] 및 yaw[rad] 입력
-
-
-
-
-
-# Flying Pen Simulation  
-### From Gazebo to MuJoCo
-
-This repository contains a **Flying Pen** simulation that has been migrated  
-from **Gazebo** to **MuJoCo**.
-
-The simulation model and dynamics are based on the **crazyflow** framework,  
-and adapted to enable more efficient, stable, and scalable simulation  
-in the MuJoCo environment.
-
-## Overview
-- Original simulator: Gazebo
-- Target simulator: MuJoCo
-- Platform: Crazyflie-based aerial manipulation
-- Model source: `crazyflow`
-
-## Motivation
-MuJoCo provides faster simulation, better contact dynamics,  
-and improved numerical stability compared to Gazebo,  
-making it more suitable for contact-aware aerial manipulation research  
-such as the Flying Pen task.
-
-## Credits
-- Model and dynamics inspired by: **crazyflow**
-
-## For Flying Pen (Ubuntu 24.04)
-Python 패키지 충돌을 방지하기 위해 MuJoCo는 ROS 2와 분리된 Python 가상환경에서 실행합니다.
-
-1. Python 가상환경 준비 (venv 생성)
-```bash
-sudo apt update
-sudo apt install -y python3-full python3-venv
+cd ~/mujoco_crazyflie
+source install/setup.bash
+ros2 launch flyingpen_interface flyingpen_cpp.launch.py
 ```
 
-2. 가상환경 생성
-```bash
-python3 -m venv ~/venvs/mujoco
-```
+This launch starts the main Flying Pen stack including MuJoCo, controller, trajectory generation, normal estimation, RViz, and logger nodes.
 
-3. MuJuCo 가상환경 활성화
-```bash
-source ~/venvs/mujoco/bin/activate
-```
+## Observer Topics
 
-4. ROS 2 워크스페이스 환경 설정
-```bash
-source ~/<your workspace>/install/setup.bash
-```
+`wrench_observer` publishes the following main topics:
 
-5. Flying Pen 노드 실행
-```bash
-ros2 launch flyingpen_interface flyingpen.launch.py
-```
+- `/crazyflie/out/mob_2nd`
+  Pure second-order MOB wrench in the world frame.
+- `/crazyflie/out/mob_2nd_tau`
+  Consistency-corrected second-order MOB wrench in the world frame.
+- `/crazyflie/out/mob_2nd_tau_base`
+  The base second-order force estimate before the consistency residual term is added.
+- `/crazyflie/out/mob_2nd_tau_terms`
+  Debug topic.
+  `force = Kf (p - p_hat_base)` and `torque = Ke [r]_x^T e_tau`.
+- `/crazyflie/out/mob_2nd_tau_consistency`
+  Debug topic.
+  `force = tau_hat_ext_world` and `torque = r x F_hat`.
+- `/crazyflie/out/mob_2nd_tau_residual`
+  Debug topic.
+  `force = e_tau` and `torque.x = rho_tau`.
 
-6. 키보드 입력 노드 실행
+The corresponding end-effector-applied wrench topics are:
+
+- `/crazyflie/out/ee_applied_mob_2nd`
+- `/crazyflie/out/ee_applied_mob_2nd_tau`
+- `/crazyflie/out/ee_applied_mob_2nd_tau_base`
+
+Practical meaning:
+
+- `mob_2nd` is the pure second-order observer output.
+- `mob_2nd_tau` is the output after adding the consistency residual correction.
+- `mob.Ke` in [wrench_observer.yaml](/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/config/wrench_observer.yaml:1) is the consistency residual gain.
+- `mob.epsilon_tau` is the small denominator protection used when computing the residual normalization term `rho_tau`.
+
+## Normal Topics
+
+Two `normal_vector_estimation` nodes are launched by default:
+
+- `normal_vector_estimation_pure`
+  Input source: `/crazyflie/out/ee_applied_mob_2nd`
+- `normal_vector_estimation_ke`
+  Input source: `/crazyflie/out/ee_applied_mob_2nd_tau`
+
+Published normal-estimation topics:
+
+- Pure observer normal
+  `/estimated_contact_frame_quat_pure`
+  `/normal_vector/contact_force_x_pure`
+  `/normal_vector/debug_metrics_pure`
+- Consistency-corrected normal
+  `/estimated_contact_frame_quat`
+  `/normal_vector/contact_force_x`
+  `/normal_vector/debug_metrics`
+
+Meaning of the main normal outputs:
+
+- `/estimated_contact_frame_quat_pure`
+  Contact frame estimated from the pure second-order MOB source.
+- `/estimated_contact_frame_quat`
+  Contact frame estimated from the consistency-corrected MOB source.
+- `/normal_vector/debug_metrics`
+  Main debug topic for the `normal_force_based` pipeline.
+  RViz uses this to visualize `ke_raw_normal` and `ke_projected_normal`.
+
+Current RViz normal markers:
+
+- `/rviz/ke_force_normal_raw`
+  Raw force-direction normal.
+- `/rviz/ke_force_normal_projected`
+  Velocity-projected normal.
+- `/rviz/true_contact_normal`
+  Ground-truth wall/cylinder normal used for comparison.
+
+## YAML Usage
+
+### `wrench_observer.yaml`
+
+Main tuning parameters in [wrench_observer.yaml](/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/config/wrench_observer.yaml:1):
+
+- `mob.Kf_2nd_order`
+  Linear force observer gain.
+- `mob.Ktau_2nd_order`
+  Angular torque observer gain.
+- `mob.mob_alpha_2nd_order`
+  Output LPF factor for published MOB wrench.
+- `mob.Kp`
+  Momentum-state correction gain for linear dynamics.
+- `mob.KpTau`
+  Momentum-state correction gain for angular dynamics.
+- `mob.Ke`
+  Consistency residual gain.
+  This is the main gain that scales the residual term added to the consistency observer.
+- `mob.epsilon_tau`
+  Residual normalization safeguard.
+  Prevents division-by-zero when the torque residual metric is computed.
+
+### `normal_vector_estimation.yaml`
+
+Main parameters in [normal_vector_estimation.yaml](/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/config/normal_vector_estimation.yaml:1):
+
+- `reference_object`
+  Usually `end_effector`.
+  This decides whether the normal estimator uses drone kinematics or end-effector kinematics.
+- `force_observation_source`
+  Selects the wrench source.
+  `mob_2nd` uses the pure observer and `mob_2nd_tau` uses the consistency-corrected observer.
+- `normal_force_threshold`
+  Minimum force magnitude required before a normal update is accepted.
+- `normal_lpf_alpha`
+  LPF used by the simple `direction` estimator.
+
+Important `normal_force_based` parameters:
+
+- `velocity_epsilon`
+  Velocity dead-zone threshold.
+  If contact-point speed is smaller than this, the velocity direction is treated as unreliable.
+- `force_epsilon`
+  Minimum force magnitude required to trust the raw force-direction normal candidate.
+- `algebraic_force_epsilon`
+  Minimum corrected-force magnitude required to trust the algebraic projected candidate.
+- `gamma_epsilon`
+  Soft velocity dead-zone gain used in
+  `gamma_v = ||v||^2 / (||v||^2 + gamma_epsilon)`.
+  Larger values make the projection trust velocity less aggressively near zero speed.
+- `output_lpf_cutoff_rad_s`
+  Output normal-vector LPF cutoff.
+  This affects the smoothed directions used for `ke_raw_normal`, `ke_projected_normal`, and the gamma-projected direction.
+- `candidate_lpf_cutoff_hz`
+  LPF cutoff for the algebraic corrected-force candidate before the final normal is formed.
+- `beta_n`
+  Memory forgetting gain for the projected-normal evidence matrix.
+- `sigma_n`
+  Memory integration gain for the projected-normal evidence matrix.
+
+Topic mapping summary:
+
+- `ke_raw_normal`
+  RViz topic: `/rviz/ke_force_normal_raw`
+  Meaning: force direction before velocity projection.
+- `ke_projected_normal`
+  RViz topic: `/rviz/ke_force_normal_projected`
+  Meaning: force direction after removing the velocity-direction component.
+- Final consistency-based contact frame
+  ROS topic: `/estimated_contact_frame_quat`
+  Source: `/crazyflie/out/ee_applied_mob_2nd_tau`
+- Final pure-observer contact frame
+  ROS topic: `/estimated_contact_frame_quat_pure`
+  Source: `/crazyflie/out/ee_applied_mob_2nd`
+
+## Keyboard Teleop
+
+Run the keyboard teleop node in a separate terminal:
+
 ```bash
+cd ~/mujoco_crazyflie
+source install/setup.bash
 ros2 run flyingpen_interface command_publisher
 ```
+
+### Default Key Bindings
+
+- `w / s`: x command
+- `a / d`: y command
+- `e / q`: z command
+- `z / c`: yaw command
+- `x`: reset position command
+- `i`: toggle position / velocity mode
+- `j / k / l`: force command increase / decrease / reset
+- `g`: toggle yz trajectory in velocity mode
+- `t`: quit teleop
+
+## Useful Files
+
+- [parameters.yaml](/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/config/parameters.yaml:1)
+- [normal_vector_estimation.yaml](/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/config/normal_vector_estimation.yaml:1)
+- [trajectory_generation.yaml](/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/config/trajectory_generation.yaml:1)
+- [flyingpen_cpp.launch.py](/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/launch/flyingpen_cpp.launch.py:1)
+- [flyingpen.rviz](/home/seosuk/mujoco_crazyflie/src/flyingpen_interface/config/flyingpen.rviz:1)
+
+## Notes
+
+- The default normal estimator is `normal_force_based`.
+- RViz starts from the saved config in `flyingpen.rviz`.

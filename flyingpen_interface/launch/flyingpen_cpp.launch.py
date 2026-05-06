@@ -114,19 +114,6 @@ def generate_launch_description():
         }],
     )
 
-    normal_vector_estimation_ke_alt_node = Node(
-        package="flyingpen",
-        executable="normal_vector_estimation",
-        name="normal_vector_estimation_ke_alt",
-        output="screen",
-        parameters=[params, normal_params, {
-            "force_observation_source": "mob_2nd_tau_ke_alt",
-            "contact_frame_quat_topic": "/estimated_contact_frame_quat_ke_alt",
-            "contact_force_x_topic": "/normal_vector/contact_force_x_ke_alt",
-            "normal_debug_metrics_topic": "/normal_vector/debug_metrics_ke_alt",
-        }],
-    )
-
     selected_panel = str(panel_config.get("selected", "")).strip()
     if not selected_panel:
         for legacy_key in ("lvlf", "force"):
@@ -227,7 +214,6 @@ def generate_launch_description():
         fk_ik_transform_node,
         normal_vector_estimation_pure_node,
         normal_vector_estimation_ke_node,
-        normal_vector_estimation_ke_alt_node,
         trajectory_generation_node,
         wrench_observer_node,
         rviz_visual_node,

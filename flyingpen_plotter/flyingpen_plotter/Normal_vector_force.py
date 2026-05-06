@@ -161,7 +161,7 @@ class ROSDataBuffer(Node):
             "c_hat_fx_cmd", "c_hat_fx_act",
             "lambda1", "lambda2", "lambda3",
             "m_tau", "tau_norm", "rxf_con_norm", "rxf_pure_norm", "vel_norm", "force_norm",
-            "rho_v", "rho_f",
+            "rho_f",
             "alpha_v", "alpha_f",
             "tr_l_v", "tr_l_f",
             "angle_n_geo_deg", "angle_n_f_deg", "angle_n_v_deg", "angle_force_dir_deg",
@@ -371,10 +371,9 @@ class ROSDataBuffer(Node):
             return
 
         with self.lock:
-            self.latest["rho_v"] = float(data[0])
-            self.latest["vel_norm"] = float(data[1])
-            self.latest["force_norm"] = float(data[2])
-            self.latest["m_tau"] = float(data[3])
+            self.latest["vel_norm"] = float(data[0])
+            self.latest["force_norm"] = float(data[1])
+            self.latest["m_tau"] = float(data[2])
             self.l_v_bar = np.array(data[10:19], dtype=float).reshape(3, 3)
             self.latest["tr_l_v"] = float(np.trace(self.l_v_bar))
             self.n_geo[:] = data[28:31]
@@ -547,14 +546,9 @@ class PlotWindow(QMainWindow):
         self.curve_vel = self.plot_vel.plot(name="|Wv_c|", pen=pg.mkPen((80, 180, 120), width=2))
         self.plot_vel.setYRange(0.0, 0.6, padding=0.0)
 
-        self.plot_gamma_v = self._make_plot("gamma_v", "ratio", min_height=125)
-        self.curve_gamma_v = self.plot_gamma_v.plot(name="gamma_v", pen=pg.mkPen((40, 90, 220), width=2))
-        self.plot_gamma_v.setYRange(-0.1, 1.1, padding=0.0)
-
         grid.addWidget(self.plot_force, 0, 0)
         grid.addWidget(self.plot_mtau, 0, 1)
         grid.addWidget(self.plot_vel, 0, 2)
-        grid.addWidget(self.plot_gamma_v, 0, 3)
         outer.addLayout(grid)
         return frame
 
@@ -625,8 +619,6 @@ class PlotWindow(QMainWindow):
         self.curve_rxf_con.setData(t_win, arr["rxf_con_norm"][mask])
         self.curve_rxf_pure.setData(t_win, arr["rxf_pure_norm"][mask])
         self.curve_vel.setData(t_win, arr["vel_norm"][mask])
-        self.curve_gamma_v.setData(t_win, arr["rho_v"][mask])
-
         self.curve_ang_geo.setData(t_win, arr["angle_n_geo_deg"][mask])
         self.curve_ang_f.setData(t_win, arr["angle_n_f_deg"][mask])
         self.curve_ang_v.setData(t_win, arr["angle_n_v_deg"][mask])
@@ -636,7 +628,7 @@ class PlotWindow(QMainWindow):
         x_right = tmax if tmax >= window else window
         for plot in [
             self.plot_vy, self.plot_vz, self.plot_fx,
-            self.plot_force, self.plot_mtau, self.plot_vel, self.plot_gamma_v,
+            self.plot_force, self.plot_mtau, self.plot_vel,
             self.plot_ang_geo, self.plot_ang_f, self.plot_ang_v, self.plot_ang_force,
         ]:
             plot.setXRange(x_left, x_right, padding=0.0)
@@ -647,7 +639,6 @@ class PlotWindow(QMainWindow):
             f"fx(cmd/act)={self._fmt_scalar(latest['c_hat_fx_cmd'])}/{self._fmt_scalar(latest['c_hat_fx_act'])}   "
             f"|Wf|={self._fmt_scalar(latest['force_norm'])}   "
             f"|Wv_c|={self._fmt_scalar(latest['vel_norm'])}   "
-            f"gamma_v={self._fmt_scalar(latest['rho_v'])}   "
             f"tau={self._fmt_scalar(latest['tau_norm'])}   "
             f"rXF_con={self._fmt_scalar(latest['rxf_con_norm'])}   "
             f"rXF_pure={self._fmt_scalar(latest['rxf_pure_norm'])}   "

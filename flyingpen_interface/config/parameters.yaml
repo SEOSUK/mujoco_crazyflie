@@ -141,6 +141,8 @@ data_logger:
   ros__parameters:
 #    csv_dir: "~/ros2_ws/src/mujoco_crazyflie/flyingpen_interface/bag" # MJ
     csv_dir: "~/mujoco_crazyflie/src/flyingpen_interface/bag" # SU
+    compare_velocity_epsilon: 0.01
+    compare_gamma_epsilon: 3.0e-3
 
 panel:
   ros__parameters:

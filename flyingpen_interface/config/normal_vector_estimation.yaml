@@ -1,41 +1,21 @@
-normal_vector_estimation:
+/**:
   ros__parameters:
     reference_object: "end_effector" # "drone" or "end_effector"
-    normal_estimator_method: "normal_force_based" # "None", "direct", "kroc", "action_normal", "Lf_Lv_fusion", "normal_force_based"
+    normal_estimator_method: "normal_force_based" # "direction", "normal_force_based", "None"
     publish_hz: 100.0
 
     flip_measured_force: false
     normal_force_threshold: 0.005 # minimum force magnitude [N] required to accept/update a normal estimate
     normal_lpf_alpha: 0.2
 
-    force_observation_source: "mob_2nd_tau" # "contact_force"=filtered contact force, "mob"=momentum observer 1st order, "mob_2nd"=momentum observer 2nd order (pure), "mob_2nd_tau"=consistency correction MOB
-
-    Lf_Lv_fusion:
-      velocity_epsilon: 0.005 # [m/s] 이 값보다 작으면 속도 방향을 신뢰하지 않음
-      beta_v: 0.3 # [1/s]geometry/velocity 메모리 L_v의 forgetting gain
-      sigma_v: 0.3 # geometry/velocity evidence의 누적 gain
-
-      slip_blend_velocity: 0.04 # [m/s] 속도 직교 평면으로 force를 projection할 때 쓰는 slip blending 스케일
-      force_epsilon: 0.01 # [N] 이 값보다 작으면 force 기반 normal candidate를 신뢰하지 않음
-      beta_f: 1.0 # force 메모리 L_f의 forgetting gain
-      sigma_f: 1.0 # force evidence의 누적 gain
-
-      c_v: 0.0005 # geometry 신뢰도 바이어스, 클수록 rho_v가 더 보수적으로 올라감
-      eps_lambda: 1.0e-4 # 고유값 gap 기반 신뢰도 계산 시 사용하는 수치 안정화 epsilon
-      c_f: 0.05 # force 신뢰도 바이어스, 클수록 rho_f가 더 보수적으로 올라감
-      eta_tau: 0.05 # consistency attenuation m_tau의 최소 바닥값
-      sigma_tau: 2.0e-3 # consistency attenuation 폭, 작을수록 불일치에 더 민감하게 패널티를 줌
-      use_raw_mob_tau_residual: true # true: m_tau를 보정된 consistency observer가 아니라 raw MOB의 tau_hat - (r x F) residual로 계산
-
-      eps_alpha: 1.0e-6 # alpha_v / alpha_f 정규화 시 사용하는 수치 안정화 epsilon
-      eps_l: 1.0e-6 # L_v, L_f trace 정규화 시 사용하는 수치 안정화 epsilon
-      min_confidence: 0.08 # 최종 fused normal estimate를 채택하기 위한 최소 confidence
+    force_observation_source: "mob_2nd_tau" # "contact_force"=filtered contact force, "mob_2nd"=momentum observer 2nd order (pure), "mob_2nd_tau"=consistency correction MOB
 
     normal_force_based:
-      velocity_epsilon: 0.005 # e_s, 접촉점 속도 방향을 신뢰할 최소 속도 [m/s]
-      gamma_epsilon: 1.0e-2 # e_g, gamma_v = ||v_c||^2 / (||v_c||^2 + e_g)
-      force_epsilon: 0.01 # e_f, force-based normal candidate를 신뢰할 최소 힘 [N]
+      velocity_epsilon: 0.01 # e_s, 접촉점 속도 방향을 신뢰할 최소 속도 [m/s]
+      force_epsilon: 0.005 # e_f, force-based normal candidate를 신뢰할 최소 힘 [N]
       algebraic_force_epsilon: 5.0e-3 # e_n, corrected force evidence를 신뢰할 최소 힘 [N]
-      candidate_lpf_alpha: 0.2 # 순각 algebraic candidate에 대한 pure LPF 계수
-      beta_n: 0.3 # projector memory forgetting gain
-      sigma_n: 0.3 # projector memory integration gain
+      gamma_epsilon: 1.0e-3 # e_g for gamma_v = ||v||^2 / (||v||^2 + e_g), soft velocity-admissibility gain
+      output_lpf_cutoff_rad_s: 12.0 # raw / projected / gamma normal direction LPF cutoff [rad/s]
+      candidate_lpf_cutoff_hz: 3.0 # 순각 algebraic candidate LPF cutoff frequency [Hz]
+      beta_n: 0.1 # projector memory forgetting gain
+      sigma_n: 0.1 # projector memory integration gain

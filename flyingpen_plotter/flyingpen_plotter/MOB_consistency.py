@@ -83,7 +83,6 @@ class ROSDataBuffer(Node):
         self.declare_parameter("pose_topic", "/crazyflie/out/pose")
         self.declare_parameter("input_topic", "/crazyflie/in/input")
         self.declare_parameter("force_gt_topic", "/crazyflie/out/EE_contact_force_filt")
-        self.declare_parameter("mob_1st_topic", "/crazyflie/out/mob")
         self.declare_parameter("mob_2nd_topic", "/crazyflie/out/mob_2nd")
         self.declare_parameter("mob_consistency_topic", "/crazyflie/out/mob_2nd_tau")
         self.declare_parameter("mob_consistency_terms_topic", "/crazyflie/out/mob_2nd_tau_terms")
@@ -179,12 +178,6 @@ class ROSDataBuffer(Node):
         )
         self.create_subscription(
             WrenchStamped,
-            str(self.get_parameter("mob_1st_topic").value),
-            self.cb_mob_1st,
-            10,
-        )
-        self.create_subscription(
-            WrenchStamped,
             str(self.get_parameter("mob_2nd_topic").value),
             self.cb_mob_2nd,
             10,
@@ -230,11 +223,6 @@ class ROSDataBuffer(Node):
     def cb_force_gt(self, msg: WrenchStamped) -> None:
         with self.lock:
             self.force_gt = wrench_force(msg)
-
-    def cb_mob_1st(self, msg: WrenchStamped) -> None:
-        with self.lock:
-            self.mob1_force = wrench_force(msg)
-            self.mob1_torque = wrench_torque(msg)
 
     def cb_mob_2nd(self, msg: WrenchStamped) -> None:
         with self.lock:
