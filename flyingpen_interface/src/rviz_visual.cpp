@@ -908,7 +908,7 @@ private:
 
     mk.pose.position.x = cylinder_pos_x_;
     mk.pose.position.y = cylinder_pos_y_;
-    mk.pose.position.z = cylinder_pos_z_ + cylinder_half_height_;
+    mk.pose.position.z = cylinder_pos_z_;
     mk.pose.orientation.w = 1.0;
 
     mk.scale.x = 2.0 * cylinder_radius_;

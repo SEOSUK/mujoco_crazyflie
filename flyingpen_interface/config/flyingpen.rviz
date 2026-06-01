@@ -58,7 +58,7 @@ Visualization Manager:
       Frames:
         All Enabled: false
         EE:
-          Value: false
+          Value: true
         cf21B_ft_sensor:
           Value: false
         cmd_active:
@@ -68,11 +68,11 @@ Visualization Manager:
         cmd_end_effector:
           Value: false
         crazyflie:
-          Value: false
+          Value: true
         end_effector:
-          Value: false
+          Value: true
         estimated_contact_frame:
-          Value: false
+          Value: true
         wall:
           Value: false
         world:
@@ -182,6 +182,32 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /rviz/EE_contact_force
+      Value: true
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: Estimated Normal
+      Namespaces:
+        estimated_contact_normal_ke: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /rviz/estimated_contact_normal_ke
+      Value: true
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: EE Velocity
+      Namespaces:
+        ee_velocity: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /rviz/EE_velocity
       Value: true
     - Class: rviz_default_plugins/Marker
       Enabled: true

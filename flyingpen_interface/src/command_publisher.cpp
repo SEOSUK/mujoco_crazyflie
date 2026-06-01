@@ -35,8 +35,8 @@ public:
 
     cmd_xyz_yaw_.fill(0.0);
     force_des_ = 0.0;
-    use_vel_mode_ = 0.0;   // 기본: position mode
-    status_msg_ = "ready";
+    use_vel_mode_ = 1.0;   // 항상 velocity mode
+    status_msg_ = "velocity mode fixed";
 
     // ncurses 초기화
     initscr();
@@ -47,7 +47,7 @@ public:
 
     mvprintw(0, 0, "command_publisher running. press 't' to quit.");
     mvprintw(2, 0, "keys: w/s(x), a/d(y), e/q(z), z/c(yaw), x(reset pos)");
-    mvprintw(3, 0, "      j/k/l(force), i(toggle pos/vel+reset), g(toggle yz trajectory)");
+    mvprintw(3, 0, "      j/k/l(force), g(toggle yz trajectory)");
     refresh();
 
     RCLCPP_INFO(this->get_logger(), "command_publisher started.");
@@ -71,6 +71,7 @@ private:
     }
 
     publishPositionCmd();
+    publishUseVelMode();
     drawStatusLine();
   }
 
@@ -90,7 +91,6 @@ private:
     else if (c == 'k')  { force_des_ -= force_delta_; publishForce(); }
     else if (c == 'l')  { force_des_ = 0.0;           publishForce(); }
 
-    else if (c == 'i')  { toggleVelMode(); }
     else if (c == 'g')  { toggleTrajectory(); }
 
     else if (c == 't') {
@@ -122,39 +122,29 @@ private:
     force_pub_->publish(msg);
   }
 
-  void toggleVelMode()
+  void publishUseVelMode()
   {
-    use_vel_mode_ = (use_vel_mode_ < 0.5) ? 1.0 : 0.0;
-
     std_msgs::msg::Float32 msg;
-    msg.data = static_cast<float>(use_vel_mode_);
+    msg.data = static_cast<float>(1.0);
     use_vel_mode_pub_->publish(msg);
-
-    cmd_xyz_yaw_.fill(0.0);
   }
 
   void toggleTrajectory()
   {
-    if (use_vel_mode_ < 0.5) {
-      status_msg_ = "trajectory requires VELOCITY mode";
-      return;
-    }
     trajectory_enabled_ = !trajectory_enabled_;
     status_msg_ = trajectory_enabled_ ? "trajectory ON" : "trajectory OFF";
   }
 
   void drawStatusLine()
   {
-    const char* mode_str = (use_vel_mode_ > 0.5) ? "VELOCITY" : "POSITION";
-
     mvprintw(5, 0,
       "cmd: x=%6.2f y=%6.2f z=%6.2f yaw=%6.2f | f=%5.2f      ",
       cmd_xyz_yaw_[0], cmd_xyz_yaw_[1], cmd_xyz_yaw_[2],
       cmd_xyz_yaw_[3], force_des_);
 
     mvprintw(6, 0,
-      "mode: %s | trajectory: %s                             ",
-      mode_str, trajectory_enabled_ ? "ON" : "OFF");
+      "mode: VELOCITY(FIXED) | trajectory: %s                ",
+      trajectory_enabled_ ? "ON" : "OFF");
 
     mvprintw(7, 0, "status: %-48s", status_msg_.c_str());
 

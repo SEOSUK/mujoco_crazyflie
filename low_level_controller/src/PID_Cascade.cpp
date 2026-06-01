@@ -3,6 +3,7 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/vector3_stamped.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
+#include <std_msgs/msg/float32.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
 #include <builtin_interfaces/msg/time.hpp>
 
@@ -163,6 +164,12 @@ public:
     sub_cmd_ = create_subscription<std_msgs::msg::Float64MultiArray>(
       "/crazyflie/in/pos_cmd", 10,
       std::bind(&PIDCascade::cb_cmd, this, std::placeholders::_1));
+    sub_vel_cmd_ = create_subscription<std_msgs::msg::Float64MultiArray>(
+      "/crazyflie/in/vel_cmd", 10,
+      std::bind(&PIDCascade::cb_vel_cmd, this, std::placeholders::_1));
+    sub_use_vel_mode_ = create_subscription<std_msgs::msg::Float32>(
+      "su/use_vel_mode", 10,
+      std::bind(&PIDCascade::cb_use_vel_mode, this, std::placeholders::_1));
 
     sub_pose_ = create_subscription<geometry_msgs::msg::PoseStamped>(
       "/crazyflie/out/pose", 10,
@@ -238,6 +245,26 @@ private:
     vel_ << m->vector.x, m->vector.y, m->vector.z;
   }
 
+  void cb_vel_cmd(const std_msgs::msg::Float64MultiArray::SharedPtr m)
+  {
+    if (m->data.size() < 4) {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+                           "vel_cmd needs 4 doubles: [vx, vy, vz, yaw]");
+      return;
+    }
+    std::lock_guard<std::mutex> lk(mtx_);
+    cmd_vel_ << m->data[0], m->data[1], m->data[2];
+    cmd_yaw_ = m->data[3];
+    have_cmd_ = true;
+    have_vel_cmd_ = true;
+  }
+
+  void cb_use_vel_mode(const std_msgs::msg::Float32::SharedPtr m)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    use_vel_mode_ = (m->data > 0.5f);
+  }
+
   void cb_angvel(const geometry_msgs::msg::Vector3Stamped::SharedPtr m)
   {
     std::lock_guard<std::mutex> lk(mtx_);
@@ -279,8 +306,16 @@ private:
   // ---------- loops ----------
   void loop_pos()
   {
-    if (!have_cmd_) return;
+    if (!have_cmd_ && !have_vel_cmd_) return;
     std::lock_guard<std::mutex> lk(mtx_);
+
+    if (use_vel_mode_ && have_vel_cmd_) {
+      v_des_ = cmd_vel_;
+      pos_x_.reset();
+      pos_y_.reset();
+      pos_z_.reset();
+      return;
+    }
 
     const double dt = std::max(1e-6, dt_pos_);
     v_des_.x() = pos_x_.step(cmd_pos_.x() - pos_.x(), dt);
@@ -290,7 +325,7 @@ private:
 
   void loop_vel()
   {
-    if (!have_cmd_) return;
+    if (!have_cmd_ && !have_vel_cmd_) return;
     std::lock_guard<std::mutex> lk(mtx_);
 
     const double dt = std::max(1e-6, dt_vel_);
@@ -301,7 +336,7 @@ private:
 
   void loop_att()
   {
-    if (!have_cmd_) return;
+    if (!have_cmd_ && !have_vel_cmd_) return;
     std::lock_guard<std::mutex> lk(mtx_);
 
     // yaw command
@@ -341,7 +376,7 @@ private:
 
   void loop_rate()
   {
-    if (!have_cmd_) return;
+    if (!have_cmd_ && !have_vel_cmd_) return;
 
     std::lock_guard<std::mutex> lk(mtx_);
 
@@ -392,8 +427,10 @@ private:
   // ---------- state ----------
   std::mutex mtx_;
   bool have_cmd_{false};
+  bool have_vel_cmd_{false};
+  bool use_vel_mode_{true};
 
-  Eigen::Vector3d cmd_pos_{0,0,0}, pos_{0,0,0}, vel_{0,0,0};
+  Eigen::Vector3d cmd_pos_{0,0,0}, cmd_vel_{0,0,0}, pos_{0,0,0}, vel_{0,0,0};
   Eigen::Vector3d v_des_{0,0,0}, a_des_{0,0,0};
   Eigen::Vector3d w_{0,0,0}, w_des_{0,0,0};
 
@@ -420,6 +457,8 @@ private:
 
   // ROS
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_cmd_;
+  rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_vel_cmd_;
+  rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_use_vel_mode_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_pose_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_vel_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_w_;

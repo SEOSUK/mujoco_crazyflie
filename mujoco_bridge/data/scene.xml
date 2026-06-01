@@ -1,6 +1,6 @@
 <mujoco model="cf21B_scene">
   <include file="cf21B_500.xml"/>
-  <include file="wall.xml"/>
+  <include file="cylinder.xml"/>
 
   <visual>
     <rgba haze="0.28 0.36 0.44 1"/>

@@ -85,33 +85,15 @@ def generate_launch_description():
         executable="trajectory_generation",
         name="trajectory_generation",
         output="screen",
-        parameters=[trajectory_params, params],
+        parameters=[params, trajectory_params],
     )
 
-    normal_vector_estimation_pure_node = Node(
+    normal_vector_estimation_node = Node(
         package="flyingpen",
         executable="normal_vector_estimation",
-        name="normal_vector_estimation_pure",
+        name="normal_vector_estimation",
         output="screen",
-        parameters=[params, normal_params, {
-            "force_observation_source": "mob_2nd",
-            "contact_frame_quat_topic": "/estimated_contact_frame_quat_pure",
-            "contact_force_x_topic": "/normal_vector/contact_force_x_pure",
-            "normal_debug_metrics_topic": "/normal_vector/debug_metrics_pure",
-        }],
-    )
-
-    normal_vector_estimation_ke_node = Node(
-        package="flyingpen",
-        executable="normal_vector_estimation",
-        name="normal_vector_estimation_ke",
-        output="screen",
-        parameters=[params, normal_params, {
-            "force_observation_source": "mob_2nd_tau",
-            "contact_frame_quat_topic": "/estimated_contact_frame_quat",
-            "contact_force_x_topic": "/normal_vector/contact_force_x",
-            "normal_debug_metrics_topic": "/normal_vector/debug_metrics",
-        }],
+        parameters=[params, normal_params],
     )
 
     selected_panel = str(panel_config.get("selected", "")).strip()
@@ -212,8 +194,7 @@ def generate_launch_description():
         world_to_wall_tf_node,
         controller_node,
         fk_ik_transform_node,
-        normal_vector_estimation_pure_node,
-        normal_vector_estimation_ke_node,
+        normal_vector_estimation_node,
         trajectory_generation_node,
         wrench_observer_node,
         rviz_visual_node,
