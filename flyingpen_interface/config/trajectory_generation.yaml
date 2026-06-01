@@ -3,38 +3,58 @@ trajectory_generation:
     reference_object: "end_effector" # "drone" or "end_effector"
     end_effector_offset: [0.1, 0.0, 0.04]
 
-    yaw_align_kp: 3.0
-    normal_xy_min: 0.001
-    velocity_command_frame: "world" # "contact": follow estimated normal frame, "world": keep velocity commands in world frame
-    force_adm_kp: 5.0
-    force_adm_kd: 0.005
+    # "position_loop_embedding" or "velocity_loop_direct"
+    command_embedding_mode: "position_loop_embedding"
 
-    # g key trajectory selector: "lissajous", "circle", "square", or "constant_accel"
-    trajectory:
-      type: "lissajous"
-      ramp_sec: 2.0
+    force_control:
+      mode: "paper" # "legacy" or "paper"
+      legacy:
+        kp: 5.0
+        kd: 0.005
+        v_n_max: 0.20
+        derivative_cutoff_rad_s: 3.0
+      paper:
+        k_f: 5.0
+        k_l: 2.0
+        v_n_max: 0.20
+
+    # manual keyboard velocity frame during velocity mode
+    manual_velocity_frame: "contact" # "contact" or "world"
+
+    yaw:
+      strategy: "normal_align" # "normal_align", "paper", "none"
+      normal_align_kp: 3.0
+      normal_xy_min: 0.001
+      paper:
+        cbar_tau: 0.25
+        epsilon_tau_c: 1.0e-6
+
+    pattern:
+      type: "lissajous" # "lissajous", "circle", "square", "constant"
+      ramp_sec: 1.0
+      v_s: 0.25
 
     lissajous:
-      amp_y: 0.20
-      amp_z: 0.00
-      period_y: 15.0
-      period_z: 10.0
+      amp_1: 0.20
+      amp_2: 0.00
+      period_1: 15.0
+      period_2: 10.0
 
     circle:
       radius: 0.20
       period_sec: 7.0
-      center_y: 0.0
-      center_z: 0.0
+      center_1: 0.0
+      center_2: 0.0
       phase_rad: -1.57079632679
 
     square:
-      parallel_length: 2.0 # [m] y-axis direction length
-      vertical_length: 0.4 # [m] z-axis direction length
+      parallel_length: 2.0
+      vertical_length: 0.4
       period_sec: 30.0
-      center_y: 0.0
-      center_z: 0.0
+      center_1: 0.0
+      center_2: 0.0
       phase: 0.0
 
-    constant_accel:
-      acc_y: 0.005
-      acc_z: 0.00
+    constant:
+      speed_1: 0.05
+      speed_2: 0.00

@@ -47,13 +47,13 @@ public:
       "use_vel_mode_topic", "su/use_vel_mode");
 
     force_based_velocity_epsilon_ = this->declare_parameter<double>(
-      "normal_force_based.velocity_epsilon", 0.005);
+      "normal_force_based.epsilon_v", 0.005);
     force_based_force_epsilon_ = this->declare_parameter<double>(
-      "normal_force_based.force_epsilon", 0.01);
+      "normal_force_based.epsilon_f", 0.01);
     force_based_algebraic_force_epsilon_ = this->declare_parameter<double>(
-      "normal_force_based.algebraic_force_epsilon", 5.0e-3);
+      "normal_force_based.epsilon_n", 5.0e-3);
     const double declared_gamma_epsilon = this->declare_parameter<double>(
-      "normal_force_based.gamma_epsilon",
+      "normal_force_based.epsilon_g",
       std::numeric_limits<double>::quiet_NaN());
     const double declared_compare_gamma_epsilon = this->declare_parameter<double>(
       "normal_force_based.compare_gamma_epsilon",
@@ -65,8 +65,6 @@ public:
     } else {
       force_based_gamma_epsilon_ = 1.0e-2;
     }
-    force_based_candidate_lpf_cutoff_hz_ = this->declare_parameter<double>(
-      "normal_force_based.candidate_lpf_cutoff_hz", 63.66197723675813);
     force_based_output_lpf_cutoff_rad_s_ = this->declare_parameter<double>(
       "normal_force_based.output_lpf_cutoff_rad_s", 3.0);
     force_based_beta_n_ = this->declare_parameter<double>(
@@ -277,16 +275,23 @@ private:
   std::string resolveForceObservationTopic(const std::string & source) const
   {
     if (
-      source == "contact_force" || source == "contact_force_filt" ||
-      source == "filtered" || source == "filt" || source == "raw")
+      source == "force_sensor" || source == "contact_force" ||
+      source == "contact_force_filt" || source == "filtered" ||
+      source == "filt" || source == "raw")
     {
       return "/crazyflie/out/EE_contact_force_filt";
     }
-    if (source == "mob_2nd" || source == "mob2") {
-      return "/crazyflie/out/ee_applied_mob_2nd";
+    if (
+      source == "momentum_observer_2nd_order" ||
+      source == "mob_2nd" || source == "mob2")
+    {
+      return "/crazyflie/out/mob_2nd";
     }
-    if (source == "mob_2nd_tau" || source == "mob_tau" || source == "consistency") {
-      return "/crazyflie/out/ee_applied_mob_2nd_tau";
+    if (
+      source == "momentum_observer_2nd_order_consistency" ||
+      source == "mob_2nd_tau" || source == "mob_tau" || source == "consistency")
+    {
+      return "/crazyflie/out/mob_2nd_tau";
     }
 
     RCLCPP_WARN(
@@ -294,6 +299,32 @@ private:
       "Unknown force_observation_source '%s'. Falling back to '/crazyflie/out/EE_contact_force_filt'.",
       source.c_str());
     return "/crazyflie/out/EE_contact_force_filt";
+  }
+
+  bool sourceRequiresImplicitForceFlip() const
+  {
+    const std::string source = force_observation_source_;
+    return (
+      source == "momentum_observer_2nd_order" ||
+      source == "momentum_observer_2nd_order_consistency" ||
+      source == "mob_2nd" ||
+      source == "mob2" ||
+      source == "mob_2nd_tau" ||
+      source == "mob_tau" ||
+      source == "consistency");
+  }
+
+  bool shouldFlipMeasuredForce() const
+  {
+    // MOB topics publish the external wrench acting on the drone body.
+    // My-Style normal/contact-frame logic uses the opposite direction as the
+    // contact normal evidence, so MOB sources are implicitly flipped here.
+    return flip_measured_force_ != sourceRequiresImplicitForceFlip();
+  }
+
+  Eigen::Vector3d toNormalEvidenceForce(const Eigen::Vector3d & force_world) const
+  {
+    return shouldFlipMeasuredForce() ? -force_world : force_world;
   }
 
   ReferenceState getReferenceStateLocked() const
@@ -342,7 +373,7 @@ private:
     }
 
     Eigen::Vector3d n_new = force_world / (force_norm + 1e-12);
-    if (flip_measured_force_) {
+    if (shouldFlipMeasuredForce()) {
       n_new = -n_new;
     }
 
@@ -366,9 +397,7 @@ private:
     Eigen::Vector3d force_world,
     double dt)
   {
-    if (flip_measured_force_) {
-      force_world = -force_world;
-    }
+    force_world = toNormalEvidenceForce(force_world);
 
     dt = std::clamp(dt, 1e-4, 0.1);
 
@@ -507,38 +536,38 @@ private:
       return false;
     }
 
-    const Eigen::Vector3d x_c = cf_out.n_w.normalized();
-    Eigen::Vector3d y_c = x_c.cross(Eigen::Vector3d::UnitZ());
-    double y_norm = y_c.norm();
+    const Eigen::Vector3d n_c = cf_out.n_w.normalized();
+    Eigen::Vector3d a_ref = Eigen::Vector3d::UnitZ();
+    Eigen::Vector3d t1_c = a_ref.cross(n_c);
+    double t1_norm = t1_c.norm();
 
-    if (y_norm < 1e-6) {
+    if (t1_norm < 1e-6) {
       Eigen::Vector3d axis = Eigen::Vector3d::UnitY();
-      if (std::abs(x_c.dot(axis)) > 0.9) {
+      if (std::abs(n_c.dot(axis)) > 0.9) {
         axis = Eigen::Vector3d::UnitX();
       }
 
-      y_c = x_c.cross(axis);
-      y_norm = y_c.norm();
-      if (y_norm < 1e-9) {
+      t1_c = axis.cross(n_c);
+      t1_norm = t1_c.norm();
+      if (t1_norm < 1e-9) {
         cf_out.valid = false;
         return false;
       }
     }
 
-    y_c /= (y_norm + 1e-12);
-    y_c = -y_c;
+    t1_c /= (t1_norm + 1e-12);
 
-    Eigen::Vector3d z_c = x_c.cross(y_c);
-    const double z_norm = z_c.norm();
-    if (z_norm < 1e-9) {
+    Eigen::Vector3d t2_c = n_c.cross(t1_c);
+    const double t2_norm = t2_c.norm();
+    if (t2_norm < 1e-9) {
       cf_out.valid = false;
       return false;
     }
-    z_c /= z_norm;
+    t2_c /= t2_norm;
 
-    cf_out.R_C.col(0) = x_c;
-    cf_out.R_C.col(1) = y_c;
-    cf_out.R_C.col(2) = z_c;
+    cf_out.R_C.col(0) = n_c;
+    cf_out.R_C.col(1) = t1_c;
+    cf_out.R_C.col(2) = t2_c;
     cf_out.valid = true;
     return true;
   }
@@ -768,7 +797,8 @@ private:
       force_arr = contact_force_;
     }
 
-    const Eigen::Vector3d force_world(force_arr[0], force_arr[1], force_arr[2]);
+    const Eigen::Vector3d force_world_raw(force_arr[0], force_arr[1], force_arr[2]);
+    const Eigen::Vector3d force_world_normal_evidence = toNormalEvidenceForce(force_world_raw);
 
     ReferenceState ref;
     {
@@ -782,7 +812,7 @@ private:
       cf_local = contact_frame_;
     }
 
-    if (!updateContactFrame(cf_local, ref, force_world, dt) || !cf_local.valid) {
+    if (!updateContactFrame(cf_local, ref, force_world_raw, dt) || !cf_local.valid) {
       std_msgs::msg::Float32 force_x_msg;
       force_x_msg.data = 0.0f;
       pub_contact_force_x_->publish(force_x_msg);
@@ -791,7 +821,7 @@ private:
       return;
     }
 
-    const Eigen::Vector3d force_contact = cf_local.R_C.transpose() * force_world;
+    const Eigen::Vector3d force_contact = cf_local.R_C.transpose() * force_world_normal_evidence;
 
     {
       std::lock_guard<std::mutex> lk(contact_frame_mtx_);
@@ -835,7 +865,6 @@ private:
   double force_based_force_epsilon_{0.01};
   double force_based_algebraic_force_epsilon_{5.0e-3};
   double force_based_gamma_epsilon_{1.0e-2};
-  double force_based_candidate_lpf_cutoff_hz_{63.66197723675813};
   double force_based_output_lpf_cutoff_rad_s_{3.0};
   double force_based_beta_n_{1.0};
   double force_based_sigma_n_{1.0};
@@ -878,7 +907,7 @@ private:
   bool ee_acc_received_{false};
 
   std::mutex mode_mtx_;
-  bool use_vel_mode_{false};
+  bool use_vel_mode_{true};
 
   rclcpp::Time last_update_time_{0, 0, RCL_ROS_TIME};
 };

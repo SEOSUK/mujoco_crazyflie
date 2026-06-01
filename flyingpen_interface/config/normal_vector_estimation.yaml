@@ -4,18 +4,19 @@
     normal_estimator_method: "normal_force_based" # "direction", "normal_force_based", "None"
     publish_hz: 100.0
 
-    flip_measured_force: false
-    normal_force_threshold: 0.005 # minimum force magnitude [N] required to accept/update a normal estimate
+    flip_measured_force: false # MOB sources are implicitly flipped internally for My-Style normal convention
+    normal_force_threshold: 0.0005
     normal_lpf_alpha: 0.2
 
-    force_observation_source: "mob_2nd_tau" # "contact_force"=filtered contact force, "mob_2nd"=momentum observer 2nd order (pure), "mob_2nd_tau"=consistency correction MOB
+    # "force_sensor", "momentum_observer_2nd_order",
+    # "momentum_observer_2nd_order_consistency"
+    force_observation_source: "momentum_observer_2nd_order_consistency"
 
     normal_force_based:
-      velocity_epsilon: 0.01 # e_s, 접촉점 속도 방향을 신뢰할 최소 속도 [m/s]
-      force_epsilon: 0.005 # e_f, force-based normal candidate를 신뢰할 최소 힘 [N]
-      algebraic_force_epsilon: 5.0e-3 # e_n, corrected force evidence를 신뢰할 최소 힘 [N]
-      gamma_epsilon: 1.0e-3 # e_g for gamma_v = ||v||^2 / (||v||^2 + e_g), soft velocity-admissibility gain
-      output_lpf_cutoff_rad_s: 12.0 # raw / projected / gamma normal direction LPF cutoff [rad/s]
-      candidate_lpf_cutoff_hz: 3.0 # 순각 algebraic candidate LPF cutoff frequency [Hz]
-      beta_n: 0.1 # projector memory forgetting gain
-      sigma_n: 0.1 # projector memory integration gain
+      epsilon_v: 0.01
+      epsilon_f: 0.005
+      epsilon_n: 0.005
+      epsilon_g: 1.0e-3
+      output_lpf_cutoff_rad_s: 12.0
+      beta_n: 0.1
+      sigma_n: 0.1

@@ -1,6 +1,6 @@
 /**:
   ros__parameters:
-    environment.type: "wall" # "cylinder" for cylinder.xml, "wall" for wall.xml
+    environment.type: "cylinder" # "cylinder" for cylinder.xml, "wall" for wall.xml
     environment.marker_topic: "/rviz/environment"
     wind_indicator.enable: true
     wind_indicator.wind_topic: "/crazyflie/in/wind"
