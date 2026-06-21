@@ -31,13 +31,6 @@ using namespace std::chrono_literals;
 class RvizVisual : public rclcpp::Node
 {
 public:
-  struct NormalMemoryState
-  {
-    Eigen::Matrix3d l_n = Eigen::Matrix3d::Zero();
-    Eigen::Vector3d n_est = Eigen::Vector3d::Zero();
-    bool initialized = false;
-  };
-
   struct HistorySample
   {
     rclcpp::Time stamp{0, 0, RCL_ROS_TIME};
@@ -49,6 +42,34 @@ public:
   {
     rclcpp::Time stamp{0, 0, RCL_ROS_TIME};
     geometry_msgs::msg::Point point;
+  };
+
+  struct SurfaceChainGeometry
+  {
+    double plane_x{1.0};
+    double plane_y0{-0.3};
+    double plane_y1{0.3};
+    double arc_center_x{0.4};
+    double arc_center_y{0.3};
+    double arc_radius{0.6};
+    double arc_angle_rad{40.0 * M_PI / 180.0};
+    double plane2_start_x{0.906418};
+    double plane2_start_y{0.557115};
+    double plane2_tangent_x{-0.642788};
+    double plane2_tangent_y{0.766044};
+    double plane2_normal_x{0.766044};
+    double plane2_normal_y{0.642788};
+    double plane2_center_x{0.713581};
+    double plane2_center_y{0.786928};
+    double plane2_end_x{0.520744};
+    double plane2_end_y{1.016742};
+    double arc2_center_x{0.980371};
+    double arc2_center_y{1.402415};
+    double plane3_start_x{0.380371};
+    double plane3_start_y{1.402415};
+    double plane3_end_y{2.002415};
+    double half_thickness{0.01};
+    double half_height{0.25};
   };
 
   RvizVisual()
@@ -95,6 +116,8 @@ public:
       "normal_debug_metrics_topic_pure", "/normal_vector/debug_metrics_pure");
     normal_debug_metrics_topic_ = this->declare_parameter<std::string>(
       "normal_debug_metrics_topic", "/normal_vector/debug_metrics");
+    control_metrics_topic_ = this->declare_parameter<std::string>(
+      "control_metrics_topic", "/su/debug/control_metrics");
 
     est_contact_frame_ = this->declare_parameter<std::string>(
       "est_contact_frame", "estimated_contact_frame");
@@ -145,6 +168,32 @@ public:
         "wall.rgba must have size 4. Falling back to [0.75, 0.93, 0.75, 0.25].");
       wall_rgba_ = {0.75, 0.93, 0.75, 0.25};
     }
+    surface_chain_pos_x_ = this->declare_parameter<double>("surface_chain.pos.x", 1.0);
+    surface_chain_pos_y_ = this->declare_parameter<double>("surface_chain.pos.y", 0.0);
+    surface_chain_base_z_ = this->declare_parameter<double>("surface_chain.base_z", 0.0);
+    surface_chain_plane1_length_ =
+      this->declare_parameter<double>("surface_chain.plane1.length", 0.6);
+    surface_chain_arc_radius_ =
+      this->declare_parameter<double>("surface_chain.arc.radius", 0.6);
+    surface_chain_arc_angle_deg_ =
+      this->declare_parameter<double>("surface_chain.arc.angle_deg", 40.0);
+    surface_chain_plane2_length_ =
+      this->declare_parameter<double>("surface_chain.plane2.length", 0.6);
+    surface_chain_plane3_length_ =
+      this->declare_parameter<double>("surface_chain.plane3.length", 0.6);
+    surface_chain_height_ = this->declare_parameter<double>("surface_chain.height", 0.5);
+    surface_chain_thickness_ =
+      this->declare_parameter<double>("surface_chain.thickness", 0.02);
+    surface_chain_arc_segments_ =
+      this->declare_parameter<int>("surface_chain.arc.segments", 96);
+    surface_chain_rgba_ = this->declare_parameter<std::vector<double>>(
+      "surface_chain.rgba", std::vector<double>{0.75, 0.93, 0.75, 0.35});
+    if (surface_chain_rgba_.size() != 4) {
+      RCLCPP_WARN(
+        this->get_logger(),
+        "surface_chain.rgba must have size 4. Falling back to [0.75, 0.93, 0.75, 0.35].");
+      surface_chain_rgba_ = {0.75, 0.93, 0.75, 0.35};
+    }
 
     force_scale_         = this->declare_parameter<double>("force_scale", 10.0);
     contact_force_scale_ = this->declare_parameter<double>("contact_force_scale", 10.0);
@@ -154,14 +203,6 @@ public:
       "ke_normal_velocity_epsilon", 0.005);
     ke_normal_force_epsilon_ = this->declare_parameter<double>(
       "ke_normal_force_epsilon", 0.005);
-    ke_raw_normal_beta_n_ = this->declare_parameter<double>(
-      "ke_raw_normal.beta_n", 0.3);
-    ke_raw_normal_sigma_n_ = this->declare_parameter<double>(
-      "ke_raw_normal.sigma_n", 0.3);
-    ke_projected_normal_beta_n_ = this->declare_parameter<double>(
-      "ke_projected_normal.beta_n", 0.3);
-    ke_projected_normal_sigma_n_ = this->declare_parameter<double>(
-      "ke_projected_normal.sigma_n", 0.3);
     history_axis_scale_  = this->declare_parameter<double>("history_axis_scale", 0.08);
     history_sample_period_ = this->declare_parameter<double>("history_sample_period", 1.5);
     history_duration_    = this->declare_parameter<double>("history_duration", 30.0);
@@ -244,6 +285,9 @@ public:
     sub_normal_debug_metrics_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
       normal_debug_metrics_topic_, 10,
       std::bind(&RvizVisual::cb_normal_debug_metrics, this, std::placeholders::_1));
+    sub_control_metrics_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
+      control_metrics_topic_, 10,
+      std::bind(&RvizVisual::cb_control_metrics, this, std::placeholders::_1));
     sub_wind_indicator_ = this->create_subscription<geometry_msgs::msg::Vector3Stamped>(
       wind_indicator_topic_, 10,
       std::bind(&RvizVisual::cb_wind_indicator, this, std::placeholders::_1));
@@ -483,30 +527,24 @@ private:
     const bool have_n_geo =
       isFiniteVector(n_geo) && vectorNorm(n_geo) > 1e-9;
 
-    std::array<float, 3> n_f{
-      static_cast<float>(msg->data[31]),
-      static_cast<float>(msg->data[32]),
-      static_cast<float>(msg->data[33])};
-    const bool have_n_f = isFiniteVector(n_f) && vectorNorm(n_f) > 1e-9;
-
-    std::array<float, 3> n_projected{0.0f, 0.0f, 0.0f};
-    bool have_n_projected = false;
-    if (msg->data.size() >= 37) {
-      n_projected = std::array<float, 3>{
-        static_cast<float>(msg->data[34]),
-        static_cast<float>(msg->data[35]),
-        static_cast<float>(msg->data[36])};
-      have_n_projected = isFiniteVector(n_projected) && vectorNorm(n_projected) > 1e-9f;
+    std::array<float, 3> n_geo_ke_raw{0.0f, 0.0f, 0.0f};
+    bool have_n_geo_ke_raw = false;
+    if (msg->data.size() >= 52) {
+      n_geo_ke_raw = std::array<float, 3>{
+        static_cast<float>(msg->data[49]),
+        static_cast<float>(msg->data[50]),
+        static_cast<float>(msg->data[51])};
+      have_n_geo_ke_raw = isFiniteVector(n_geo_ke_raw) && vectorNorm(n_geo_ke_raw) > 1e-9f;
     }
 
-    std::array<float, 3> n_gamma{0.0f, 0.0f, 0.0f};
-    bool have_n_gamma = false;
-    if (msg->data.size() >= 46) {
-      n_gamma = std::array<float, 3>{
-        static_cast<float>(msg->data[43]),
-        static_cast<float>(msg->data[44]),
-        static_cast<float>(msg->data[45])};
-      have_n_gamma = isFiniteVector(n_gamma) && vectorNorm(n_gamma) > 1e-9f;
+    std::array<float, 3> n_geo_no_ke_raw{0.0f, 0.0f, 0.0f};
+    bool have_n_geo_no_ke_raw = false;
+    if (msg->data.size() >= 55) {
+      n_geo_no_ke_raw = std::array<float, 3>{
+        static_cast<float>(msg->data[52]),
+        static_cast<float>(msg->data[53]),
+        static_cast<float>(msg->data[54])};
+      have_n_geo_no_ke_raw = isFiniteVector(n_geo_no_ke_raw) && vectorNorm(n_geo_no_ke_raw) > 1e-9f;
     }
 
     std::array<float, 3> n_v{0.0f, 0.0f, 0.0f};
@@ -539,18 +577,18 @@ private:
     std::lock_guard<std::mutex> lk(mtx_);
     estimated_normal_k1_ = n_geo;
     have_estimated_normal_k1_ = have_n_geo;
-    force_based_normal_ = n_f;
-    have_force_based_normal_ = have_n_f;
-    ke_force_normal_raw_ = n_f;
-    have_ke_force_normal_raw_ = have_n_f;
-    ke_force_normal_projected_ = n_projected;
-    have_ke_force_normal_projected_ = have_n_projected;
-    ke_gamma_normal_ = n_gamma;
-    have_ke_gamma_normal_ = have_n_gamma;
-    lf_only_normal_ = n_f;
-    have_lf_only_normal_ = have_n_f;
-    lv_only_normal_ = n_v;
-    have_lv_only_normal_ = have_n_v;
+    force_based_normal_ = n_geo_no_ke_raw;
+    have_force_based_normal_ = have_n_geo_no_ke_raw;
+    ke_force_normal_raw_ = n_geo_ke_raw;
+    have_ke_force_normal_raw_ = have_n_geo_ke_raw;
+    ke_force_normal_projected_ = n_geo;
+    have_ke_force_normal_projected_ = have_n_geo;
+    ke_gamma_normal_ = n_geo;
+    have_ke_gamma_normal_ = have_n_geo;
+    lf_only_normal_ = n_geo_no_ke_raw;
+    have_lf_only_normal_ = have_n_geo_no_ke_raw;
+    lv_only_normal_ = n_geo;
+    have_lv_only_normal_ = have_n_geo;
   }
 
   void cb_wind_indicator(const geometry_msgs::msg::Vector3Stamped::SharedPtr msg)
@@ -565,6 +603,27 @@ private:
       static_cast<float>(msg->vector.y),
       static_cast<float>(msg->vector.z)};
     have_wind_indicator_force_ = true;
+  }
+
+  void cb_control_metrics(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
+  {
+    if (msg->data.size() < 5) {
+      return;
+    }
+
+    std::lock_guard<std::mutex> lk(mtx_);
+    alpha_frame_ = static_cast<float>(msg->data[0]);
+    if (msg->data.size() >= 9) {
+      alpha_u1_ = static_cast<float>(msg->data[3]);
+      alpha_u2_ = static_cast<float>(msg->data[4]);
+      preload_feedback_ = static_cast<float>(msg->data[5]);
+      c_tau_ = static_cast<float>(msg->data[6]);
+    } else {
+      alpha_u1_ = static_cast<float>(msg->data[1]);
+      alpha_u2_ = static_cast<float>(msg->data[2]);
+      preload_feedback_ = static_cast<float>(msg->data[3]);
+      c_tau_ = static_cast<float>(msg->data[4]);
+    }
   }
 
   // =========================
@@ -619,118 +678,6 @@ private:
       static_cast<float>(v.z())};
   }
 
-  static Eigen::Vector3d principalEigenvector(const Eigen::Matrix3d & mat)
-  {
-    const Eigen::Matrix3d sym = 0.5 * (mat + mat.transpose());
-    if (sym.norm() < 1e-12) {
-      return Eigen::Vector3d::Zero();
-    }
-
-    Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> solver(sym);
-    if (solver.info() != Eigen::Success) {
-      return Eigen::Vector3d::Zero();
-    }
-
-    Eigen::Vector3d vec = solver.eigenvectors().col(2);
-    const double norm = vec.norm();
-    if (!(std::isfinite(norm) && norm > 1e-12)) {
-      return Eigen::Vector3d::Zero();
-    }
-    return vec / norm;
-  }
-
-  static bool updateNormalMemory(
-    NormalMemoryState & state,
-    const std::array<float, 3> & candidate_in,
-    double dt,
-    double beta_n,
-    double sigma_n,
-    std::array<float, 3> & normal_out)
-  {
-    if (!(std::isfinite(dt) && dt > 0.0)) {
-      return false;
-    }
-
-    Eigen::Vector3d candidate = toEigen(candidate_in);
-    const double candidate_norm = candidate.norm();
-    if (!(std::isfinite(candidate_norm) && candidate_norm > 1e-12)) {
-      return false;
-    }
-    candidate /= candidate_norm;
-
-    if (state.initialized && state.n_est.norm() > 1e-12 && state.n_est.dot(candidate) < 0.0) {
-      candidate = -candidate;
-    }
-
-    Eigen::Matrix3d l_n_dot = -beta_n * state.l_n;
-    l_n_dot += sigma_n * (candidate * candidate.transpose());
-    state.l_n += dt * l_n_dot;
-
-    Eigen::Vector3d n_est = principalEigenvector(state.l_n);
-    if (n_est.norm() < 1e-12) {
-      n_est = candidate;
-    }
-    if (n_est.dot(candidate) < 0.0) {
-      n_est = -n_est;
-    }
-
-    state.n_est = n_est;
-    state.initialized = true;
-    normal_out = toArray(n_est);
-    return true;
-  }
-
-  bool computeKeForceNormals(
-    const std::array<float, 3> & force_world,
-    const std::array<float, 3> & ee_vel_world,
-    std::array<float, 3> & raw_normal_out,
-    bool & have_raw_out,
-    std::array<float, 3> & projected_normal_out,
-    bool & have_projected_out) const
-  {
-    have_raw_out = false;
-    have_projected_out = false;
-
-    if (!isFiniteVector(force_world) || !isFiniteVector(ee_vel_world)) {
-      return false;
-    }
-
-    const float force_norm = vectorNorm(force_world);
-    if (!(std::isfinite(force_norm) && force_norm > static_cast<float>(ke_normal_force_epsilon_))) {
-      return false;
-    }
-
-    raw_normal_out = normalizeVector(force_world);
-    have_raw_out = vectorNorm(raw_normal_out) > 1e-9f;
-
-    const float vel_norm = vectorNorm(ee_vel_world);
-    if (!(std::isfinite(vel_norm) && vel_norm > static_cast<float>(ke_normal_velocity_epsilon_))) {
-      projected_normal_out = raw_normal_out;
-      have_projected_out = have_raw_out;
-      return have_raw_out;
-    }
-
-    const std::array<float, 3> w_s = scaleVector(ee_vel_world, 1.0f / vel_norm);
-    const std::array<float, 3> projected_force = subtractVector(
-      force_world,
-      scaleVector(w_s, dot(force_world, w_s)));
-    const float projected_force_norm = vectorNorm(projected_force);
-    if (!(std::isfinite(projected_force_norm) &&
-      projected_force_norm > static_cast<float>(ke_normal_force_epsilon_)))
-    {
-      projected_normal_out = raw_normal_out;
-      have_projected_out = have_raw_out;
-      return have_raw_out;
-    }
-
-    projected_normal_out = normalizeVector(projected_force);
-    have_projected_out = vectorNorm(projected_normal_out) > 1e-9f;
-    if (have_raw_out && have_projected_out && dot(projected_normal_out, raw_normal_out) < 0.0f) {
-      projected_normal_out = scaleVector(projected_normal_out, -1.0f);
-    }
-    return have_raw_out || have_projected_out;
-  }
-
   static Eigen::Vector3d velocityEvidenceNormal(const Eigen::Matrix3d & l_v)
   {
     const Eigen::Matrix3d sym = 0.5 * (l_v + l_v.transpose());
@@ -780,6 +727,161 @@ private:
       static_cast<float>(r_wc[1][0]),
       static_cast<float>(r_wc[2][0])};
     return isFiniteVector(normal_world_out) && vectorNorm(normal_world_out) > 1e-9f;
+  }
+
+  static geometry_msgs::msg::Point makePoint(double x, double y, double z)
+  {
+    geometry_msgs::msg::Point p;
+    p.x = x;
+    p.y = y;
+    p.z = z;
+    return p;
+  }
+
+  SurfaceChainGeometry makeSurfaceChainGeometry() const
+  {
+    SurfaceChainGeometry geom;
+    const double y_sign = -1.0;
+    const double plane_length = std::max(1.0e-6, surface_chain_plane1_length_);
+    const double radius = std::max(1.0e-6, surface_chain_arc_radius_);
+    const double angle_rad = std::max(1.0e-6, surface_chain_arc_angle_deg_ * M_PI / 180.0);
+    const double plane2_length = std::max(1.0e-6, surface_chain_plane2_length_);
+    const double plane3_length = std::max(1.0e-6, surface_chain_plane3_length_);
+    const double height = std::max(1.0e-6, surface_chain_height_);
+    const double thickness = std::max(1.0e-6, surface_chain_thickness_);
+
+    geom.plane_x = surface_chain_pos_x_;
+    geom.plane_y0 = surface_chain_pos_y_ - 0.5 * plane_length;
+    geom.plane_y1 = surface_chain_pos_y_ + 0.5 * plane_length;
+    geom.arc_center_x = geom.plane_x - radius;
+    geom.arc_center_y = (y_sign > 0.0) ? geom.plane_y1 : geom.plane_y0;
+    geom.arc_radius = radius;
+    geom.arc_angle_rad = angle_rad;
+    geom.plane2_start_x = geom.arc_center_x + radius * std::cos(angle_rad);
+    geom.plane2_start_y = geom.arc_center_y + y_sign * radius * std::sin(angle_rad);
+    geom.plane2_tangent_x = -std::sin(angle_rad);
+    geom.plane2_tangent_y = y_sign * std::cos(angle_rad);
+    geom.plane2_normal_x = std::cos(angle_rad);
+    geom.plane2_normal_y = y_sign * std::sin(angle_rad);
+    geom.plane2_center_x = geom.plane2_start_x + 0.5 * plane2_length * geom.plane2_tangent_x;
+    geom.plane2_center_y = geom.plane2_start_y + 0.5 * plane2_length * geom.plane2_tangent_y;
+    geom.plane2_end_x = geom.plane2_start_x + plane2_length * geom.plane2_tangent_x;
+    geom.plane2_end_y = geom.plane2_start_y + plane2_length * geom.plane2_tangent_y;
+    geom.arc2_center_x = geom.plane2_end_x + radius * geom.plane2_normal_x;
+    geom.arc2_center_y = geom.plane2_end_y + radius * geom.plane2_normal_y;
+    geom.plane3_start_x = geom.arc2_center_x - radius;
+    geom.plane3_start_y = geom.arc2_center_y;
+    geom.plane3_end_y = geom.plane3_start_y + y_sign * plane3_length;
+    geom.half_thickness = 0.5 * thickness;
+    geom.half_height = 0.5 * height;
+    return geom;
+  }
+
+  void appendTriangle(
+    visualization_msgs::msg::Marker & mk,
+    const Eigen::Vector3d & a,
+    const Eigen::Vector3d & b,
+    const Eigen::Vector3d & c) const
+  {
+    mk.points.push_back(makePoint(a.x(), a.y(), a.z()));
+    mk.points.push_back(makePoint(b.x(), b.y(), b.z()));
+    mk.points.push_back(makePoint(c.x(), c.y(), c.z()));
+  }
+
+  void appendQuad(
+    visualization_msgs::msg::Marker & mk,
+    const Eigen::Vector3d & a,
+    const Eigen::Vector3d & b,
+    const Eigen::Vector3d & c,
+    const Eigen::Vector3d & d) const
+  {
+    appendTriangle(mk, a, b, c);
+    appendTriangle(mk, a, c, d);
+  }
+
+  void appendDoubleSidedQuad(
+    visualization_msgs::msg::Marker & mk,
+    const Eigen::Vector3d & a,
+    const Eigen::Vector3d & b,
+    const Eigen::Vector3d & c,
+    const Eigen::Vector3d & d) const
+  {
+    appendQuad(mk, a, b, c, d);
+    appendQuad(mk, d, c, b, a);
+  }
+
+  void appendBoxTriangles(
+    visualization_msgs::msg::Marker & mk,
+    double cx,
+    double cy,
+    double cz,
+    double yaw,
+    double hx,
+    double hy,
+    double hz) const
+  {
+    appendBoxTriangles(
+      mk, cx, cy, cz, yaw, hx, hy, hz,
+      true, true, true, true, true, true);
+  }
+
+  void appendBoxTriangles(
+    visualization_msgs::msg::Marker & mk,
+    double cx,
+    double cy,
+    double cz,
+    double yaw,
+    double hx,
+    double hy,
+    double hz,
+    bool keep_bottom_face,
+    bool keep_top_face,
+    bool keep_neg_x_face,
+    bool keep_pos_y_face,
+    bool keep_pos_x_face,
+    bool keep_neg_y_face) const
+  {
+    const double c = std::cos(yaw);
+    const double s = std::sin(yaw);
+    auto rotate = [c, s](double x, double y, double z) {
+      return Eigen::Vector3d(c * x - s * y, s * x + c * y, z);
+    };
+
+    const std::array<Eigen::Vector3d, 8> local = {
+      rotate(-hx, -hy, -hz), rotate(-hx, hy, -hz),
+      rotate(hx, hy, -hz), rotate(hx, -hy, -hz),
+      rotate(-hx, -hy, hz), rotate(-hx, hy, hz),
+      rotate(hx, hy, hz), rotate(hx, -hy, hz)
+    };
+
+    std::array<Eigen::Vector3d, 8> world{};
+    for (size_t i = 0; i < local.size(); ++i) {
+      world[i] = Eigen::Vector3d(cx, cy, cz) + local[i];
+    }
+
+    auto quad = [this, &mk, &world](int a, int b, int c_idx, int d) {
+      appendTriangle(mk, world[a], world[b], world[c_idx]);
+      appendTriangle(mk, world[a], world[c_idx], world[d]);
+    };
+
+    if (keep_bottom_face) {
+      quad(0, 1, 2, 3);
+    }
+    if (keep_top_face) {
+      quad(4, 7, 6, 5);
+    }
+    if (keep_neg_x_face) {
+      quad(0, 4, 5, 1);
+    }
+    if (keep_pos_y_face) {
+      quad(1, 5, 6, 2);
+    }
+    if (keep_pos_x_face) {
+      quad(2, 6, 7, 3);
+    }
+    if (keep_neg_y_face) {
+      quad(3, 7, 4, 0);
+    }
   }
 
   visualization_msgs::msg::Marker make_arrow_marker(
@@ -954,6 +1056,92 @@ private:
     return mk;
   }
 
+  visualization_msgs::msg::Marker make_surface_chain_marker(
+    const std::string & ns,
+    int id,
+    const std::string & frame_id,
+    const rclcpp::Time & stamp) const
+  {
+    const SurfaceChainGeometry geom = makeSurfaceChainGeometry();
+    visualization_msgs::msg::Marker mk;
+    mk.header.stamp = stamp;
+    mk.header.frame_id = frame_id;
+    mk.ns = ns;
+    mk.id = id;
+    mk.type = visualization_msgs::msg::Marker::TRIANGLE_LIST;
+    mk.action = visualization_msgs::msg::Marker::ADD;
+    mk.pose.orientation.w = 1.0;
+    mk.scale.x = 1.0;
+    mk.scale.y = 1.0;
+    mk.scale.z = 1.0;
+    mk.color.r = static_cast<float>(surface_chain_rgba_[0]);
+    mk.color.g = static_cast<float>(surface_chain_rgba_[1]);
+    mk.color.b = static_cast<float>(surface_chain_rgba_[2]);
+    mk.color.a = static_cast<float>(surface_chain_rgba_[3]);
+    mk.lifetime = rclcpp::Duration::from_seconds(0.0);
+
+    const double z0 = surface_chain_base_z_;
+    const double z1 = surface_chain_base_z_ + 2.0 * geom.half_height;
+
+    const Eigen::Vector3d plane1_bl(geom.plane_x, geom.plane_y0, z0);
+    const Eigen::Vector3d plane1_br(geom.plane_x, geom.plane_y1, z0);
+    const Eigen::Vector3d plane1_tr(geom.plane_x, geom.plane_y1, z1);
+    const Eigen::Vector3d plane1_tl(geom.plane_x, geom.plane_y0, z1);
+    appendDoubleSidedQuad(mk, plane1_bl, plane1_br, plane1_tr, plane1_tl);
+
+    const int arc_segments = std::max(3, surface_chain_arc_segments_);
+    const double segment_angle = geom.arc_angle_rad / static_cast<double>(arc_segments);
+    auto arc_point = [&geom](double phi, double z) {
+      return Eigen::Vector3d(
+        geom.arc_center_x + geom.arc_radius * std::cos(phi),
+        geom.arc_center_y - geom.arc_radius * std::sin(phi),
+        z);
+    };
+    for (int i = 0; i < arc_segments; ++i) {
+      const double phi0 = static_cast<double>(i) * segment_angle;
+      const double phi1 = static_cast<double>(i + 1) * segment_angle;
+      const Eigen::Vector3d arc0_bottom = arc_point(phi0, z0);
+      const Eigen::Vector3d arc1_bottom = arc_point(phi1, z0);
+      const Eigen::Vector3d arc1_top = arc_point(phi1, z1);
+      const Eigen::Vector3d arc0_top = arc_point(phi0, z1);
+      appendDoubleSidedQuad(mk, arc0_bottom, arc1_bottom, arc1_top, arc0_top);
+    }
+
+    const Eigen::Vector3d plane2_start_bottom(geom.plane2_start_x, geom.plane2_start_y, z0);
+    const Eigen::Vector3d plane2_end_bottom(
+      geom.plane2_start_x + surface_chain_plane2_length_ * geom.plane2_tangent_x,
+      geom.plane2_start_y + surface_chain_plane2_length_ * geom.plane2_tangent_y,
+      z0);
+    const Eigen::Vector3d plane2_end_top(plane2_end_bottom.x(), plane2_end_bottom.y(), z1);
+    const Eigen::Vector3d plane2_start_top(plane2_start_bottom.x(), plane2_start_bottom.y(), z1);
+    appendDoubleSidedQuad(
+      mk, plane2_start_bottom, plane2_end_bottom, plane2_end_top, plane2_start_top);
+
+    auto arc2_point = [&geom](double phi, double z) {
+      return Eigen::Vector3d(
+        geom.arc2_center_x - geom.arc_radius * std::cos(phi),
+        geom.arc2_center_y + geom.arc_radius * std::sin(phi),
+        z);
+    };
+    for (int i = 0; i < arc_segments; ++i) {
+      const double phi0 = geom.arc_angle_rad - static_cast<double>(i) * segment_angle;
+      const double phi1 = geom.arc_angle_rad - static_cast<double>(i + 1) * segment_angle;
+      const Eigen::Vector3d arc0_bottom = arc2_point(phi0, z0);
+      const Eigen::Vector3d arc1_bottom = arc2_point(phi1, z0);
+      const Eigen::Vector3d arc1_top = arc2_point(phi1, z1);
+      const Eigen::Vector3d arc0_top = arc2_point(phi0, z1);
+      appendDoubleSidedQuad(mk, arc0_bottom, arc1_bottom, arc1_top, arc0_top);
+    }
+
+    const Eigen::Vector3d plane3_bl(geom.plane3_start_x, geom.plane3_start_y, z0);
+    const Eigen::Vector3d plane3_br(geom.plane3_start_x, geom.plane3_end_y, z0);
+    const Eigen::Vector3d plane3_tr(geom.plane3_start_x, geom.plane3_end_y, z1);
+    const Eigen::Vector3d plane3_tl(geom.plane3_start_x, geom.plane3_start_y, z1);
+    appendDoubleSidedQuad(mk, plane3_bl, plane3_br, plane3_tr, plane3_tl);
+
+    return mk;
+  }
+
   visualization_msgs::msg::Marker make_environment_marker(
     const std::string & ns,
     int id,
@@ -962,6 +1150,9 @@ private:
   {
     if (environment_type_ == "wall") {
       return make_wall_marker(ns, id, frame_id, stamp);
+    }
+    if (environment_type_ == "surface_chain") {
+      return make_surface_chain_marker(ns, id, frame_id, stamp);
     }
     return make_cylinder_marker(ns, id, frame_id, stamp);
   }
@@ -1095,12 +1286,12 @@ private:
     std::transform(type.begin(), type.end(), type.begin(), [](unsigned char c) {
       return static_cast<char>(std::tolower(c));
     });
-    if (type != "wall" && type != "cylinder") {
+    if (type != "wall" && type != "cylinder" && type != "surface_chain") {
       RCLCPP_WARN(
         this->get_logger(),
-        "Unknown environment.type '%s'. Falling back to 'cylinder'.",
+        "Unknown environment.type '%s'. Falling back to 'surface_chain'.",
         type.c_str());
-      return "cylinder";
+      return "surface_chain";
     }
     return type;
   }
@@ -1117,6 +1308,104 @@ private:
       ny = 0.0;
       nz = 0.0;
       return true;
+    }
+
+    if (environment_type_ == "surface_chain") {
+      const auto geom = makeSurfaceChainGeometry();
+      const double px = ee_pose.pose.position.x;
+      const double py = ee_pose.pose.position.y;
+
+      double best_dist_sq = std::numeric_limits<double>::infinity();
+      double best_nx = 1.0;
+      double best_ny = 0.0;
+
+      const double clamped_y = std::clamp(py, std::min(geom.plane_y0, geom.plane_y1), std::max(geom.plane_y0, geom.plane_y1));
+      {
+        const double qx = geom.plane_x;
+        const double qy = clamped_y;
+        const double dx = px - qx;
+        const double dy = py - qy;
+        const double dist_sq = dx * dx + dy * dy;
+        if (dist_sq < best_dist_sq) {
+          best_dist_sq = dist_sq;
+          best_nx = 1.0;
+          best_ny = 0.0;
+        }
+      }
+
+      {
+        const double vx = px - geom.arc_center_x;
+        const double vy = py - geom.arc_center_y;
+        const double phi_raw = std::atan2(-vy, vx);
+        const double phi = std::clamp(phi_raw, 0.0, geom.arc_angle_rad);
+        const double qx = geom.arc_center_x + geom.arc_radius * std::cos(phi);
+        const double qy = geom.arc_center_y - geom.arc_radius * std::sin(phi);
+        const double dx = px - qx;
+        const double dy = py - qy;
+        const double dist_sq = dx * dx + dy * dy;
+        if (dist_sq < best_dist_sq) {
+          best_dist_sq = dist_sq;
+          best_nx = std::cos(phi);
+          best_ny = -std::sin(phi);
+        }
+      }
+
+      {
+        const double tx = geom.plane2_tangent_x;
+        const double ty = geom.plane2_tangent_y;
+        const double rel_x = px - geom.plane2_start_x;
+        const double rel_y = py - geom.plane2_start_y;
+        const double s = std::clamp(
+          rel_x * tx + rel_y * ty,
+          0.0,
+          std::max(1.0e-6, surface_chain_plane2_length_));
+        const double qx = geom.plane2_start_x + s * tx;
+        const double qy = geom.plane2_start_y + s * ty;
+        const double dx = px - qx;
+        const double dy = py - qy;
+        const double dist_sq = dx * dx + dy * dy;
+        if (dist_sq < best_dist_sq) {
+          best_dist_sq = dist_sq;
+          best_nx = geom.plane2_normal_x;
+          best_ny = geom.plane2_normal_y;
+        }
+      }
+
+      {
+        const double vx = px - geom.arc2_center_x;
+        const double vy = py - geom.arc2_center_y;
+        const double phi_raw = std::atan2(vy, -vx);
+        const double phi = std::clamp(phi_raw, 0.0, geom.arc_angle_rad);
+        const double qx = geom.arc2_center_x - geom.arc_radius * std::cos(phi);
+        const double qy = geom.arc2_center_y + geom.arc_radius * std::sin(phi);
+        const double dx = px - qx;
+        const double dy = py - qy;
+        const double dist_sq = dx * dx + dy * dy;
+        if (dist_sq < best_dist_sq) {
+          best_dist_sq = dist_sq;
+          best_nx = std::cos(phi);
+          best_ny = -std::sin(phi);
+        }
+      }
+
+      {
+        const double clamped_y3 = std::clamp(py, std::min(geom.plane3_start_y, geom.plane3_end_y), std::max(geom.plane3_start_y, geom.plane3_end_y));
+        const double qx = geom.plane3_start_x;
+        const double qy = clamped_y3;
+        const double dx = px - qx;
+        const double dy = py - qy;
+        const double dist_sq = dx * dx + dy * dy;
+        if (dist_sq < best_dist_sq) {
+          best_dist_sq = dist_sq;
+          best_nx = 1.0;
+          best_ny = 0.0;
+        }
+      }
+
+      nx = best_nx;
+      ny = best_ny;
+      nz = 0.0;
+      return std::isfinite(best_dist_sq);
     }
 
     const double dx = ee_pose.pose.position.x - cylinder_pos_x_;
@@ -1868,6 +2157,7 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::QuaternionStamped>::SharedPtr sub_contact_frame_quat_;
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_normal_debug_metrics_pure_;
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_normal_debug_metrics_;
+  rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_control_metrics_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_wind_indicator_;
 
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_mob_2nd_order_arrow_;
@@ -1929,6 +2219,11 @@ private:
   bool have_contact_{false};
   bool have_contact_filter_state_{false};
   std::string contact_frame_id_;
+  float alpha_frame_{1.0f};
+  float alpha_u1_{0.0f};
+  float alpha_u2_{0.0f};
+  float preload_feedback_{0.0f};
+  float c_tau_{0.0f};
 
   std::array<float, 3> force_based_normal_{0.0f, 0.0f, 0.0f};
   std::array<float, 3> ke_gamma_normal_{0.0f, 0.0f, 0.0f};
@@ -1936,9 +2231,6 @@ private:
   std::array<float, 3> ke_force_normal_projected_{0.0f, 0.0f, 0.0f};
   std::array<float, 3> estimated_normal_pure_{0.0f, 0.0f, 0.0f};
   std::array<float, 3> estimated_normal_k1_{0.0f, 0.0f, 0.0f};
-  NormalMemoryState ke_raw_normal_memory_state_;
-  NormalMemoryState ke_projected_normal_memory_state_;
-  rclcpp::Time last_ke_memory_update_time_{0, 0, RCL_ROS_TIME};
   bool have_estimated_normal_pure_{false};
   bool have_estimated_normal_k1_{false};
   bool have_force_based_normal_{false};
@@ -1991,8 +2283,9 @@ private:
   std::string contact_frame_quat_topic_;
   std::string normal_debug_metrics_topic_pure_;
   std::string normal_debug_metrics_topic_;
+  std::string control_metrics_topic_;
   std::string est_contact_frame_;
-  std::string environment_type_{"cylinder"};
+  std::string environment_type_{"surface_chain"};
   std::string environment_marker_topic_;
   std::string wind_indicator_topic_;
   std::string wind_indicator_marker_topic_;
@@ -2003,10 +2296,6 @@ private:
   double normal_scale_{0.2};
   double ke_normal_velocity_epsilon_{0.005};
   double ke_normal_force_epsilon_{0.005};
-  double ke_raw_normal_beta_n_{0.3};
-  double ke_raw_normal_sigma_n_{0.3};
-  double ke_projected_normal_beta_n_{0.3};
-  double ke_projected_normal_sigma_n_{0.3};
   double history_axis_scale_{0.08};
   double history_sample_period_{0.5};
   double history_duration_{30.0};
@@ -2032,6 +2321,18 @@ private:
   double wall_size_y_{2.5};
   double wall_size_z_{2.5};
   std::vector<double> wall_rgba_{0.75, 0.93, 0.75, 0.85};
+  double surface_chain_pos_x_{1.0};
+  double surface_chain_pos_y_{0.0};
+  double surface_chain_base_z_{0.0};
+  double surface_chain_plane1_length_{0.6};
+  double surface_chain_arc_radius_{0.6};
+  double surface_chain_arc_angle_deg_{40.0};
+  double surface_chain_plane2_length_{0.6};
+  double surface_chain_plane3_length_{0.6};
+  double surface_chain_height_{0.5};
+  double surface_chain_thickness_{0.02};
+  int surface_chain_arc_segments_{96};
+  std::vector<double> surface_chain_rgba_{0.75, 0.93, 0.75, 0.35};
   bool wind_indicator_enable_{true};
   double wind_indicator_origin_x_{-0.05};
   double wind_indicator_origin_y_{0.0};

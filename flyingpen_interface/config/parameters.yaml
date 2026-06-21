@@ -2,6 +2,15 @@ fk_ik_transform:
   ros__parameters:
     end_effector_offset: [0.1, 0.0, 0.04]
 
+command_publisher:
+  ros__parameters:
+    position_tick: [0.1, 0.1, 0.1]
+    velocity_tick: [0.055, 0.055, 0.055]
+    yaw_tick_deg: 2.0
+    force_tick: 0.01
+    gravity: 9.81
+    calibration_window_sec: 1.0
+
 plant:
   ros__parameters:
     physics_hz: 1000.0
@@ -16,12 +25,12 @@ plant:
     thrust_max: 0.20
 
     noise:
-      enable: true
+      enable: false
       seed: 0
-      hz: 1.0                     # update rate: draw new noise every 1/hz seconds
-      pos_amp: [5e-4, 5e-4, 5e-4]      # absolute maximum noise magnitude (per axis)
-      vel_amp: [1e-1, 1e-1, 1e-1]
-      att_amp: [2e-3, 2e-3, 2e-3]
+      hz: 30.0                     # update rate: draw new noise every 1/hz seconds
+      # pos_amp: [5e-3, 5e-3, 5e-3]      # absolute maximum noise magnitude (per axis)
+      vel_amp: [5e-3, 5e-3, 5e-3]
+      att_amp: [2e-2, 2e-2, 2e-2]
       ang_vel_amp: [2e-4, 2e-4, 2e-4]
       ang_acc_amp: [5e-4, 5e-4, 5e-4]
       pos_var: [1e-8, 1e-8, 1e-8]      # stationary Gaussian variance before clipping to +/- amp
@@ -51,7 +60,7 @@ plant:
         cutoff_hz: 3.0
 
     ang_acc_lpf:
-      enable: true
+      enable: false
       cutoff_hz: 1.0
         
     actuator:
@@ -86,7 +95,7 @@ low_level_controller:
     # limits
     max_tilt_rad: 0.6108652382 #0.6108652382   # 35 deg
     max_rate: 8. #8.0                # rad/s
-    max_tau: 1. #0.02              # 어차피 thrust선에서 컷 나니까 상관 x
+    max_tau: 0.2 #0.02              # 어차피 thrust선에서 컷 나니까 상관 x
     max_thrust: 1.0 #               # 나중에 제대로 바꾸길 검토
 
     # ---------------- loop dt ----------------
@@ -101,15 +110,15 @@ low_level_controller:
     # 반응성 높이면 좋음. 좋은게 좋은거.
     # Position loop: pos error -> v_des
     pos:
-      x: { kp: 3.0, ki: 0.0, kd: 0.01, i_limit: 0.5 }
-      y: { kp: 3.0, ki: 0.00, kd: 0.01, i_limit: 0.5 }
-      z: { kp: 3.0, ki: 0.00, kd: 0.01, i_limit: 0.5 }
+      x: { kp: 1.0, ki: 0.0, kd: 0.15, i_limit: 0.5 }
+      y: { kp: 1.0, ki: 0.00, kd: 0.15, i_limit: 0.5 }
+      z: { kp: 3.0, ki: 0.00, kd: 0.21, i_limit: 0.5 }
 
     # Velocity loop: vel error -> a_des
     vel:
-      x: { kp: 5.0, ki: 0.3, kd: 0.1, i_limit: 0.5 }
-      y: { kp: 5.0, ki: 0.3, kd: 0.1, i_limit: 0.5 }
-      z: { kp: 5.0, ki: 0.3, kd: 0.1, i_limit: 0.5 }
+      x: { kp: 3.0, ki: 0.0, kd: 0.1, i_limit: 0.5 }
+      y: { kp: 3.0, ki: 0.0, kd: 0.1, i_limit: 0.5 }
+      z: { kp: 3.0, ki: 0.0, kd: 0.1, i_limit: 0.5 }
 
     # Attitude loop: (roll_d, pitch_d, yaw_d) error -> w_des
     att:
@@ -122,6 +131,7 @@ low_level_controller:
       roll:  { kp: 0.005, ki: 0.0005, kd: 0.00001, i_limit: 0.0 }
       pitch: { kp: 0.005, ki: 0.0005, kd: 0.00001, i_limit: 0.0 }
       yaw:   { kp: 0.005, ki: 0.0005, kd: 0.00001, i_limit: 0.0 }
+
 
 trajectory_generation:
   ros__parameters:

@@ -11,6 +11,7 @@ def generate_launch_description():
     # ---------- params.yaml ----------
     pkg_share = get_package_share_directory("flyingpen_interface")
     params = os.path.join(pkg_share, "config", "parameters.yaml")
+    su_params = os.path.join(pkg_share, "config", "su_params.yaml")
     wrench_observer_params = os.path.join(pkg_share, "config", "wrench_observer.yaml")
     trajectory_params = os.path.join(pkg_share, "config", "trajectory_generation.yaml")
     normal_params = os.path.join(pkg_share, "config", "normal_vector_estimation.yaml")
@@ -85,7 +86,7 @@ def generate_launch_description():
         executable="trajectory_generation",
         name="trajectory_generation",
         output="screen",
-        parameters=[params, trajectory_params],
+        parameters=[params, trajectory_params, su_params],
     )
 
     normal_vector_estimation_node = Node(
@@ -93,7 +94,7 @@ def generate_launch_description():
         executable="normal_vector_estimation",
         name="normal_vector_estimation",
         output="screen",
-        parameters=[params, normal_params],
+        parameters=[params, normal_params, su_params],
     )
 
     selected_panel = str(panel_config.get("selected", "")).strip()
@@ -113,7 +114,7 @@ def generate_launch_description():
             executable=selected_panel,
             name=selected_panel,
             output="screen",
-            parameters=[params, normal_params, rviz_visual_params, wrench_observer_params, panel_runtime_params],
+            parameters=[params, normal_params, rviz_visual_params, wrench_observer_params, su_params, panel_runtime_params],
         )
         panel_actions.append(
             TimerAction(
@@ -128,7 +129,7 @@ def generate_launch_description():
         executable="wrench_observer",
         name="wrench_observer",
         output="screen",
-        parameters=[wrench_observer_params],
+        parameters=[wrench_observer_params, su_params],
     )
 
     # ---------- rviz_visual ----------
@@ -149,6 +150,13 @@ def generate_launch_description():
         parameters=[params],
     )
 
+    firmware_bridge_node = Node(
+        package="flyingpen_interface",
+        executable="firmware_bridge",
+        name="firmware_bridge",
+        output="screen",
+    )
+
     # ---------- rviz2 ----------
     rviz2_node = Node(
         package="rviz2",
@@ -165,20 +173,6 @@ def generate_launch_description():
         name="fk_ik_transform",
         output="screen",
         parameters=[params],
-    )
-
-    # ---------- wind joystick ----------
-    wind_joystick_node = Node(
-        package="flyingpen_interface",
-        executable="wind_joystick.py",
-        name="wind_joystick",
-        output="screen",
-        arguments=[
-            "--window-x", "1480",
-            "--window-y", "760",
-            "--window-width", "420",
-            "--window-height", "520",
-        ],
     )
 
     rviz_config_arg = DeclareLaunchArgument(
@@ -199,7 +193,7 @@ def generate_launch_description():
         wrench_observer_node,
         rviz_visual_node,
         data_logger_node,
+        firmware_bridge_node,
         *panel_actions,
         TimerAction(period=3.0, actions=[mujoco_bridge_node]),
-        TimerAction(period=4.5, actions=[wind_joystick_node]),
     ])

@@ -232,6 +232,9 @@ public:
     sub_force_lpf_ = create_subscription<std_msgs::msg::Float64MultiArray>(
       "/su/force_lpf", 10,
       std::bind(&DataLogger::cb_force_lpf, this, std::placeholders::_1));
+    sub_control_metrics_ = create_subscription<std_msgs::msg::Float64MultiArray>(
+      "/su/debug/control_metrics", 10,
+      std::bind(&DataLogger::cb_control_metrics, this, std::placeholders::_1));
 
     sub_mob_wrench_2nd_order_ = create_subscription<geometry_msgs::msg::WrenchStamped>(
       "/crazyflie/out/mob_2nd", 10,
@@ -300,6 +303,7 @@ private:
       "ee_pos_x,ee_pos_y,ee_pos_z,"
       "c_hat_vy_cmd,c_hat_vy_act,c_hat_vz_cmd,c_hat_vz_act,"
       "c_hat_fx_act,"
+      "alphaFrame,omegaN,normalLeakage,alphaU1,alphaU2,preloadFeedback,cTau,patternProgress,patternSpeed,"
       "n_geo_x,n_geo_y,n_geo_z,"
       "n_f_x,n_f_y,n_f_z,"
       "n_alg_x,n_alg_y,n_alg_z,"
@@ -520,6 +524,33 @@ private:
     have_force_lpf_ = true;
   }
 
+  void cb_control_metrics(const std_msgs::msg::Float64MultiArray::SharedPtr m)
+  {
+    if (m->data.size() < 6) return;
+    std::lock_guard<std::mutex> lk(mtx_);
+    alpha_frame_ = m->data[0];
+    if (m->data.size() >= 9) {
+      omega_n_ = m->data[1];
+      normal_leakage_ = m->data[2];
+      alpha_u1_ = m->data[3];
+      alpha_u2_ = m->data[4];
+      preload_feedback_ = m->data[5];
+      c_tau_ = m->data[6];
+      pattern_progress_ = m->data[7];
+      pattern_speed_cmd_ = m->data[8];
+    } else {
+      omega_n_ = quiet_nan();
+      normal_leakage_ = quiet_nan();
+      alpha_u1_ = m->data[1];
+      alpha_u2_ = m->data[2];
+      preload_feedback_ = m->data[3];
+      c_tau_ = m->data[4];
+      pattern_progress_ = m->data[5];
+      pattern_speed_cmd_ = m->data[6];
+    }
+    have_control_metrics_ = true;
+  }
+
   void cb_mob_wrench_2nd_order(const geometry_msgs::msg::WrenchStamped::SharedPtr m)
   {
     std::lock_guard<std::mutex> lk(mtx_);
@@ -584,6 +615,7 @@ private:
     double cmd_yaw, roll, pitch, yaw;
     double rolld, pitchd, yawd;
     double Fz, cmd_force, F_error_dot_raw, F_error_dot_filt, c_hat_fx_act;
+    double alpha_frame, omega_n, normal_leakage, alpha_u1, alpha_u2, preload_feedback, c_tau, pattern_progress, pattern_speed_cmd;
 
 
     uint32_t mask;
@@ -633,6 +665,15 @@ private:
       n_ke_gamma_proj = n_ke_gamma_proj_;
       normal_pure = normal_pure_;
       normal_ke = normal_ke_;
+      alpha_frame = alpha_frame_;
+      omega_n = omega_n_;
+      normal_leakage = normal_leakage_;
+      alpha_u1 = alpha_u1_;
+      alpha_u2 = alpha_u2_;
+      preload_feedback = preload_feedback_;
+      c_tau = c_tau_;
+      pattern_progress = pattern_progress_;
+      pattern_speed_cmd = pattern_speed_cmd_;
 
 
       mask = 0u;
@@ -661,6 +702,7 @@ private:
       mask |= (have_contact_vel_actual_ ? (1u<<22) : 0u);
       mask |= (have_force_actual_ ? (1u<<23) : 0u);
       mask |= (have_normal_debug_metrics_ ? (1u<<24) : 0u);
+      mask |= (have_control_metrics_ ? (1u<<25) : 0u);
       mask |= (have_normal_quat_pure_ ? (1u<<26) : 0u);
       mask |= (have_normal_quat_ke_ ? (1u<<27) : 0u);
 
@@ -725,7 +767,7 @@ private:
     }
 
     std_msgs::msg::Float64MultiArray msg;
-    msg.data.resize(99);
+    msg.data.resize(108);
 
     msg.data[0]  = t;
 
@@ -831,18 +873,27 @@ private:
     msg.data[84] = c_hat_v_cmd.z();
     msg.data[85] = c_hat_v_act.z();
     msg.data[86] = c_hat_fx_act;
-    msg.data[87] = n_geo.x();
-    msg.data[88] = n_geo.y();
-    msg.data[89] = n_geo.z();
-    msg.data[90] = n_f.x();
-    msg.data[91] = n_f.y();
-    msg.data[92] = n_f.z();
-    msg.data[93] = n_alg.x();
-    msg.data[94] = n_alg.y();
-    msg.data[95] = n_alg.z();
-    msg.data[96] = f_g.x();
-    msg.data[97] = f_g.y();
-    msg.data[98] = f_g.z();
+    msg.data[87] = alpha_frame;
+    msg.data[88] = omega_n;
+    msg.data[89] = normal_leakage;
+    msg.data[90] = alpha_u1;
+    msg.data[91] = alpha_u2;
+    msg.data[92] = preload_feedback;
+    msg.data[93] = c_tau;
+    msg.data[94] = pattern_progress;
+    msg.data[95] = pattern_speed_cmd;
+    msg.data[96] = n_geo.x();
+    msg.data[97] = n_geo.y();
+    msg.data[98] = n_geo.z();
+    msg.data[99] = n_f.x();
+    msg.data[100] = n_f.y();
+    msg.data[101] = n_f.z();
+    msg.data[102] = n_alg.x();
+    msg.data[103] = n_alg.y();
+    msg.data[104] = n_alg.z();
+    msg.data[105] = f_g.x();
+    msg.data[106] = f_g.y();
+    msg.data[107] = f_g.z();
 
 
 
@@ -879,10 +930,13 @@ private:
            << msg.data[79] << "," << msg.data[80] << "," << msg.data[81] << ","
            << msg.data[82] << "," << msg.data[83] << "," << msg.data[84] << "," << msg.data[85] << ","
            << msg.data[86] << ","
-           << msg.data[87] << "," << msg.data[88] << "," << msg.data[89] << ","
-           << msg.data[90] << "," << msg.data[91] << "," << msg.data[92] << ","
-           << msg.data[93] << "," << msg.data[94] << "," << msg.data[95] << ","
+           << msg.data[87] << "," << msg.data[88] << "," << msg.data[89] << "," << msg.data[90] << ","
+           << msg.data[91] << "," << msg.data[92] << "," << msg.data[93] << "," << msg.data[94] << ","
+           << msg.data[95] << ","
            << msg.data[96] << "," << msg.data[97] << "," << msg.data[98] << ","
+           << msg.data[99] << "," << msg.data[100] << "," << msg.data[101] << ","
+           << msg.data[102] << "," << msg.data[103] << "," << msg.data[104] << ","
+           << msg.data[105] << "," << msg.data[106] << "," << msg.data[107] << ","
            << mob_force_2nd_order.x() << "," << mob_force_2nd_order.y() << "," << mob_force_2nd_order.z() << ","
            << mob_torque_2nd_order.x() << "," << mob_torque_2nd_order.y() << "," << mob_torque_2nd_order.z() << ","
            << mob_force_2nd_tau.x() << "," << mob_force_2nd_tau.y() << "," << mob_force_2nd_tau.z() << ","
@@ -944,6 +998,15 @@ private:
   Eigen::Vector3d n_f_{0,0,0};
   Eigen::Vector3d n_alg_{0,0,0};
   Eigen::Vector3d f_g_{0,0,0};
+  double alpha_frame_{quiet_nan()};
+  double omega_n_{quiet_nan()};
+  double normal_leakage_{quiet_nan()};
+  double alpha_u1_{quiet_nan()};
+  double alpha_u2_{quiet_nan()};
+  double preload_feedback_{quiet_nan()};
+  double c_tau_{quiet_nan()};
+  double pattern_progress_{quiet_nan()};
+  double pattern_speed_cmd_{quiet_nan()};
   Eigen::Vector3d n_ke_gamma_proj_{quiet_nan(), quiet_nan(), quiet_nan()};
   Eigen::Vector3d normal_pure_{quiet_nan(), quiet_nan(), quiet_nan()};
   Eigen::Vector3d normal_ke_{quiet_nan(), quiet_nan(), quiet_nan()};
@@ -978,6 +1041,7 @@ private:
   bool have_contact_vel_actual_{false};
   bool have_force_actual_{false};
   bool have_normal_debug_metrics_{false};
+  bool have_control_metrics_{false};
   bool have_contact_raw_{false};
   bool have_contact_filt_{false};
   bool have_mob_wrench_2nd_order_{false};
@@ -1016,6 +1080,7 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::QuaternionStamped>::SharedPtr sub_normal_quat_pure_;
   rclcpp::Subscription<geometry_msgs::msg::QuaternionStamped>::SharedPtr sub_normal_quat_ke_;
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_force_lpf_;
+  rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_control_metrics_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_wrench_2nd_order_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_wrench_2nd_tau_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_2nd_tau_terms_;

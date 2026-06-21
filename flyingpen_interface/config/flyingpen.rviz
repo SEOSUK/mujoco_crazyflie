@@ -7,11 +7,9 @@ Panels:
         - /Global Options1
         - /TF1
         - /TF1/Frames1
-        - /Environment1
-        - /Wind Indicator1
-        - /MarkerArray1
-      Splitter Ratio: 0.5
-    Tree Height: 724
+        - /MOB 2nd Force1
+      Splitter Ratio: 0.36297640204429626
+    Tree Height: 363
   - Class: rviz_common/Selection
     Name: Selection
   - Class: rviz_common/Tool Properties
@@ -58,7 +56,7 @@ Visualization Manager:
       Frames:
         All Enabled: false
         EE:
-          Value: true
+          Value: false
         cf21B_ft_sensor:
           Value: false
         cmd_active:
@@ -68,9 +66,9 @@ Visualization Manager:
         cmd_end_effector:
           Value: false
         crazyflie:
-          Value: true
+          Value: false
         end_effector:
-          Value: true
+          Value: false
         estimated_contact_frame:
           Value: true
         wall:
@@ -79,7 +77,7 @@ Visualization Manager:
           Value: false
       Marker Scale: 0.20000000298023224
       Name: TF
-      Show Arrows: true
+      Show Arrows: false
       Show Axes: true
       Show Names: true
       Tree:
@@ -157,24 +155,22 @@ Visualization Manager:
         Value: /rviz/environment
       Value: true
     - Class: rviz_default_plugins/MarkerArray
-      Enabled: true
+      Enabled: false
       Name: Wind Indicator
       Namespaces:
-        wind_indicator_base: true
-        wind_indicator_mast: true
-        wind_indicator_tip: true
+        {}
       Topic:
         Depth: 5
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /rviz/wind_indicator
-      Value: true
+      Value: false
     - Class: rviz_default_plugins/Marker
-      Enabled: true
+      Enabled: false
       Name: Contact Force
       Namespaces:
-        contact_force: true
+        {}
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -182,12 +178,12 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /rviz/EE_contact_force
-      Value: true
+      Value: false
     - Class: rviz_default_plugins/Marker
-      Enabled: true
+      Enabled: false
       Name: Estimated Normal
       Namespaces:
-        estimated_contact_normal_ke: true
+        {}
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -195,12 +191,12 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /rviz/estimated_contact_normal_ke
-      Value: true
+      Value: false
     - Class: rviz_default_plugins/Marker
-      Enabled: true
+      Enabled: false
       Name: EE Velocity
       Namespaces:
-        ee_velocity: true
+        {}
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -208,12 +204,12 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /rviz/EE_velocity
-      Value: true
+      Value: false
     - Class: rviz_default_plugins/Marker
-      Enabled: true
+      Enabled: false
       Name: KE Raw Normal
       Namespaces:
-        ke_force_normal_raw: true
+        {}
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -221,12 +217,12 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /rviz/ke_force_normal_raw
-      Value: true
+      Value: false
     - Class: rviz_default_plugins/Marker
-      Enabled: true
+      Enabled: false
       Name: KE Projected Normal
       Namespaces:
-        ke_force_normal_projected: true
+        {}
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -234,12 +230,12 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /rviz/ke_force_normal_projected
-      Value: true
+      Value: false
     - Class: rviz_default_plugins/Marker
-      Enabled: true
+      Enabled: false
       Name: True Normal
       Namespaces:
-        true_contact_normal: true
+        {}
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -247,7 +243,7 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /rviz/true_contact_normal
-      Value: true
+      Value: false
     - Class: rviz_default_plugins/Marker
       Enabled: false
       Name: Contact Frame History
@@ -288,20 +284,23 @@ Visualization Manager:
         Value: /rviz/drone_external_force_mob_2nd_tau
       Value: false
     - Class: rviz_default_plugins/MarkerArray
-      Enabled: false
+      Enabled: true
       Name: MarkerArray
       Namespaces:
-        {}
+        contact_frame_history_x_segment: true
+        contact_frame_history_y_segment: true
+        contact_frame_history_z_segment: true
+        ee_trajectory_history: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /rviz/contact_frame_history
-      Value: false
+      Value: true
   Enabled: true
   Global Options:
-    Background Color: 143; 240; 164
+    Background Color: 222; 221; 218
     Fixed Frame: world
     Frame Rate: 30
   Name: root
@@ -345,33 +344,33 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 1.4706100225448608
+      Distance: 1.99943208694458
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0.3475777208805084
-        Y: -0.28591635823249817
-        Z: -0.1672792285680771
+        X: 0.7720463871955872
+        Y: -0.9195394515991211
+        Z: -0.09514643251895905
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 1.104796051979065
+      Pitch: 0.9447970390319824
       Target Frame: world
       Value: Orbit (rviz)
-      Yaw: 3.206730842590332
+      Yaw: 3.0817477703094482
     Saved: ~
 Window Geometry:
   Displays:
-    collapsed: false
+    collapsed: true
   Height: 1016
-  Hide Left Dock: false
+  Hide Left Dock: true
   Hide Right Dock: true
-  QMainWindow State: 000000ff00000000fd0000000300000000000001560000035ffc0200000003fb000000100044006900730070006c006100790073010000003d0000035f000000c900fffffffb0000001200530065006c0065006300740069006f006e00000001ea000000ce0000005c00fffffffb0000001e0054006f006f006c002000500072006f0070006500720074006900650073000000026a000001090000005c00ffffff00000001000001cb0000039efc0200000001fb0000000a00560069006500770073000000003d0000039e000000a400ffffff000000030000073a00000039fc0100000001fb0000000800540069006d006501000000000000073a000002fb00ffffff000005de0000035f00000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  QMainWindow State: 000000ff00000000fd0000000300000000000002290000035ffc0200000003fb000000100044006900730070006c006100790073000000003d0000035f000000c900fffffffb0000001200530065006c0065006300740069006f006e00000001ea000000ce0000005c00fffffffb0000001e0054006f006f006c002000500072006f0070006500720074006900650073000000026a000001090000005c00ffffff00000001000001cb0000039efc0200000001fb0000000a00560069006500770073000000003d0000039e000000a400ffffff000000030000073a00000039fc0100000001fb0000000800540069006d006501000000000000073a000002fb00ffffff0000073a0000035f00000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Selection:
     collapsed: false
   Time:

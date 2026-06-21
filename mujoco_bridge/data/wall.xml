@@ -18,7 +18,7 @@
             condim="3"
             contype="2"
             conaffinity="8"
-            friction="0.3 0.003 0.001"
+            friction="0.5 0.003 0.001"
             margin="0.0015"
             gap="0.0005"
             solref="0.012 1.0"

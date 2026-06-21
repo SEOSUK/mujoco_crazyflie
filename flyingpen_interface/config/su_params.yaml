@@ -1,0 +1,55 @@
+wrench_observer:
+  ros__parameters:
+    su_wrench:
+      mass: 0.043380  # observer mass model [kg]
+      Keps: 500.0  # consistency residual correction gain
+      comOffX: -0.000003  # body-frame CoM offset x [m]
+      comOffY: 0.000000  # body-frame CoM offset y [m]
+      comOffZ: 0.0  # body-frame CoM offset z [m]
+      rOffX: 0.075  # end-effector offset x from body origin [m]
+      rOffY: 0.0  # end-effector offset y from body origin [m]
+      rOffZ: 0.03  # end-effector offset z from body origin [m]
+      consistencyMode: 2  # 0=None, 1=Residual, 2=Both
+
+trajectory_generation:
+  ros__parameters:
+    reference_object: "end_effector"  # shared command reference: "drone" or "end_effector"
+
+    su_position:
+      # Single source of truth for trajectory selection and geometry/speed.
+      # trajectory_generation.yaml should not override these.
+      traj1Shape: 4  # 0=None, 1=Circle, 2=Square, 3=Lissajous, 4=SingleSidedLine
+      traj1SizeX: 20.5  # pattern axis-1 radius/side length [m]
+      traj1SizeY: 0.0  # pattern axis-2 radius/side length [m]
+      traj1Speed: 0.1  # [m/s], nominal path-progress speed v_s
+
+      alpha_frame_mode: 2  # 0: None, 1: Normal Alignment Score, 2: Normal-rate-aware modulation
+      epsilon_tau_n: 1.0e-6  # torque-alignment score regularization epsilon
+      c_bar_tau: 2.0  # alpha_frame = exp(-(1-c_tau)/c_bar_tau)
+
+
+      omega_bar_n: 0.0  # mode 2: alpha_omega = 1 / (1 + (omega_n / omega_bar_n)^r), set 0.0 to disable this term
+      normal_vel_bar_n: 0.04 # mode 2: alpha_v = 1 / (1 + (e_v / normal_vel_bar_n)^r), set 0.0 to disable this term
+      omega_n_lpf_cutoff_hz: 0.0  # mode 2: 1st-order LPF cutoff for omega_n, set 0.0 to disable filtering
+      normal_leakage_lpf_cutoff_hz: 1.0  # mode 2: 1st-order LPF cutoff for normal leakage, set 0.0 to disable filtering
+
+      alpha_gate_power_r: 2 # mode 2: common exponent r for alpha_omega and alpha_v, use 1 or 2
+      alpha_min: 1.0  # mode 2: alpha_frame lower bound
+
+
+      preloadEn: 1  # 0: fixed normal [-1,0,0], 1: force-dominant normal estimator
+      preloadGf: 20.0  # effective gain from normal force error to normal velocity command
+      preloadGv: 20.0  # effective gain from normal velocity leakage to command
+      preloadNu: 0.3  # [m/s], symmetric saturation bound for normal velocity command
+
+normal_vector_estimation:
+  ros__parameters:
+    reference_object: "end_effector"  # shared command reference: "drone" or "end_effector"
+
+    normal_force_based:
+      normBeta: 2.0  # [1/s] beta ≈ 2*pi*f_c, decay rate of the normal-axis memory matrix
+      normDeadzoneV: 0.00  # [m/s], velocity deadzone applied before velocity-admissible projection is trusted
+      normEpsG: 0.0001  # [m^2/s^2], post-deadzone velocity-projection regularization epsilon_g
+      normEpsF: 0.005  # [N], minimum force evidence norm epsilon_f
+
+      algebraic_force_epsilon: 0.005  # [N], minimum corrected-force norm required before normalizing the algebraic candidate
