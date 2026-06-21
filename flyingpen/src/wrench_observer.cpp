@@ -3,6 +3,7 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/vector3_stamped.hpp>
 #include <geometry_msgs/msg/wrench_stamped.hpp>
+#include <rcl_interfaces/msg/set_parameters_result.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
 #include <Eigen/Dense>
 
@@ -54,6 +55,15 @@ public:
   WrenchObserver()
   : Node("wrench_observer")
   {
+    const double su_mass = declare_parameter<double>("su_wrench.mass", 0.04338);
+    const double su_k_eps = declare_parameter<double>("su_wrench.Keps", 10.0);
+    const double su_com_off_x = declare_parameter<double>("su_wrench.comOffX", 0.0);
+    const double su_com_off_y = declare_parameter<double>("su_wrench.comOffY", 0.0);
+    const double su_com_off_z = declare_parameter<double>("su_wrench.comOffZ", 0.0);
+    const double su_r_off_x = declare_parameter<double>("su_wrench.rOffX", 0.09);
+    const double su_r_off_y = declare_parameter<double>("su_wrench.rOffY", 0.0);
+    const double su_r_off_z = declare_parameter<double>("su_wrench.rOffZ", 0.085);
+
     input_topic_ = declare_parameter<std::string>("input_topic", "/crazyflie/in/input");
     pose_topic_ = declare_parameter<std::string>("pose_topic", "/crazyflie/out/pose");
     vel_topic_ = declare_parameter<std::string>("vel_topic", "/crazyflie/out/vel");
@@ -84,7 +94,7 @@ public:
     vel_lpf_enable_ = declare_parameter<bool>("mob.vel_lpf_enable", false);
     vel_lpf_cutoff_hz_ = declare_parameter<double>("mob.vel_lpf_cutoff_hz", 0.5);
 
-    mass_ = declare_parameter<double>("mass", 0.04338);
+    mass_ = declare_parameter<double>("mass", su_mass);
     gravity_ = declare_parameter<double>("g", 9.81);
     jxx_ = declare_parameter<double>("mob.Jxx", 2.3951e-5);
     jyy_ = declare_parameter<double>("mob.Jyy", 2.3951e-5);
@@ -96,7 +106,7 @@ public:
     mob_alpha_2nd_order_ = declare_parameter<double>("mob.mob_alpha_2nd_order", 0.2);
     kp_ = declare_parameter<double>("mob.Kp", 2.0);
     kptau_ = declare_parameter<double>("mob.KpTau", 10.0);
-    ke_ = declare_parameter<double>("mob.Ke", 10.0);
+    ke_ = declare_parameter<double>("mob.Ke", su_k_eps);
     epsilon_tau_ = declare_parameter<double>("mob.epsilon_tau", 1.0e-6);
 
     arm_xy_ = declare_parameter<double>("arm_xy", 0.035355);
@@ -105,12 +115,13 @@ public:
     thrust_max_ = declare_parameter<double>("thrust_max", 0.20);
 
     auto ee_offset_param = declare_parameter<std::vector<double>>(
-      "end_effector_offset", std::vector<double>{0.09, 0.0, 0.085});
+      "end_effector_offset", std::vector<double>{su_r_off_x, su_r_off_y, su_r_off_z});
     if (ee_offset_param.size() != 3) {
       RCLCPP_WARN(get_logger(), "end_effector_offset must have size 3. Falling back to [0.09, 0.0, 0.085].");
       ee_offset_param = {0.09, 0.0, 0.085};
     }
     ee_offset_body_ = Eigen::Vector3d(ee_offset_param[0], ee_offset_param[1], ee_offset_param[2]);
+    com_offset_body_ = Eigen::Vector3d(su_com_off_x, su_com_off_y, su_com_off_z);
 
     auto motor_dir_param = declare_parameter<std::vector<double>>(
       "motor_dir", std::vector<double>{1.0, -1.0, 1.0, -1.0});
@@ -157,6 +168,9 @@ public:
     timer_est_ = create_wall_timer(
       std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(1.0 / safe_hz)),
       std::bind(&WrenchObserver::loopEst, this));
+
+    param_callback_handle_ = add_on_set_parameters_callback(
+      std::bind(&WrenchObserver::onParametersSet, this, std::placeholders::_1));
 
     last_time_ = now();
 
@@ -486,8 +500,10 @@ private:
       vel_lpf_initialized_ = false;
     }
 
-    const Vec3 world_force_input = r_bw * Vec3(0.0, 0.0, fz);
-    const Vec3 body_torque_input(tx, ty, tz);
+    const Vec3 body_force_input(0.0, 0.0, fz);
+    const Vec3 world_force_input = r_bw * body_force_input;
+    Vec3 body_torque_input(tx, ty, tz);
+    body_torque_input += com_offset_body_.cross(body_force_input);
     const double mass_obs = mass_;
     const double jxx_obs = jxx_;
     const double jyy_obs = jyy_;
@@ -566,6 +582,47 @@ private:
 
   std::mutex mtx_;
 
+  rcl_interfaces::msg::SetParametersResult onParametersSet(
+    const std::vector<rclcpp::Parameter> & params)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+
+    for (const auto & param : params) {
+      const auto & name = param.get_name();
+
+      if (name == "mass" || name == "su_wrench.mass") {
+        mass_ = param.as_double();
+      } else if (name == "g") {
+        gravity_ = param.as_double();
+      } else if (name == "su_wrench.comOffX") {
+        com_offset_body_.x() = param.as_double();
+      } else if (name == "su_wrench.comOffY") {
+        com_offset_body_.y() = param.as_double();
+      } else if (name == "su_wrench.comOffZ") {
+        com_offset_body_.z() = param.as_double();
+      } else if (name == "su_wrench.rOffX") {
+        ee_offset_body_.x() = param.as_double();
+      } else if (name == "su_wrench.rOffY") {
+        ee_offset_body_.y() = param.as_double();
+      } else if (name == "su_wrench.rOffZ") {
+        ee_offset_body_.z() = param.as_double();
+      } else if (name == "end_effector_offset") {
+        const auto values = param.as_double_array();
+        if (values.size() != 3) {
+          rcl_interfaces::msg::SetParametersResult result;
+          result.successful = false;
+          result.reason = "end_effector_offset must have exactly 3 values";
+          return result;
+        }
+        ee_offset_body_ = Eigen::Vector3d(values[0], values[1], values[2]);
+      }
+    }
+
+    rcl_interfaces::msg::SetParametersResult result;
+    result.successful = true;
+    return result;
+  }
+
   rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr sub_input_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_pose_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_vel_;
@@ -581,6 +638,7 @@ private:
   rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_ee_applied_wrench_consistency_;
   rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_ee_applied_wrench_consistency_base_;
   rclcpp::TimerBase::SharedPtr timer_est_;
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr param_callback_handle_;
 
   std::string input_topic_;
   std::string pose_topic_;
@@ -624,6 +682,7 @@ private:
   double thrust_max_{0.20};
   std::array<double, 4> motor_dir_{{1.0, -1.0, 1.0, -1.0}};
   Eigen::Vector3d ee_offset_body_{0.09, 0.0, 0.085};
+  Eigen::Vector3d com_offset_body_{0.0, 0.0, 0.0};
 
   Eigen::Matrix4d b_{Eigen::Matrix4d::Identity()};
   Eigen::Matrix4d b_inv_{Eigen::Matrix4d::Identity()};

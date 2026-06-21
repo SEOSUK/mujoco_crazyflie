@@ -1,6 +1,6 @@
 /**:
   ros__parameters:
-    environment.type: "cylinder" # "cylinder" for cylinder.xml, "wall" for wall.xml
+    environment.type: "surface_chain" # "surface_chain", "wall", or "cylinder"
     environment.marker_topic: "/rviz/environment"
     wind_indicator.enable: true
     wind_indicator.wind_topic: "/crazyflie/in/wind"
@@ -25,6 +25,17 @@
     wall.size.x: 0.1
     wall.size.y: 2.5
     wall.size.z: 2.5
+    surface_chain.pos.x: 1.0
+    surface_chain.pos.y: 0.0
+    surface_chain.base_z: 0.0
+    surface_chain.plane1.length: 0.6
+    surface_chain.arc.radius: 0.4
+    surface_chain.arc.angle_deg: 40.0
+    surface_chain.plane2.length: 0.6
+    surface_chain.plane3.length: 0.6
+    surface_chain.height: 0.5
+    surface_chain.thickness: 0.02
+    surface_chain.arc.segments: 96
 
 rviz_visual:
   ros__parameters:
@@ -37,17 +48,13 @@ rviz_visual:
     contact_frame_quat_topic: "/estimated_contact_frame_quat"
     normal_debug_metrics_topic_pure: "/normal_vector/debug_metrics_pure"
     normal_debug_metrics_topic: "/normal_vector/debug_metrics"
+    control_metrics_topic: "/su/debug/control_metrics"
     ke_normal_velocity_epsilon: 0.01
     ke_normal_force_epsilon: 0.005
-    ke_raw_normal:
-      beta_n: 0.3
-      sigma_n: 0.3
-    ke_projected_normal:
-      beta_n: 0.3
-      sigma_n: 0.3
     contact_force_lpf_omega: 12.0
     cylinder.rgba: [0.75, 0.93, 0.75, 0.25]
     wall.rgba: [0.75, 0.93, 0.75, 0.25]
+    surface_chain.rgba: [0.75, 0.93, 0.75, 0.35]
     publish_hz: 20.0
     history_sample_period: 1.5
     history_duration: 30.0

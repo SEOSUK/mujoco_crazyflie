@@ -11,6 +11,7 @@
 #include <string>
 #include <chrono>
 #include <vector>
+#include <algorithm>
 
 class FkIkTransformNode : public rclcpp::Node
 {
@@ -44,6 +45,7 @@ public:
 
     const double compute_hz = this->declare_parameter<double>("compute_hz", 200.0);
     const double print_hz   = this->declare_parameter<double>("debug_print_hz", 10.0);
+    ee_vel_lpf_cutoff_hz_ = this->declare_parameter<double>("ee_vel_lpf_cutoff_hz", 2.0);
 
     auto qos = rclcpp::SensorDataQoS();
 
@@ -137,6 +139,15 @@ private:
     msg.y = v.y();
     msg.z = v.z();
     return msg;
+  }
+
+  static double lpfAlphaFromCutoffHz(double dt, double cutoff_hz)
+  {
+    if (!(std::isfinite(dt) && dt > 0.0 && std::isfinite(cutoff_hz) && cutoff_hz > 0.0)) {
+      return 1.0;
+    }
+    const double tau = 1.0 / (2.0 * M_PI * cutoff_hz);
+    return std::clamp(dt / (tau + dt), 0.0, 1.0);
   }
 
   // --------------------------------------------------
@@ -248,6 +259,19 @@ private:
     const Eigen::Vector3d v_E_W =
       v_B_W + R_WB * (w_B.cross(d_B_));
 
+    const rclcpp::Time now_time = this->now();
+    Eigen::Vector3d v_E_W_filt = v_E_W;
+    if (!ee_vel_lpf_initialized_ || last_compute_time_.nanoseconds() == 0) {
+      ee_vel_lpf_state_ = v_E_W;
+      ee_vel_lpf_initialized_ = true;
+    } else {
+      const double dt = std::max(1.0e-6, (now_time - last_compute_time_).seconds());
+      const double alpha = lpfAlphaFromCutoffHz(dt, ee_vel_lpf_cutoff_hz_);
+      ee_vel_lpf_state_ += alpha * (v_E_W - ee_vel_lpf_state_);
+    }
+    last_compute_time_ = now_time;
+    v_E_W_filt = ee_vel_lpf_state_;
+
     const Eigen::Vector3d a_E_W =
       a_B_W + R_WB * (alpha_B.cross(d_B_) + w_B.cross(w_B.cross(d_B_)));
 
@@ -266,7 +290,7 @@ private:
     geometry_msgs::msg::Vector3Stamped ee_vel_msg;
     ee_vel_msg.header = vel->header;
     ee_vel_msg.header.frame_id = "world";
-    ee_vel_msg.vector = eigenToVecMsg(v_E_W);
+    ee_vel_msg.vector = eigenToVecMsg(v_E_W_filt);
     pub_ee_vel_->publish(ee_vel_msg);
 
     // ---------------- publish EE acceleration ----------------
@@ -368,6 +392,10 @@ private:
 
   // body-frame offset from drone body origin to end-effector
   Eigen::Vector3d d_B_;
+  double ee_vel_lpf_cutoff_hz_{2.0};
+  bool ee_vel_lpf_initialized_{false};
+  Eigen::Vector3d ee_vel_lpf_state_{Eigen::Vector3d::Zero()};
+  rclcpp::Time last_compute_time_{0, 0, RCL_ROS_TIME};
 
   // ---------------- subscribers ----------------
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_pose_;

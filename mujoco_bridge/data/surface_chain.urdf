@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<robot name="surface_chain">
+  <link name="surface_chain">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://mujoco_bridge/data/assets/structure/surface_chain.stl"
+              scale="1 1 1"/>
+      </geometry>
+      <material name="surface_chain_green">
+        <color rgba="0.5 0.9 0.5 0.6"/>
+      </material>
+    </visual>
+  </link>
+</robot>

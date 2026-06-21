@@ -1,22 +1,10 @@
 /**:
   ros__parameters:
-    reference_object: "end_effector" # "drone" or "end_effector"
     normal_estimator_method: "normal_force_based" # "direction", "normal_force_based", "None"
-    publish_hz: 100.0
+    publish_hz: 100.0  # normal estimator publish/update rate [Hz]
 
-    flip_measured_force: false # MOB sources are implicitly flipped internally for My-Style normal convention
-    normal_force_threshold: 0.0005
-    normal_lpf_alpha: 0.2
+    flip_measured_force: false  # follow firmware sign by default; enable only for an explicit experimental frame flip
 
     # "force_sensor", "momentum_observer_2nd_order",
     # "momentum_observer_2nd_order_consistency"
     force_observation_source: "momentum_observer_2nd_order_consistency"
-
-    normal_force_based:
-      epsilon_v: 0.01
-      epsilon_f: 0.005
-      epsilon_n: 0.005
-      epsilon_g: 1.0e-3
-      output_lpf_cutoff_rad_s: 12.0
-      beta_n: 0.1
-      sigma_n: 0.1

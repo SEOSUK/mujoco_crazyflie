@@ -148,33 +148,23 @@ Main parameters in [normal_vector_estimation.yaml](/home/seosuk/mujoco_crazyflie
 - `force_observation_source`
   Selects the wrench source.
   `mob_2nd` uses the pure observer and `mob_2nd_tau` uses the consistency-corrected observer.
-- `normal_force_threshold`
-  Minimum force magnitude required before a normal update is accepted.
-- `normal_lpf_alpha`
-  LPF used by the simple `direction` estimator.
 
 Important `normal_force_based` parameters:
 
-- `velocity_epsilon`
-  Velocity dead-zone threshold.
-  If contact-point speed is smaller than this, the velocity direction is treated as unreliable.
-- `force_epsilon`
+- `normEpsF`
   Minimum force magnitude required to trust the raw force-direction normal candidate.
 - `algebraic_force_epsilon`
   Minimum corrected-force magnitude required to trust the algebraic projected candidate.
-- `gamma_epsilon`
-  Soft velocity dead-zone gain used in
-  `gamma_v = ||v||^2 / (||v||^2 + gamma_epsilon)`.
-  Larger values make the projection trust velocity less aggressively near zero speed.
-- `output_lpf_cutoff_rad_s`
-  Output normal-vector LPF cutoff.
-  This affects the smoothed directions used for `ke_raw_normal`, `ke_projected_normal`, and the gamma-projected direction.
+- `normDeadzoneV`
+  Velocity deadzone applied first. Below this speed, the velocity-admissible correction stays off.
+- `normEpsG`
+  Post-deadzone regularization used in
+  `gamma_v = max(||v|| - normDeadzoneV, 0)^2 / (max(||v|| - normDeadzoneV, 0)^2 + normEpsG)`.
+  Larger values make the projection trust velocity less aggressively just above the deadzone.
 - `candidate_lpf_cutoff_hz`
   LPF cutoff for the algebraic corrected-force candidate before the final normal is formed.
-- `beta_n`
-  Memory forgetting gain for the projected-normal evidence matrix.
-- `sigma_n`
-  Memory integration gain for the projected-normal evidence matrix.
+- `normBeta`
+  Shared gain used for both forgetting old projected-normal evidence and injecting new evidence.
 
 Topic mapping summary:
 

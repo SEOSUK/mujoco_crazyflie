@@ -1,7 +1,6 @@
 trajectory_generation:
   ros__parameters:
-    reference_object: "end_effector" # "drone" or "end_effector"
-    end_effector_offset: [0.1, 0.0, 0.04]
+    end_effector_offset: [0.1, 0.0, 0.04]  # body-origin to end-effector offset [m]
 
     # "position_loop_embedding" or "velocity_loop_direct"
     command_embedding_mode: "position_loop_embedding"
@@ -9,52 +8,19 @@ trajectory_generation:
     force_control:
       mode: "paper" # "legacy" or "paper"
       legacy:
-        kp: 5.0
-        kd: 0.005
-        v_n_max: 0.20
-        derivative_cutoff_rad_s: 3.0
+        kp: 5.0  # normal-force proportional gain
+        kd: 0.005  # normal-force derivative gain
+        v_n_max: 0.20  # [m/s], saturation bound for commanded normal velocity
+        derivative_cutoff_rad_s: 3.0  # derivative LPF cutoff [rad/s]
       paper:
-        k_f: 5.0
-        k_l: 2.0
-        v_n_max: 0.20
+        k_f: 15.0  # normal-force feedback gain
+        k_l: 4.0  # normal-velocity leakage gain
+        v_n_max: 0.30  # [m/s], saturation bound for commanded normal velocity
 
     # manual keyboard velocity frame during velocity mode
     manual_velocity_frame: "contact" # "contact" or "world"
 
-    yaw:
-      strategy: "normal_align" # "normal_align", "paper", "none"
-      normal_align_kp: 3.0
-      normal_xy_min: 0.001
-      paper:
-        cbar_tau: 0.25
-        epsilon_tau_c: 1.0e-6
-
+    # Trajectory shape/size/speed are sourced only from su_params.yaml -> su_position.*
+    # Keep only non-overlapping trajectory behavior tuning here.
     pattern:
-      type: "lissajous" # "lissajous", "circle", "square", "constant"
-      ramp_sec: 1.0
-      v_s: 0.25
-
-    lissajous:
-      amp_1: 0.20
-      amp_2: 0.00
-      period_1: 15.0
-      period_2: 10.0
-
-    circle:
-      radius: 0.20
-      period_sec: 7.0
-      center_1: 0.0
-      center_2: 0.0
-      phase_rad: -1.57079632679
-
-    square:
-      parallel_length: 2.0
-      vertical_length: 0.4
-      period_sec: 30.0
-      center_1: 0.0
-      center_2: 0.0
-      phase: 0.0
-
-    constant:
-      speed_1: 0.05
-      speed_2: 0.00
+      ramp_sec: 1.0  # ramp-up time for trajectory activation [s]

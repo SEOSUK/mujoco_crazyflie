@@ -1,6 +1,6 @@
 wrench_observer:
   ros__parameters:
-    mass: 0.04338
+    mass: 0.043380
     g: 9.81
     mob.Jxx: 2.3951e-5
     mob.Jyy: 2.3951e-5

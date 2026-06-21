@@ -39,6 +39,7 @@ install(TARGETS
 add_executable(command_publisher src/command_publisher.cpp)
 ament_target_dependencies(command_publisher
   rclcpp
+  geometry_msgs
   std_msgs
 )
 target_include_directories(command_publisher PRIVATE ${CURSES_INCLUDE_DIR})
@@ -46,6 +47,19 @@ target_link_libraries(command_publisher ${CURSES_LIBRARIES})
 
 install(TARGETS
   command_publisher
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+# firmware bridge node
+add_executable(firmware_bridge src/firmware_bridge.cpp)
+ament_target_dependencies(firmware_bridge
+  rclcpp
+  geometry_msgs
+  std_msgs
+)
+
+install(TARGETS
+  firmware_bridge
   DESTINATION lib/${PROJECT_NAME}
 )
 

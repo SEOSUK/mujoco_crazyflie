@@ -3,6 +3,7 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/quaternion_stamped.hpp>
 #include <geometry_msgs/msg/vector3_stamped.hpp>
+#include <geometry_msgs/msg/wrench_stamped.hpp>
 #include <std_msgs/msg/float32.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
 
@@ -25,6 +26,27 @@ public:
   TrajectoryGeneration()
   : Node("trajectory_generation")
   {
+    const int su_traj1_shape = declare_parameter<int>("su_position.traj1Shape", 3);
+    const double su_traj1_size_x = declare_parameter<double>("su_position.traj1SizeX", 0.20);
+    const double su_traj1_size_y = declare_parameter<double>("su_position.traj1SizeY", 0.00);
+    const double su_traj1_speed = declare_parameter<double>("su_position.traj1Speed", 0.25);
+    const int su_alpha_frame_mode = declare_parameter<int>("su_position.alpha_frame_mode", 0);
+    const double su_epsilon_tau_n = declare_parameter<double>("su_position.epsilon_tau_n", 1.0e-6);
+    const double su_c_bar_tau = declare_parameter<double>("su_position.c_bar_tau", 0.20);
+    const double su_omega_bar_n = declare_parameter<double>("su_position.omega_bar_n", 1.0);
+    const double su_normal_vel_bar_n = declare_parameter<double>("su_position.normal_vel_bar_n", 0.0);
+    const int su_alpha_gate_power_r =
+      declare_parameter<int>("su_position.alpha_gate_power_r", 2);
+    const double su_omega_n_lpf_cutoff_hz =
+      declare_parameter<double>("su_position.omega_n_lpf_cutoff_hz", 0.0);
+    const double su_normal_leakage_lpf_cutoff_hz =
+      declare_parameter<double>("su_position.normal_leakage_lpf_cutoff_hz", 0.0);
+    const double su_alpha_min = declare_parameter<double>("su_position.alpha_min", 0.0);
+    const double su_preload_gf = declare_parameter<double>("su_position.preloadGf", 5.0);
+    const double su_preload_gv = declare_parameter<double>("su_position.preloadGv", 2.0);
+    const double su_preload_nu = declare_parameter<double>("su_position.preloadNu", 0.20);
+    const int su_preload_en = declare_parameter<int>("su_position.preloadEn", 1);
+
     reference_object_ = declare_parameter<std::string>(
       "reference_object", "end_effector");
     command_embedding_mode_ = normalizeModeName(
@@ -34,23 +56,19 @@ public:
       declare_parameter<std::string>("force_control.mode", "paper"));
     manual_velocity_frame_ = normalizeFrameName(
       declare_parameter<std::string>("manual_velocity_frame", "contact"));
-    yaw_strategy_ = normalizeYawStrategy(
-      declare_parameter<std::string>("yaw.strategy", "normal_align"));
-
     yaw_align_kp_ = declare_parameter<double>("yaw.normal_align_kp", 3.0);
     normal_xy_min_ = declare_parameter<double>("yaw.normal_xy_min", 1e-3);
-    cbar_tau_ = declare_parameter<double>("yaw.paper.cbar_tau", 0.25);
-    epsilon_tau_c_ = declare_parameter<double>("yaw.paper.epsilon_tau_c", 1.0e-6);
 
-    const double preload_k_f_legacy = declare_parameter<double>("preload.k_f", 5.0);
-    const double preload_k_l_legacy = declare_parameter<double>("preload.k_l", 2.0);
-    const double preload_v_n_max_legacy = declare_parameter<double>("preload.v_n_max", 0.20);
+    declare_parameter<double>("preload.k_f", su_preload_gf);
+    declare_parameter<double>("preload.k_l", su_preload_gv);
+    declare_parameter<double>("preload.v_n_max", su_preload_nu);
+    preload_enable_ = (su_preload_en != 0);
     paper_force_k_f_ = declare_parameter<double>(
-      "force_control.paper.k_f", preload_k_f_legacy);
+      "force_control.paper.k_f", su_preload_gf);
     paper_force_k_l_ = declare_parameter<double>(
-      "force_control.paper.k_l", preload_k_l_legacy);
+      "force_control.paper.k_l", su_preload_gv);
     paper_force_v_n_max_ = declare_parameter<double>(
-      "force_control.paper.v_n_max", preload_v_n_max_legacy);
+      "force_control.paper.v_n_max", su_preload_nu);
     legacy_force_kp_ = declare_parameter<double>("force_control.legacy.kp", 5.0);
     legacy_force_kd_ = declare_parameter<double>("force_control.legacy.kd", 0.005);
     legacy_force_v_n_max_ = declare_parameter<double>("force_control.legacy.v_n_max", 0.20);
@@ -58,31 +76,44 @@ public:
       "force_control.legacy.derivative_cutoff_rad_s", 3.0);
 
     const auto requested_pattern_type = declare_parameter<std::string>(
-      "pattern.type", "lissajous");
+      "pattern.type", shapeIdToPatternType(su_traj1_shape));
     pattern_type_ = normalizePatternType(requested_pattern_type);
     pattern_ramp_sec_ = declare_parameter<double>("pattern.ramp_sec", 1.0);
-    pattern_speed_ = declare_parameter<double>("pattern.v_s", 0.25);
+    pattern_speed_ = declare_parameter<double>("pattern.v_s", su_traj1_speed);
+    alpha_frame_mode_ = std::max(0, su_alpha_frame_mode);
+    epsilon_tau_n_ = su_epsilon_tau_n;
+    c_bar_tau_ = su_c_bar_tau;
+    omega_bar_n_ = su_omega_bar_n;
+    normal_vel_bar_n_ = su_normal_vel_bar_n;
+    alpha_gate_power_r_ = (su_alpha_gate_power_r == 1) ? 1 : 2;
+    if (su_alpha_gate_power_r != alpha_gate_power_r_) {
+      RCLCPP_WARN(
+        get_logger(),
+        "su_position.alpha_gate_power_r=%d is unsupported. Falling back to %d.",
+        su_alpha_gate_power_r,
+        alpha_gate_power_r_);
+    }
+    omega_n_lpf_cutoff_hz_ = su_omega_n_lpf_cutoff_hz;
+    normal_leakage_lpf_cutoff_hz_ = su_normal_leakage_lpf_cutoff_hz;
+    alpha_min_ = clamp01(su_alpha_min);
 
-    lissajous_amp_1_ = declare_parameter<double>("lissajous.amp_1", 0.20);
-    lissajous_amp_2_ = declare_parameter<double>("lissajous.amp_2", 0.00);
-    lissajous_period_1_ = declare_parameter<double>("lissajous.period_1", 15.0);
-    lissajous_period_2_ = declare_parameter<double>("lissajous.period_2", 10.0);
+    lissajous_amp_1_ = declare_parameter<double>("lissajous.amp_1", su_traj1_size_x);
+    lissajous_amp_2_ = declare_parameter<double>("lissajous.amp_2", su_traj1_size_y);
+    lissajous_ratio_ = declare_parameter<double>("lissajous.ratio", 2.0);
 
-    circle_radius_ = declare_parameter<double>("circle.radius", 0.20);
-    circle_period_sec_ = declare_parameter<double>("circle.period_sec", 7.0);
-    circle_center_1_ = declare_parameter<double>("circle.center_1", 0.0);
-    circle_center_2_ = declare_parameter<double>("circle.center_2", 0.0);
-    circle_phase_rad_ = declare_parameter<double>("circle.phase_rad", -0.5 * M_PI);
+    circle_radius_1_ = declare_parameter<double>("circle.radius_1", su_traj1_size_x);
+    circle_radius_2_ = declare_parameter<double>("circle.radius_2", su_traj1_size_y);
 
-    square_parallel_length_ = declare_parameter<double>("square.parallel_length", 0.40);
-    square_vertical_length_ = declare_parameter<double>("square.vertical_length", 0.40);
-    square_period_sec_ = declare_parameter<double>("square.period_sec", 20.0);
-    square_center_1_ = declare_parameter<double>("square.center_1", 0.0);
-    square_center_2_ = declare_parameter<double>("square.center_2", 0.0);
-    square_phase_ = declare_parameter<double>("square.phase", 0.0);
+    square_parallel_length_ = declare_parameter<double>("square.parallel_length", su_traj1_size_x);
+    square_vertical_length_ = declare_parameter<double>("square.vertical_length", su_traj1_size_y);
 
-    constant_speed_1_ = declare_parameter<double>("constant.speed_1", 0.10);
+    constant_speed_1_ = declare_parameter<double>("constant.speed_1", su_traj1_speed);
     constant_speed_2_ = declare_parameter<double>("constant.speed_2", 0.0);
+
+    single_sided_line_length_1_ = declare_parameter<double>(
+      "single_sided_line.length_1", su_traj1_size_x);
+    single_sided_line_length_2_ = declare_parameter<double>(
+      "single_sided_line.length_2", su_traj1_size_y);
 
     auto ee_off = declare_parameter<std::vector<double>>(
       "end_effector_offset", {0.09, 0.0, 0.085});
@@ -108,6 +139,10 @@ public:
       "contact_force_x_topic", "/su/contact_force_x");
     normal_debug_metrics_topic_ = declare_parameter<std::string>(
       "normal_debug_metrics_topic", "/normal_vector/debug_metrics");
+    ee_applied_wrench_consistency_topic_ = declare_parameter<std::string>(
+      "ee_applied_wrench_consistency_topic", "/crazyflie/out/ee_applied_mob_2nd_tau");
+    contact_signal_timeout_sec_ = declare_parameter<double>(
+      "contact_signal_timeout_sec", 0.15);
 
     sub_keyboard_ = create_subscription<std_msgs::msg::Float64MultiArray>(
       "/su/keyboard_input", 10,
@@ -127,6 +162,13 @@ public:
     sub_normal_debug_metrics_ = create_subscription<std_msgs::msg::Float64MultiArray>(
       normal_debug_metrics_topic_, 10,
       std::bind(&TrajectoryGeneration::normalDebugMetricsCb, this, std::placeholders::_1));
+    sub_ee_applied_wrench_consistency_ =
+      create_subscription<geometry_msgs::msg::WrenchStamped>(
+      ee_applied_wrench_consistency_topic_, 10,
+      std::bind(
+        &TrajectoryGeneration::eeAppliedWrenchConsistencyCb,
+        this,
+        std::placeholders::_1));
 
     sub_pose_ = create_subscription<geometry_msgs::msg::PoseStamped>(
       pose_topic_, 10, std::bind(&TrajectoryGeneration::poseCb, this, std::placeholders::_1));
@@ -151,6 +193,8 @@ public:
       "/crazyflie/in/vel_cmd", 10);
     pub_force_lpf_ = create_publisher<std_msgs::msg::Float64MultiArray>(
       "/su/force_lpf", 10);
+    pub_control_metrics_ = create_publisher<std_msgs::msg::Float64MultiArray>(
+      "/su/debug/control_metrics", 10);
     pub_contact_vel_cmd_ = create_publisher<geometry_msgs::msg::Vector3Stamped>(
       "/su/debug/contact_vel_cmd", 10);
     pub_contact_vel_actual_ = create_publisher<geometry_msgs::msg::Vector3Stamped>(
@@ -168,7 +212,6 @@ public:
     RCLCPP_INFO(get_logger(), "reference_object = %s", reference_object_.c_str());
     RCLCPP_INFO(get_logger(), "command_embedding_mode = %s", command_embedding_mode_.c_str());
     RCLCPP_INFO(get_logger(), "force_control.mode = %s", force_control_mode_.c_str());
-    RCLCPP_INFO(get_logger(), "yaw.strategy = %s", yaw_strategy_.c_str());
     RCLCPP_INFO(get_logger(), "pattern.type = %s", pattern_type_.c_str());
   }
 
@@ -194,6 +237,72 @@ private:
   static double clamp01(double value)
   {
     return std::clamp(value, 0.0, 1.0);
+  }
+
+  static double clampPositive(double value)
+  {
+    return std::max(0.0, value);
+  }
+
+  static double inversePolynomialGate(double value, double threshold, int power_r = 2)
+  {
+    if (!(std::isfinite(threshold) && threshold > 0.0)) {
+      return 1.0;
+    }
+    const double safe_threshold = threshold;
+    const double ratio = clampPositive(value) / safe_threshold;
+    if (power_r == 1) {
+      return 1.0 / (1.0 + ratio);
+    }
+    return 1.0 / (1.0 + ratio * ratio);
+  }
+
+  bool isSignalFresh(const rclcpp::Time & stamp, const rclcpp::Time & now) const
+  {
+    if (stamp.nanoseconds() <= 0) {
+      return false;
+    }
+    const double timeout = std::max(0.0, contact_signal_timeout_sec_);
+    if (timeout <= 0.0) {
+      return true;
+    }
+    return (now - stamp).seconds() <= timeout;
+  }
+
+  static double lpfAlphaFromCutoffHz(double dt, double cutoff_hz)
+  {
+    if (!(std::isfinite(dt) && dt > 0.0 && std::isfinite(cutoff_hz) && cutoff_hz > 0.0)) {
+      return 1.0;
+    }
+    const double tau = 1.0 / (2.0 * M_PI * cutoff_hz);
+    return std::clamp(dt / (tau + dt), 0.0, 1.0);
+  }
+
+  double lowPassScalar(
+    double current,
+    double dt,
+    double cutoff_hz,
+    double & state,
+    bool & initialized) const
+  {
+    if (!(std::isfinite(current))) {
+      initialized = false;
+      state = std::numeric_limits<double>::quiet_NaN();
+      return current;
+    }
+    if (!(std::isfinite(cutoff_hz) && cutoff_hz > 0.0)) {
+      state = current;
+      initialized = true;
+      return current;
+    }
+    if (!initialized || !std::isfinite(state)) {
+      state = current;
+      initialized = true;
+      return state;
+    }
+    const double alpha = lpfAlphaFromCutoffHz(dt, cutoff_hz);
+    state += alpha * (current - state);
+    return state;
   }
 
   static Eigen::Quaterniond quatMsgToEigen(const geometry_msgs::msg::Quaternion & q)
@@ -247,7 +356,29 @@ private:
     if (value == "constant" || value == "constant_velocity") {
       return "constant";
     }
+    if (
+      value == "single_sided_line" ||
+      value == "line" ||
+      value == "singleline")
+    {
+      return "single_sided_line";
+    }
     return "lissajous";
+  }
+
+  static std::string shapeIdToPatternType(int shape_id)
+  {
+    switch (shape_id) {
+      case 1:
+        return "circle";
+      case 2:
+        return "square";
+      case 4:
+        return "single_sided_line";
+      case 0:
+      default:
+        return "lissajous";
+    }
   }
 
   static std::string normalizeFrameName(std::string value)
@@ -272,18 +403,6 @@ private:
     return "position_loop_embedding";
   }
 
-  static std::string normalizeYawStrategy(std::string value)
-  {
-    value = normalizeLower(std::move(value));
-    if (value == "paper" || value == "directional_consistency") {
-      return "paper";
-    }
-    if (value == "none" || value == "manual") {
-      return "none";
-    }
-    return "normal_align";
-  }
-
   static std::string normalizeForceControlMode(std::string value)
   {
     value = normalizeLower(std::move(value));
@@ -293,97 +412,105 @@ private:
     return "paper";
   }
 
-  static double positivePeriod(double period_sec)
+  static double wrapPositive(double value, double period)
   {
-    return std::max(1e-3, period_sec);
+    if (period <= 1.0e-9) {
+      return value;
+    }
+
+    value = std::fmod(value, period);
+    if (value < 0.0) {
+      value += period;
+    }
+    return value;
   }
 
-  void computePatternState(
+  void resetPatternProgress()
+  {
+    path_parameter_s_ = 0.0;
+  }
+
+  void evaluatePatternDerivative(
     double path_parameter,
-    double & zeta_1,
-    double & zeta_2,
-    double & dzeta_1_ds,
-    double & dzeta_2_ds) const
+    Eigen::Vector2d & derivative,
+    double & period) const
   {
     if (pattern_type_ == "circle") {
-      const double radius = std::max(0.0, circle_radius_);
-      const double w = 2.0 * M_PI / positivePeriod(circle_period_sec_);
-      const double theta = w * path_parameter + circle_phase_rad_;
-      zeta_1 = circle_center_1_ + radius * std::cos(theta);
-      zeta_2 = circle_center_2_ + radius * std::sin(theta);
-      dzeta_1_ds = -radius * w * std::sin(theta);
-      dzeta_2_ds = radius * w * std::cos(theta);
+      const double a = std::max(0.0, circle_radius_1_);
+      const double b = std::max(0.0, circle_radius_2_);
+      period = 2.0 * M_PI;
+      derivative.x() = -a * std::sin(path_parameter);
+      derivative.y() = b * std::cos(path_parameter);
       return;
     }
 
     if (pattern_type_ == "square") {
       const double parallel_length = std::max(0.0, square_parallel_length_);
       const double vertical_length = std::max(0.0, square_vertical_length_);
-      const double half_parallel = 0.5 * parallel_length;
-      const double half_vertical = 0.5 * vertical_length;
-      const double period = positivePeriod(square_period_sec_);
-      const double perimeter = 2.0 * (parallel_length + vertical_length);
-
-      if (perimeter < 1e-9) {
-        zeta_1 = square_center_1_;
-        zeta_2 = square_center_2_;
-        dzeta_1_ds = 0.0;
-        dzeta_2_ds = 0.0;
-        return;
-      }
-
-      const double speed = perimeter / period;
-      double phase = std::fmod(path_parameter / period + square_phase_, 1.0);
-      if (phase < 0.0) {
-        phase += 1.0;
-      }
-
-      const double s = phase * perimeter;
-      const double edge0_end = parallel_length;
-      const double edge1_end = edge0_end + vertical_length;
-      const double edge2_end = edge1_end + parallel_length;
-
-      if (s < edge0_end) {
-        zeta_1 = square_center_1_ - half_parallel + s;
-        zeta_2 = square_center_2_ - half_vertical;
-        dzeta_1_ds = speed;
-        dzeta_2_ds = 0.0;
-      } else if (s < edge1_end) {
-        const double edge_s = s - edge0_end;
-        zeta_1 = square_center_1_ + half_parallel;
-        zeta_2 = square_center_2_ - half_vertical + edge_s;
-        dzeta_1_ds = 0.0;
-        dzeta_2_ds = speed;
-      } else if (s < edge2_end) {
-        const double edge_s = s - edge1_end;
-        zeta_1 = square_center_1_ + half_parallel - edge_s;
-        zeta_2 = square_center_2_ + half_vertical;
-        dzeta_1_ds = -speed;
-        dzeta_2_ds = 0.0;
+      period = 4.0;
+      const double u = wrapPositive(path_parameter, period);
+      if (u < 1.0) {
+        derivative.x() = parallel_length;
+        derivative.y() = 0.0;
+      } else if (u < 2.0) {
+        derivative.x() = 0.0;
+        derivative.y() = vertical_length;
+      } else if (u < 3.0) {
+        derivative.x() = -parallel_length;
+        derivative.y() = 0.0;
       } else {
-        const double edge_s = s - edge2_end;
-        zeta_1 = square_center_1_ - half_parallel;
-        zeta_2 = square_center_2_ + half_vertical - edge_s;
-        dzeta_1_ds = 0.0;
-        dzeta_2_ds = -speed;
+        derivative.x() = 0.0;
+        derivative.y() = -vertical_length;
       }
       return;
     }
 
     if (pattern_type_ == "constant") {
-      zeta_1 = constant_speed_1_ * path_parameter;
-      zeta_2 = constant_speed_2_ * path_parameter;
-      dzeta_1_ds = constant_speed_1_;
-      dzeta_2_ds = constant_speed_2_;
+      period = 0.0;
+      derivative.x() = constant_speed_1_;
+      derivative.y() = constant_speed_2_;
       return;
     }
 
-    const double w1 = 2.0 * M_PI / positivePeriod(lissajous_period_1_);
-    const double w2 = 2.0 * M_PI / positivePeriod(lissajous_period_2_);
-    zeta_1 = lissajous_amp_1_ * std::sin(w1 * path_parameter);
-    zeta_2 = lissajous_amp_2_ * std::sin(w2 * path_parameter);
-    dzeta_1_ds = lissajous_amp_1_ * w1 * std::cos(w1 * path_parameter);
-    dzeta_2_ds = lissajous_amp_2_ * w2 * std::cos(w2 * path_parameter);
+    if (pattern_type_ == "single_sided_line") {
+      const double delta_1 = single_sided_line_length_1_;
+      const double delta_2 = single_sided_line_length_2_;
+      period = 2.0;
+      const double u = wrapPositive(path_parameter, period);
+      if (u < 1.0) {
+        derivative.x() = delta_1;
+        derivative.y() = delta_2;
+      } else {
+        derivative.x() = -delta_1;
+        derivative.y() = -delta_2;
+      }
+      return;
+    }
+
+    const double a = std::max(0.0, lissajous_amp_1_);
+    const double b = std::max(0.0, lissajous_amp_2_);
+    const double ratio = std::max(1.0e-6, lissajous_ratio_);
+    period = 2.0 * M_PI;
+    derivative.x() = a * std::cos(path_parameter);
+    derivative.y() = b * ratio * std::cos(ratio * path_parameter);
+  }
+
+  Eigen::Vector2d computePatternTangentialVelocity(double speed_cmd) const
+  {
+    const double speed_abs = std::abs(speed_cmd);
+    if (speed_abs <= 1e-9) {
+      return Eigen::Vector2d::Zero();
+    }
+
+    Eigen::Vector2d derivative = Eigen::Vector2d::Zero();
+    double period = 0.0;
+    evaluatePatternDerivative(path_parameter_s_, derivative, period);
+    const double derivative_norm = derivative.norm();
+    if (derivative_norm <= 1e-9) {
+      return Eigen::Vector2d::Zero();
+    }
+
+    return speed_cmd * derivative / derivative_norm;
   }
 
   ReferenceState getReferenceStateLocked() const
@@ -516,6 +643,7 @@ private:
     sp_in_[2] = msg->data[2];
     sp_in_yaw_ = msg->data[3];
     trajectory_cmd_enabled_ = (msg->data.size() >= 5 && msg->data[4] > 0.5);
+    position_reset_requested_ = (msg->data.size() >= 6 && msg->data[5] > 0.5);
     sp_received_ = true;
   }
 
@@ -540,6 +668,7 @@ private:
     contact_t1_w_ = contact_R_C_.col(1);
     contact_t2_w_ = contact_R_C_.col(2);
     contact_frame_received_ = true;
+    last_contact_frame_stamp_ = this->now();
   }
 
   void contactForceXCb(const std_msgs::msg::Float32::SharedPtr msg)
@@ -547,17 +676,34 @@ private:
     std::lock_guard<std::mutex> lk(contact_mtx_);
     contact_force_x_ = static_cast<double>(msg->data);
     contact_force_x_received_ = true;
+    last_contact_force_x_stamp_ = this->now();
   }
 
   void normalDebugMetricsCb(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
   {
-    if (msg->data.size() < 37) {
+    if (msg->data.size() < 34) {
       return;
     }
 
     std::lock_guard<std::mutex> lk(contact_mtx_);
+    estimated_normal_n_geo_ = Eigen::Vector3d(msg->data[28], msg->data[29], msg->data[30]);
     force_direction_n_f_ = Eigen::Vector3d(msg->data[31], msg->data[32], msg->data[33]);
-    have_force_direction_n_f_ = std::isfinite(force_direction_n_f_.norm());
+    have_estimated_normal_n_geo_ =
+      std::isfinite(estimated_normal_n_geo_.norm()) && estimated_normal_n_geo_.norm() > 1.0e-9;
+    have_force_direction_n_f_ =
+      std::isfinite(force_direction_n_f_.norm()) && force_direction_n_f_.norm() > 1.0e-9;
+    last_normal_debug_metrics_stamp_ = this->now();
+  }
+
+  void eeAppliedWrenchConsistencyCb(const geometry_msgs::msg::WrenchStamped::SharedPtr msg)
+  {
+    std::lock_guard<std::mutex> lk(contact_mtx_);
+    applied_torque_tau_l_w_ = Eigen::Vector3d(
+      msg->wrench.torque.x,
+      msg->wrench.torque.y,
+      msg->wrench.torque.z);
+    have_applied_torque_tau_l_w_ = std::isfinite(applied_torque_tau_l_w_.norm());
+    last_applied_torque_stamp_ = this->now();
   }
 
   void poseCb(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
@@ -651,6 +797,32 @@ private:
     pub_vel_cmd_->publish(out);
   }
 
+  void publishControlMetrics(
+    double alpha_frame,
+    double omega_n,
+    double normal_leakage,
+    double alpha_u1,
+    double alpha_u2,
+    double preload_feedback,
+    double c_tau,
+    double pattern_progress,
+    double pattern_speed_cmd)
+  {
+    std_msgs::msg::Float64MultiArray msg;
+    msg.data = {
+      alpha_frame,
+      omega_n,
+      normal_leakage,
+      alpha_u1,
+      alpha_u2,
+      preload_feedback,
+      c_tau,
+      pattern_progress,
+      pattern_speed_cmd
+    };
+    pub_control_metrics_->publish(msg);
+  }
+
   void update()
   {
     {
@@ -680,11 +852,13 @@ private:
     std::array<double, 3> sp_in_local{};
     double sp_in_yaw_local = 0.0;
     bool trajectory_enabled_local = false;
+    bool position_reset_requested_local = false;
     {
       std::lock_guard<std::mutex> lk(cmd_mtx_);
       sp_in_local = sp_in_;
       sp_in_yaw_local = sp_in_yaw_;
       trajectory_enabled_local = trajectory_cmd_enabled_;
+      position_reset_requested_local = position_reset_requested_;
     }
 
     bool use_vel_mode_local = false;
@@ -693,11 +867,15 @@ private:
     Eigen::Vector3d contact_t1_w = Eigen::Vector3d::UnitY();
     Eigen::Vector3d contact_t2_w = Eigen::Vector3d::UnitZ();
     Eigen::Vector3d force_direction_n_f = Eigen::Vector3d::Zero();
+    Eigen::Vector3d estimated_normal_n_geo = Eigen::Vector3d::Zero();
+    Eigen::Vector3d applied_torque_tau_l_w = Eigen::Vector3d::Zero();
     double contact_force_x_local = 0.0;
     double cmd_force_desired_local = 0.0;
     bool contact_frame_ok = false;
     bool contact_force_ok = false;
-    bool have_force_direction_n_f = false;
+    bool force_direction_ok = false;
+    bool estimated_normal_ok = false;
+    bool applied_torque_ok = false;
     {
       std::lock_guard<std::mutex> lk(contact_mtx_);
       use_vel_mode_local = use_vel_mode_;
@@ -706,12 +884,27 @@ private:
       contact_t1_w = contact_t1_w_;
       contact_t2_w = contact_t2_w_;
       force_direction_n_f = force_direction_n_f_;
+      estimated_normal_n_geo = estimated_normal_n_geo_;
+      applied_torque_tau_l_w = applied_torque_tau_l_w_;
       contact_force_x_local = contact_force_x_;
       cmd_force_desired_local = cmd_force_desired_;
       contact_frame_ok = contact_frame_received_;
       contact_force_ok = contact_force_x_received_;
-      have_force_direction_n_f = have_force_direction_n_f_;
+      force_direction_ok = have_force_direction_n_f_;
+      estimated_normal_ok = have_estimated_normal_n_geo_;
+      applied_torque_ok = have_applied_torque_tau_l_w_;
     }
+
+    contact_frame_ok =
+      contact_frame_ok && isSignalFresh(last_contact_frame_stamp_, now);
+    contact_force_ok =
+      contact_force_ok && isSignalFresh(last_contact_force_x_stamp_, now);
+    force_direction_ok =
+      force_direction_ok && isSignalFresh(last_normal_debug_metrics_stamp_, now);
+    estimated_normal_ok =
+      estimated_normal_ok && isSignalFresh(last_normal_debug_metrics_stamp_, now);
+    applied_torque_ok =
+      applied_torque_ok && isSignalFresh(last_applied_torque_stamp_, now);
 
     if (!integrated_ref_initialized_) {
       syncIntegratedReferenceToMeasured(ref);
@@ -722,12 +915,15 @@ private:
     if (use_vel_mode_local && !prev_use_vel_mode_) {
       syncIntegratedReferenceToMeasured(ref);
       pattern_ramp_state_sec_ = 0.0;
-      path_parameter_s_ = 0.0;
+      resetPatternProgress();
       nu_n_state_ = 0.0;
       legacy_force_error_initialized_ = false;
       legacy_force_error_dot_filt_ = 0.0;
     }
     if (!use_vel_mode_local && prev_use_vel_mode_) {
+      syncIntegratedReferenceToMeasured(ref);
+      prev_position_sp_in_ = sp_in_local;
+      prev_position_sp_in_yaw_ = sp_in_yaw_local;
       nu_n_state_ = 0.0;
       legacy_force_error_initialized_ = false;
       legacy_force_error_dot_filt_ = 0.0;
@@ -739,18 +935,43 @@ private:
 
     if (!use_vel_mode_local) {
       publishNaNContactVelocityDebug(now);
+      publishControlMetrics(
+        1.0,
+        std::numeric_limits<double>::quiet_NaN(),
+        std::numeric_limits<double>::quiet_NaN(),
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0);
 
       if (ref.valid) {
-        const Eigen::Vector3d pos_delta_world(sp_in_local[0], sp_in_local[1], sp_in_local[2]);
+        if (position_reset_requested_local) {
+          syncIntegratedReferenceToMeasured(ref);
+          prev_position_sp_in_.fill(0.0);
+          prev_position_sp_in_yaw_ = 0.0;
+        }
+
+        const Eigen::Vector3d pos_delta_world(
+          sp_in_local[0] - prev_position_sp_in_[0],
+          sp_in_local[1] - prev_position_sp_in_[1],
+          sp_in_local[2] - prev_position_sp_in_[2]);
+        const double yaw_delta = sp_in_yaw_local - prev_position_sp_in_yaw_;
+
+        active_ref_pos_w_ += pos_delta_world;
+        active_ref_yaw_ = wrapPi(active_ref_yaw_ + yaw_delta);
+
         if (reference_object_ == "end_effector") {
-          p_ee_des_w = ref.pos_w + pos_delta_world;
+          p_ee_des_w = active_ref_pos_w_;
           p_drone_des_w = p_ee_des_w - ref.q_wb.toRotationMatrix() * d_B_;
         } else {
-          p_drone_des_w = ref.pos_w + pos_delta_world;
+          p_drone_des_w = active_ref_pos_w_;
           p_ee_des_w = p_drone_des_w + ref.q_wb.toRotationMatrix() * d_B_;
         }
-        active_ref_pos_w_ = (reference_object_ == "end_effector") ? p_ee_des_w : p_drone_des_w;
-        active_ref_yaw_ = ref.yaw_w + sp_in_yaw_local;
+
+        prev_position_sp_in_ = sp_in_local;
+        prev_position_sp_in_yaw_ = sp_in_yaw_local;
       }
 
       publishPositionCommand(p_drone_des_w, active_ref_yaw_);
@@ -783,48 +1004,105 @@ private:
     if (!trajectory_enabled_local && pattern_ramp_state_sec_ <= 1e-6) {
       pattern_gain_ = 0.0;
       pattern_gain_dot = 0.0;
-      path_parameter_s_ = 0.0;
+      resetPatternProgress();
     }
 
-    double directional_consistency_score = 1.0;
+    double directional_consistency_score = std::numeric_limits<double>::quiet_NaN();
     double alpha_frame = 1.0;
-    if (
-      force_control_mode_ == "paper" &&
-      contact_basis_ok &&
-      have_force_direction_n_f &&
-      ref.valid)
+    double omega_n = std::numeric_limits<double>::quiet_NaN();
+    double normal_leakage = std::numeric_limits<double>::quiet_NaN();
+    if (ref.valid && estimated_normal_ok && applied_torque_ok)
     {
-      const Eigen::Vector3d q_f = -force_direction_n_f.normalized();
       const Eigen::Vector3d r_world = ref.q_wb.toRotationMatrix() * d_B_;
-      const Eigen::Vector3d tau_q = r_world.cross(q_f);
-      const double denom =
-        contact_t1_w.squaredNorm() * tau_q.squaredNorm() + epsilon_tau_c_;
-      if (denom > 1e-12) {
-        const double numer = std::pow(contact_t1_w.dot(tau_q), 2.0);
-        directional_consistency_score = std::clamp(numer / denom, 0.0, 1.0);
-        alpha_frame = std::exp(
-          -(1.0 - directional_consistency_score) / std::max(1e-6, cbar_tau_));
-        alpha_frame = clamp01(alpha_frame);
+      const Eigen::Vector3d tau_n_w = r_world.cross(estimated_normal_n_geo);
+      const double tau_l_norm_sq = applied_torque_tau_l_w.squaredNorm();
+      const double tau_n_norm_sq = tau_n_w.squaredNorm();
+      if (tau_l_norm_sq > 1.0e-12 && tau_n_norm_sq > 1.0e-12) {
+        const double tau_alignment = applied_torque_tau_l_w.dot(tau_n_w);
+        directional_consistency_score = clamp01(
+          (tau_alignment * tau_alignment) /
+          (tau_l_norm_sq * tau_n_norm_sq + clampPositive(epsilon_tau_n_)));
       }
     }
 
-    const double s_dot = pattern_gain_ * alpha_frame * pattern_speed_;
-    path_parameter_s_ += s_dot * dt;
+    if (trajectory_enabled_local && alpha_frame_mode_ == 1 &&
+      std::isfinite(directional_consistency_score))
+    {
+        alpha_frame = std::exp(
+          -(1.0 - directional_consistency_score) /
+          std::max(clampPositive(c_bar_tau_), 1.0e-6));
+    } else if (trajectory_enabled_local && alpha_frame_mode_ == 2 &&
+      estimated_normal_ok && force_direction_ok)
+    {
+      Eigen::Vector3d n_geo_unit = estimated_normal_n_geo.normalized();
 
-    double zeta_1 = 0.0;
-    double zeta_2 = 0.0;
-    double dzeta_1_ds = 0.0;
-    double dzeta_2_ds = 0.0;
-    computePatternState(path_parameter_s_, zeta_1, zeta_2, dzeta_1_ds, dzeta_2_ds);
+      omega_n = 0.0;
+      if (prev_alpha_frame_mode2_normal_valid_) {
+        Eigen::Vector3d aligned_n_geo_unit = n_geo_unit;
+        if (prev_alpha_frame_mode2_n_geo_.dot(aligned_n_geo_unit) < 0.0) {
+          aligned_n_geo_unit = -aligned_n_geo_unit;
+        }
+        omega_n = (aligned_n_geo_unit - prev_alpha_frame_mode2_n_geo_).norm() /
+          std::max(dt, 1.0e-6);
+        prev_alpha_frame_mode2_n_geo_ = aligned_n_geo_unit;
+      } else {
+        prev_alpha_frame_mode2_n_geo_ = n_geo_unit;
+        prev_alpha_frame_mode2_normal_valid_ = true;
+      }
+
+      omega_n = lowPassScalar(
+        omega_n, dt, omega_n_lpf_cutoff_hz_, omega_n_lpf_state_, omega_n_lpf_initialized_);
+      double alpha_gate_product = 1.0;
+      if (omega_bar_n_ > 0.0) {
+        alpha_gate_product *= inversePolynomialGate(omega_n, omega_bar_n_, alpha_gate_power_r_);
+      }
+      if (normal_vel_bar_n_ > 0.0 && ref.valid) {
+        const double vel_norm = ref.vel_w.norm();
+        normal_leakage =
+          std::abs(n_geo_unit.dot(ref.vel_w)) / (vel_norm + 1.0e-6);
+        normal_leakage = lowPassScalar(
+          normal_leakage,
+          dt,
+          normal_leakage_lpf_cutoff_hz_,
+          normal_leakage_lpf_state_,
+          normal_leakage_lpf_initialized_);
+        alpha_gate_product *= inversePolynomialGate(
+          normal_leakage, normal_vel_bar_n_, alpha_gate_power_r_);
+      }
+      alpha_frame = alpha_min_ + (1.0 - alpha_min_) * alpha_gate_product;
+    } else if (alpha_frame_mode_ == 2) {
+      prev_alpha_frame_mode2_normal_valid_ = false;
+      omega_n_lpf_initialized_ = false;
+      normal_leakage_lpf_initialized_ = false;
+    }
+    const double s_dot = pattern_gain_ * alpha_frame * pattern_speed_;
+    {
+      Eigen::Vector2d derivative = Eigen::Vector2d::Zero();
+      double period = 0.0;
+      evaluatePatternDerivative(path_parameter_s_, derivative, period);
+      const double derivative_norm = derivative.norm();
+      if (derivative_norm > 1e-9) {
+        path_parameter_s_ += (s_dot / derivative_norm) * dt;
+        path_parameter_s_ = wrapPositive(path_parameter_s_, period);
+      }
+    }
 
     Eigen::Vector3d v_tan_world = Eigen::Vector3d::Zero();
+    Eigen::Vector2d u_tan_scaled = Eigen::Vector2d::Zero();
     if (contact_basis_ok) {
-      const Eigen::Vector2d u_tan(dzeta_1_ds * s_dot, dzeta_2_ds * s_dot);
-      v_tan_world = contact_t1_w * u_tan.x() + contact_t2_w * u_tan.y();
+      u_tan_scaled = computePatternTangentialVelocity(s_dot);
+      v_tan_world = contact_t1_w * u_tan_scaled.x() + contact_t2_w * u_tan_scaled.y();
     }
 
     double v_n_feedback = 0.0;
-    if (contact_force_ok) {
+    double r_v_contact = 0.0;
+    if (contact_basis_ok && ref.valid) {
+      r_v_contact = contact_n_w.dot(ref.vel_w);
+    }
+    const bool preload_active =
+      preload_enable_ &&
+      std::abs(cmd_force_desired_local) > 1e-6;
+    if (contact_force_ok && preload_active) {
       const double force_error = cmd_force_desired_local - contact_force_x_local;
 
       if (force_control_mode_ == "legacy") {
@@ -856,8 +1134,9 @@ private:
         dbg.data[1] = legacy_force_error_dot_filt_;
         pub_force_lpf_->publish(dbg);
       } else {
-        const double nu_dot = paper_force_k_f_ * force_error - paper_force_k_l_ * nu_n_state_;
-        nu_n_state_ += dt * nu_dot;
+        nu_n_state_ =
+          paper_force_k_f_ * force_error +
+          paper_force_k_l_ * r_v_contact;
         nu_n_state_ = std::clamp(nu_n_state_, -paper_force_v_n_max_, paper_force_v_n_max_);
         v_n_feedback = nu_n_state_;
 
@@ -868,8 +1147,7 @@ private:
         pub_force_lpf_->publish(dbg);
       }
     } else {
-      nu_n_state_ -= paper_force_k_l_ * nu_n_state_ * dt;
-      nu_n_state_ = std::clamp(nu_n_state_, -paper_force_v_n_max_, paper_force_v_n_max_);
+      nu_n_state_ = 0.0;
       legacy_force_error_initialized_ = false;
       legacy_force_error_dot_filt_ = 0.0;
     }
@@ -891,9 +1169,9 @@ private:
         const Eigen::Vector3d manual_tangential_world =
           contact_t1_w * manual_cmd_local.y() + contact_t2_w * manual_cmd_local.z();
         v_contact_des_world =
-          manual_tangential_world + commanded_v_n * contact_n_w + v_tan_world;
+          manual_tangential_world - commanded_v_n * contact_n_w + v_tan_world;
       } else {
-        v_contact_des_world += v_tan_world + commanded_v_n * contact_n_w;
+        v_contact_des_world += v_tan_world - commanded_v_n * contact_n_w;
       }
 
       const Eigen::Vector3d v_act_w = ref.valid ? ref.vel_w : Eigen::Vector3d::Zero();
@@ -904,6 +1182,17 @@ private:
     } else {
       publishNaNContactVelocityDebug(now);
     }
+
+    publishControlMetrics(
+      alpha_frame,
+      omega_n,
+      normal_leakage,
+      u_tan_scaled.x(),
+      u_tan_scaled.y(),
+      contact_force_ok ? contact_force_x_local : 0.0,
+      directional_consistency_score,
+      path_parameter_s_,
+      s_dot);
 
     Eigen::Vector3d v_active_des_world = v_contact_des_world;
     Eigen::Vector3d v_drone_des_world = v_contact_des_world;
@@ -921,10 +1210,10 @@ private:
     const bool manual_yaw_cmd_active = std::abs(sp_in_yaw_local) > 1e-6;
     if (manual_yaw_cmd_active) {
       active_ref_yaw_ = wrapPi(active_ref_yaw_ + sp_in_yaw_local * dt);
-    } else if (yaw_strategy_ == "normal_align" && contact_frame_ok) {
+    } else if (contact_frame_ok) {
       const double nxy = std::hypot(contact_n_w.x(), contact_n_w.y());
       if (nxy > normal_xy_min_) {
-        const double psi_align = std::atan2(contact_n_w.y(), contact_n_w.x());
+        const double psi_align = std::atan2(-contact_n_w.y(), -contact_n_w.x());
         const double e_yaw = wrapPi(psi_align - active_ref_yaw_);
         active_ref_yaw_ = wrapPi(active_ref_yaw_ + yaw_align_kp_ * e_yaw * dt);
       }
@@ -958,6 +1247,8 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::QuaternionStamped>::SharedPtr sub_contact_frame_quat_;
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_contact_force_x_;
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_normal_debug_metrics_;
+  rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr
+    sub_ee_applied_wrench_consistency_;
 
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_pose_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_vel_;
@@ -970,6 +1261,7 @@ private:
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr pub_pos_cmd_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr pub_vel_cmd_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr pub_force_lpf_;
+  rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr pub_control_metrics_;
   rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr pub_contact_vel_cmd_;
   rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr pub_contact_vel_actual_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pub_cmd_drone_pose_;
@@ -982,17 +1274,14 @@ private:
   std::string command_embedding_mode_;
   std::string force_control_mode_;
   std::string manual_velocity_frame_;
-  std::string yaw_strategy_;
   std::string pattern_type_;
 
   double yaw_align_kp_{3.0};
   double normal_xy_min_{1e-3};
-  double cbar_tau_{0.25};
-  double epsilon_tau_c_{1.0e-6};
-
   double paper_force_k_f_{5.0};
   double paper_force_k_l_{2.0};
   double paper_force_v_n_max_{0.20};
+  bool preload_enable_{true};
   double legacy_force_kp_{5.0};
   double legacy_force_kd_{0.005};
   double legacy_force_v_n_max_{0.20};
@@ -1000,27 +1289,30 @@ private:
 
   double pattern_ramp_sec_{1.0};
   double pattern_speed_{0.25};
+  int alpha_frame_mode_{0};
+  double epsilon_tau_n_{1.0e-6};
+  double c_bar_tau_{0.20};
+  double omega_bar_n_{1.0};
+  double normal_vel_bar_n_{0.0};
+  int alpha_gate_power_r_{2};
+  double omega_n_lpf_cutoff_hz_{0.0};
+  double normal_leakage_lpf_cutoff_hz_{0.0};
+  double alpha_min_{0.0};
 
   double lissajous_amp_1_{0.20};
   double lissajous_amp_2_{0.00};
-  double lissajous_period_1_{15.0};
-  double lissajous_period_2_{10.0};
+  double lissajous_ratio_{2.0};
 
-  double circle_radius_{0.20};
-  double circle_period_sec_{7.0};
-  double circle_center_1_{0.0};
-  double circle_center_2_{0.0};
-  double circle_phase_rad_{-0.5 * M_PI};
+  double circle_radius_1_{0.20};
+  double circle_radius_2_{0.20};
 
   double square_parallel_length_{0.40};
   double square_vertical_length_{0.40};
-  double square_period_sec_{20.0};
-  double square_center_1_{0.0};
-  double square_center_2_{0.0};
-  double square_phase_{0.0};
 
   double constant_speed_1_{0.10};
   double constant_speed_2_{0.0};
+  double single_sided_line_length_1_{0.20};
+  double single_sided_line_length_2_{0.0};
 
   Eigen::Vector3d d_B_{0.0, 0.0, 0.0};
 
@@ -1034,6 +1326,8 @@ private:
   std::string contact_frame_quat_topic_;
   std::string contact_force_x_topic_;
   std::string normal_debug_metrics_topic_;
+  std::string ee_applied_wrench_consistency_topic_;
+  double contact_signal_timeout_sec_{0.15};
 
   std::mutex cmd_mtx_;
   std::array<double, 3> sp_in_{0.0, 0.0, 0.0};
@@ -1042,17 +1336,34 @@ private:
   bool sp_received_{false};
 
   std::mutex contact_mtx_;
-  bool use_vel_mode_{true};
+  bool use_vel_mode_{false};
   double cmd_force_desired_{0.0};
-  Eigen::Matrix3d contact_R_C_{Eigen::Matrix3d::Identity()};
-  Eigen::Vector3d contact_n_w_{Eigen::Vector3d::UnitX()};
-  Eigen::Vector3d contact_t1_w_{Eigen::Vector3d::UnitY()};
+  Eigen::Matrix3d contact_R_C_{(Eigen::Matrix3d() <<
+    -1.0, 0.0, 0.0,
+     0.0, -1.0, 0.0,
+     0.0, 0.0, 1.0).finished()};
+  Eigen::Vector3d contact_n_w_{-Eigen::Vector3d::UnitX()};
+  Eigen::Vector3d contact_t1_w_{-Eigen::Vector3d::UnitY()};
   Eigen::Vector3d contact_t2_w_{Eigen::Vector3d::UnitZ()};
   double contact_force_x_{0.0};
   Eigen::Vector3d force_direction_n_f_{Eigen::Vector3d::Zero()};
-  bool contact_frame_received_{false};
+  Eigen::Vector3d estimated_normal_n_geo_{Eigen::Vector3d::Zero()};
+  Eigen::Vector3d applied_torque_tau_l_w_{Eigen::Vector3d::Zero()};
+  Eigen::Vector3d prev_alpha_frame_mode2_n_geo_{Eigen::Vector3d::Zero()};
+  double omega_n_lpf_state_{std::numeric_limits<double>::quiet_NaN()};
+  double normal_leakage_lpf_state_{std::numeric_limits<double>::quiet_NaN()};
+  bool contact_frame_received_{true};
   bool contact_force_x_received_{false};
   bool have_force_direction_n_f_{false};
+  bool have_estimated_normal_n_geo_{false};
+  bool have_applied_torque_tau_l_w_{false};
+  rclcpp::Time last_contact_frame_stamp_{0, 0, RCL_ROS_TIME};
+  rclcpp::Time last_contact_force_x_stamp_{0, 0, RCL_ROS_TIME};
+  rclcpp::Time last_normal_debug_metrics_stamp_{0, 0, RCL_ROS_TIME};
+  rclcpp::Time last_applied_torque_stamp_{0, 0, RCL_ROS_TIME};
+  bool prev_alpha_frame_mode2_normal_valid_{false};
+  bool omega_n_lpf_initialized_{false};
+  bool normal_leakage_lpf_initialized_{false};
 
   std::mutex state_mtx_;
   std::array<double, 3> pose_w_{0.0, 0.0, 0.0};
@@ -1073,7 +1384,7 @@ private:
   bool ee_acc_received_{false};
 
   bool integrated_ref_initialized_{false};
-  bool prev_use_vel_mode_{true};
+  bool prev_use_vel_mode_{false};
   Eigen::Vector3d active_ref_pos_w_{Eigen::Vector3d::Zero()};
   double active_ref_yaw_{0.0};
   double pattern_gain_{0.0};
@@ -1083,6 +1394,9 @@ private:
   bool legacy_force_error_initialized_{false};
   double legacy_force_error_prev_{0.0};
   double legacy_force_error_dot_filt_{0.0};
+  bool position_reset_requested_{false};
+  std::array<double, 3> prev_position_sp_in_{0.0, 0.0, 0.0};
+  double prev_position_sp_in_yaw_{0.0};
 
   rclcpp::Time last_update_time_{0, 0, RCL_ROS_TIME};
 };
