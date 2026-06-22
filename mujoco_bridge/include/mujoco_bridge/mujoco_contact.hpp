@@ -1,6 +1,7 @@
 #pragma once
 
 #include <rclcpp/rclcpp.hpp>
+#include <geometry_msgs/msg/vector3_stamped.hpp>
 #include <geometry_msgs/msg/wrench_stamped.hpp>
 #include <mujoco/mujoco.h>
 
@@ -18,7 +19,8 @@ public:
     mjModel* model,
     mjData* data,
     const rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr& pub_contact_force,
-    const rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr& pub_contact_force_filt);
+    const rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr& pub_contact_force_filt,
+    const rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr& pub_contact_normal_world);
 
   void update_raw_and_publish(const rclcpp::Time& stamp);
   void contact_filter_timer_cb();
@@ -38,6 +40,7 @@ private:
 
   rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_contact_force_;
   rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_contact_force_filt_;
+  rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr pub_contact_normal_world_;
   rclcpp::TimerBase::SharedPtr timer_contact_;
 
   bool viz_contact_enable_{true};

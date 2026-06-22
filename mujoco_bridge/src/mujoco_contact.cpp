@@ -70,12 +70,14 @@ MujocoContact::MujocoContact(
   mjModel* model,
   mjData* data,
   const rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr& pub_contact_force,
-  const rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr& pub_contact_force_filt)
+  const rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr& pub_contact_force_filt,
+  const rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr& pub_contact_normal_world)
 : node_(node),
   model_(model),
   data_(data),
   pub_contact_force_(pub_contact_force),
-  pub_contact_force_filt_(pub_contact_force_filt)
+  pub_contact_force_filt_(pub_contact_force_filt),
+  pub_contact_normal_world_(pub_contact_normal_world)
 {
   node_->declare_parameter("viz.contact_arrows.enable", true);
   node_->declare_parameter("viz.contact_arrows.scale", 4.5);
@@ -152,6 +154,21 @@ void MujocoContact::update_raw_and_publish(const rclcpp::Time& stamp)
   msg.wrench.torque.y = 0.0;
   msg.wrench.torque.z = 0.0;
   pub_contact_force_->publish(msg);
+
+  geometry_msgs::msg::Vector3Stamped normal_msg;
+  normal_msg.header.stamp = stamp;
+  normal_msg.header.frame_id = "world";
+  const double force_norm = std::sqrt(fw_[0]*fw_[0] + fw_[1]*fw_[1] + fw_[2]*fw_[2]);
+  if (force_norm > 1e-12) {
+    normal_msg.vector.x = fw_[0] / force_norm;
+    normal_msg.vector.y = fw_[1] / force_norm;
+    normal_msg.vector.z = fw_[2] / force_norm;
+  } else {
+    normal_msg.vector.x = 0.0;
+    normal_msg.vector.y = 0.0;
+    normal_msg.vector.z = 0.0;
+  }
+  pub_contact_normal_world_->publish(normal_msg);
 }
 
 void MujocoContact::contact_filter_timer_cb()

@@ -7,7 +7,7 @@ import signal
 import sys
 import threading
 from collections import deque
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -68,11 +68,11 @@ def safe_unit(v: np.ndarray) -> np.ndarray:
     return v / n
 
 
-def velocity_evidence_normal(l_v: np.ndarray) -> np.ndarray:
-    if not np.all(np.isfinite(l_v)):
+def velocity_evidence_normal(l_n: np.ndarray) -> np.ndarray:
+    if not np.all(np.isfinite(l_n)):
         return np.full(3, math.nan, dtype=float)
 
-    mat = 0.5 * (l_v + l_v.T)
+    mat = 0.5 * (l_n + l_n.T)
     if float(np.linalg.norm(mat, ord="fro")) < 1e-12:
         return np.full(3, math.nan, dtype=float)
 
@@ -85,32 +85,14 @@ def velocity_evidence_normal(l_v: np.ndarray) -> np.ndarray:
     return safe_unit(vectors[:, idx])
 
 
-def load_cylinder_geometry() -> Tuple[np.ndarray, float]:
-    for package_name in ("mujoco_bridge", "plant"):
-        try:
-            share = get_package_share_directory(package_name)
-        except Exception:
-            continue
-
-        cylinder_path = os.path.join(share, "data", "cylinder.xml")
-        if not os.path.exists(cylinder_path):
-            continue
-
-        try:
-            root = ET.parse(cylinder_path).getroot()
-            body = root.find(".//body[@name='wall']")
-            geom = root.find(".//geom[@name='cylinder_collision']")
-            if body is None or geom is None:
-                continue
-
-            body_pos = np.array([float(v) for v in body.attrib.get("pos", "1.5 0 0").split()], dtype=float)
-            size_vals = [float(v) for v in geom.attrib.get("size", "1 1").split()]
-            radius = float(size_vals[0]) if len(size_vals) >= 1 else 1.0
-            return body_pos, radius
-        except Exception:
-            continue
-
-    return np.array([1.5, 0.0, 0.0], dtype=float), 1.0
+def sorted_eigenvalues(mat: np.ndarray) -> np.ndarray:
+    if not np.all(np.isfinite(mat)):
+        return np.full(3, math.nan, dtype=float)
+    try:
+        values = np.linalg.eigvalsh(0.5 * (mat + mat.T))
+    except np.linalg.LinAlgError:
+        return np.full(3, math.nan, dtype=float)
+    return np.sort(np.array(values, dtype=float))
 
 
 class ROSDataBuffer(Node):
@@ -128,25 +110,20 @@ class ROSDataBuffer(Node):
         self.declare_parameter("force_actual_topic", "/su/contact_force_x")
         self.declare_parameter("force_world_topic", "/crazyflie/out/EE_contact_force_filt")
         self.declare_parameter("consistency_topic", "/crazyflie/out/mob_2nd_tau_consistency")
-        self.declare_parameter("reference_normal_topic", "")
         self.declare_parameter("packed_debug_topic", "/normal_vector/debug_metrics")
-        self.declare_parameter("eta_tau", 0.4)
-        self.declare_parameter("sigma_tau", 0.004)
-        self.declare_parameter("environment.type", "cylinder")
+        self.declare_parameter("environment.type", "wall")
         self.declare_parameter("cylinder.pos.x", 1.5)
         self.declare_parameter("cylinder.pos.y", 0.0)
         self.declare_parameter("cylinder.pos.z", 0.0)
         self.declare_parameter("cylinder.radius", 1.0)
-        self.declare_parameter("wall.pos.x", 0.2)
+        self.declare_parameter("wall.pos.x", 0.5)
 
         self.history_sec = float(self.get_parameter("history_sec").value)
         self.update_hz = float(self.get_parameter("update_hz").value)
         self.render_hz = max(0.1, float(self.get_parameter("render_hz").value))
-        self.eta_tau = float(self.get_parameter("eta_tau").value)
-        self.sigma_tau = float(self.get_parameter("sigma_tau").value)
         self.environment_type = str(self.get_parameter("environment.type").value).lower()
         if self.environment_type not in ("wall", "cylinder"):
-            self.environment_type = "cylinder"
+            self.environment_type = "wall"
 
         self.lock = threading.Lock()
         self.t0 = self.get_clock().now().nanoseconds * 1e-9
@@ -157,26 +134,17 @@ class ROSDataBuffer(Node):
             "c_hat_vz_cmd", "c_hat_vz_act",
             "c_hat_fx_cmd", "c_hat_fx_act",
             "lambda1", "lambda2", "lambda3",
-            "m_tau", "e_tau_norm", "vel_norm", "force_norm",
-            "rho_v", "rho_f",
-            "alpha_v", "alpha_f",
-            "tr_l_v", "tr_l_f",
-            "angle_n_geo_deg", "angle_n_f_deg", "angle_n_v_deg", "angle_force_dir_deg",
+            "gate_active", "vel_norm", "force_norm",
+            "tr_l_n",
+            "angle_n_est_deg", "angle_n_v_deg", "angle_force_dir_deg", "angle_n_est_force_deg",
         ]
         self.data: Dict[str, deque] = {"t": deque(maxlen=self.maxlen)}
         for key in keys:
             self.data[key] = deque(maxlen=self.maxlen)
 
         self.latest: Dict[str, float] = {key: math.nan for key in keys}
-        self.latest["m_tau"] = 1.0
-
-        self.l_v_bar = np.full((3, 3), math.nan, dtype=float)
-        self.l_f_bar = np.full((3, 3), math.nan, dtype=float)
-        self.l_v = np.full((3, 3), math.nan, dtype=float)
-        self.l_f = np.full((3, 3), math.nan, dtype=float)
+        self.l_n = np.full((3, 3), math.nan, dtype=float)
         self.n_est = np.full(3, math.nan, dtype=float)
-        self.n_geo = np.full(3, math.nan, dtype=float)
-        self.n_f = np.full(3, math.nan, dtype=float)
         self.n_v = np.full(3, math.nan, dtype=float)
         self.n_gt = np.full(3, math.nan, dtype=float)
         self.force_dir = np.full(3, math.nan, dtype=float)
@@ -293,47 +261,31 @@ class ROSDataBuffer(Node):
             self._update_quality_angles_locked()
 
     def cb_consistency(self, msg: WrenchStamped) -> None:
-        # m_tau is low-pass filtered in normal_vector_estimation and published
-        # through /normal_vector/debug_metrics. Keep the panel on that filtered
-        # value instead of recomputing an unsmoothed one here.
         pass
 
     def cb_packed_debug(self, msg: Float64MultiArray) -> None:
         data = list(msg.data)
-        if len(data) < 34:
+        if len(data) < 37:
             return
 
         with self.lock:
-            self.latest["lambda1"] = float(data[0])
-            self.latest["lambda2"] = float(data[1])
-            self.latest["lambda3"] = float(data[2])
-            self.latest["m_tau"] = float(data[3])
-            if len(data) > 52:
-                self.latest["e_tau_norm"] = float(data[52])
-            self.latest["vel_norm"] = float(data[4])
-            self.latest["force_norm"] = float(data[5])
-            self.latest["rho_v"] = float(data[6])
-            self.latest["rho_f"] = float(data[7])
-            self.latest["alpha_v"] = float(data[8])
-            self.latest["alpha_f"] = float(data[9])
-            self.l_v_bar = np.array(data[10:19], dtype=float).reshape(3, 3)
-            self.l_f_bar = np.array(data[19:28], dtype=float).reshape(3, 3)
-            if len(data) >= 52:
-                self.l_v = np.array(data[34:43], dtype=float).reshape(3, 3)
-                self.l_f = np.array(data[43:52], dtype=float).reshape(3, 3)
-                self.latest["tr_l_v"] = float(np.trace(self.l_v))
-                self.latest["tr_l_f"] = float(np.trace(self.l_f))
-            else:
-                self.latest["tr_l_v"] = float(np.trace(self.l_v_bar))
-                self.latest["tr_l_f"] = float(np.trace(self.l_f_bar))
-            self.n_geo[:] = data[28:31]
-            self.n_f[:] = data[31:34]
-            self.n_v[:] = velocity_evidence_normal(self.l_v_bar)
+            self.latest["vel_norm"] = float(data[0])
+            self.latest["force_norm"] = float(data[1])
+            self.latest["gate_active"] = float(data[2])
+            self.l_n = np.array(data[10:19], dtype=float).reshape(3, 3)
+            eigenvalues = sorted_eigenvalues(self.l_n)
+            self.latest["lambda1"] = float(eigenvalues[0])
+            self.latest["lambda2"] = float(eigenvalues[1])
+            self.latest["lambda3"] = float(eigenvalues[2])
+            self.latest["tr_l_n"] = float(np.trace(self.l_n))
+            self.n_est[:] = data[28:31]
+            self.n_v[:] = velocity_evidence_normal(self.l_n)
             if np.all(np.isfinite(self.n_v)):
                 if np.all(np.isfinite(self.n_gt)) and np.dot(self.n_v, self.n_gt) < 0.0:
                     self.n_v[:] = -self.n_v
-                elif np.all(np.isfinite(self.n_geo)) and np.dot(self.n_v, self.n_geo) < 0.0:
+                elif np.all(np.isfinite(self.n_est)) and np.dot(self.n_v, self.n_est) < 0.0:
                     self.n_v[:] = -self.n_v
+            self.force_dir[:] = safe_unit(np.array(data[34:37], dtype=float))
             self._update_quality_angles_locked()
 
     def _update_gt_normal_locked(self) -> None:
@@ -353,10 +305,10 @@ class ROSDataBuffer(Node):
         self.n_gt[:] = -safe_unit(radial)
 
     def _update_quality_angles_locked(self) -> None:
-        self.latest["angle_n_geo_deg"] = angle_deg(self.n_geo, self.n_gt)
-        self.latest["angle_n_f_deg"] = angle_deg(self.n_f, self.n_gt)
+        self.latest["angle_n_est_deg"] = angle_deg(self.n_est, self.n_gt)
         self.latest["angle_n_v_deg"] = angle_deg(self.n_v, self.n_gt)
         self.latest["angle_force_dir_deg"] = angle_deg(self.force_dir, self.n_gt)
+        self.latest["angle_n_est_force_deg"] = angle_deg(self.n_est, self.force_dir)
 
     def log_snapshot(self) -> None:
         t = self.get_clock().now().nanoseconds * 1e-9 - self.t0
@@ -369,9 +321,9 @@ class ROSDataBuffer(Node):
         with self.lock:
             return {k: np.array(v, dtype=float) for k, v in self.data.items()}
 
-    def get_summary(self) -> Tuple[Dict[str, float], np.ndarray, np.ndarray]:
+    def get_summary(self) -> Tuple[Dict[str, float], np.ndarray]:
         with self.lock:
-            return dict(self.latest), self.l_v_bar.copy(), self.l_f_bar.copy()
+            return dict(self.latest), self.l_n.copy()
 
 
 class PlotWindow(QMainWindow):
@@ -389,7 +341,7 @@ class PlotWindow(QMainWindow):
         root.setContentsMargins(8, 8, 8, 8)
         root.setSpacing(8)
 
-        self.info_label = QLabel("Waiting for normal-vector debug data...")
+        self.info_label = QLabel("Waiting for PE-based normal debug data...")
         self.info_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.info_label.setWordWrap(True)
         self.info_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
@@ -397,15 +349,13 @@ class PlotWindow(QMainWindow):
 
         root.addWidget(self._build_control_panel(), stretch=0)
         root.addWidget(self._build_internal_panel(), stretch=0)
-        root.addWidget(self._build_fusion_panel(), stretch=0)
-        root.addWidget(self._build_quality_panel(), stretch=1)
 
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_all)
         self.timer.start(max(1, int(round(1000.0 / self.rosbuf.render_hz))))
 
         self.setFixedWidth(720)
-        self.resize(720, 1460)
+        self.resize(720, 700)
 
     def _make_group_frame(self, title: str) -> QFrame:
         frame = QFrame()
@@ -478,7 +428,7 @@ class PlotWindow(QMainWindow):
         return frame
 
     def _build_internal_panel(self) -> QWidget:
-        frame = self._make_group_frame("Estimation Internal Metrics")
+        frame = self._make_group_frame("PE Normal Metrics")
         outer = frame.layout()
 
         grid = QGridLayout()
@@ -486,91 +436,18 @@ class PlotWindow(QMainWindow):
         grid.setHorizontalSpacing(6)
         grid.setVerticalSpacing(6)
 
-        self.plot_lambda = self._make_plot("lambda1 lambda2 lambda3", "eigen", min_height=125)
-        self.curve_l1 = self.plot_lambda.plot(name="lambda1", pen=pg.mkPen((220, 50, 50), width=2))
-        self.curve_l2 = self.plot_lambda.plot(name="lambda2", pen=pg.mkPen((50, 160, 70), width=2))
-        self.curve_l3 = self.plot_lambda.plot(name="lambda3", pen=pg.mkPen((40, 90, 220), width=2))
-        self.plot_lambda.setYRange(0.0, 1.1, padding=0.0)
+        self.plot_lambda = self._make_plot("eig(L_n)", "eigen", min_height=125)
+        self.curve_l1 = self.plot_lambda.plot(name="lambda_min", pen=pg.mkPen((220, 50, 50), width=2))
+        self.curve_l2 = self.plot_lambda.plot(name="lambda_mid", pen=pg.mkPen((50, 160, 70), width=2))
+        self.curve_l3 = self.plot_lambda.plot(name="lambda_max", pen=pg.mkPen((40, 90, 220), width=2))
+        self.plot_lambda.setYRange(-0.05, 1.1, padding=0.0)
 
-        self.plot_mtau = self._make_plot("e_tau_norm", "torque [N m]", min_height=125)
-        self.curve_mtau = self.plot_mtau.plot(name="e_tau_norm", pen=pg.mkPen((120, 80, 220), width=2))
-
-        self.plot_vel = self._make_plot("|v_c|", "vel [m/s]", min_height=125)
-        self.curve_vel = self.plot_vel.plot(name="|v_c|", pen=pg.mkPen((80, 180, 120), width=2))
-        self.plot_vel.setYRange(0.0, 0.6, padding=0.0)
-
-        self.plot_force = self._make_plot("|f|", "force [N]", min_height=125)
-        self.curve_force = self.plot_force.plot(name="|f|", pen=pg.mkPen((200, 100, 50), width=2))
-        self.plot_force.setYRange(0.0, 0.1, padding=0.0)
+        self.plot_trace = self._make_plot("trace(L_n)", "trace", min_height=125)
+        self.curve_trace = self.plot_trace.plot(name="tr(L_n)", pen=pg.mkPen((120, 80, 220), width=2))
+        self.plot_trace.setYRange(-0.05, 2.2, padding=0.0)
 
         grid.addWidget(self.plot_lambda, 0, 0)
-        grid.addWidget(self.plot_mtau, 0, 1)
-        grid.addWidget(self.plot_vel, 0, 2)
-        grid.addWidget(self.plot_force, 0, 3)
-        outer.addLayout(grid)
-        return frame
-
-    def _build_fusion_panel(self) -> QWidget:
-        frame = self._make_group_frame("Fusion Metrics")
-        outer = frame.layout()
-
-        grid = QGridLayout()
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(6)
-        grid.setVerticalSpacing(6)
-
-        self.plot_rho = self._make_plot("rho_v vs rho_f", "ratio", min_height=130)
-        self.curve_rho_v = self.plot_rho.plot(name="rho_v", pen=pg.mkPen((40, 90, 220), width=2))
-        self.curve_rho_f = self.plot_rho.plot(name="rho_f", pen=pg.mkPen((220, 50, 50), width=2))
-        self.plot_rho.setYRange(-0.1, 1.1, padding=0.0)
-
-        self.plot_alpha = self._make_plot("alpha_v vs alpha_f", "ratio", min_height=130)
-        self.curve_alpha_v = self.plot_alpha.plot(name="alpha_v", pen=pg.mkPen((50, 160, 70), width=2))
-        self.curve_alpha_f = self.plot_alpha.plot(name="alpha_f", pen=pg.mkPen((180, 120, 40), width=2))
-        self.plot_alpha.setYRange(-0.1, 1.1, padding=0.0)
-
-        self.plot_trace = self._make_plot("trace(L_v) vs trace(L_f)", "trace", min_height=130)
-        self.curve_tr_l_v = self.plot_trace.plot(name="tr(L_v)", pen=pg.mkPen((40, 90, 220), width=2))
-        self.curve_tr_l_f = self.plot_trace.plot(name="tr(L_f)", pen=pg.mkPen((220, 50, 50), width=2))
-        self.plot_trace.setYRange(-0.1, 1.1, padding=0.0)
-
-        grid.addWidget(self.plot_rho, 0, 0)
-        grid.addWidget(self.plot_alpha, 0, 1)
-        grid.addWidget(self.plot_trace, 0, 2)
-        outer.addLayout(grid)
-        return frame
-
-    def _build_quality_panel(self) -> QWidget:
-        frame = self._make_group_frame("Estimated Normal Quality")
-        outer = frame.layout()
-
-        grid = QGridLayout()
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(6)
-        grid.setVerticalSpacing(6)
-
-        quality_min_height = 180
-
-        self.plot_ang_geo = self._make_plot("current", "deg", min_height=quality_min_height)
-        self.curve_ang_geo = self.plot_ang_geo.plot(name="n_geo", pen=pg.mkPen((40, 90, 220), width=2))
-        self.plot_ang_geo.setYRange(0.0, 30.0, padding=0.0)
-
-        self.plot_ang_f = self._make_plot("Lf only (Force only)", "deg", min_height=quality_min_height)
-        self.curve_ang_f = self.plot_ang_f.plot(name="n_f", pen=pg.mkPen((220, 50, 50), width=2))
-        self.plot_ang_f.setYRange(0.0, 30.0, padding=0.0)
-
-        self.plot_ang_v = self._make_plot("Lv only (Velocity only)", "deg", min_height=quality_min_height)
-        self.curve_ang_v = self.plot_ang_v.plot(name="n_v", pen=pg.mkPen((50, 160, 70), width=2))
-        self.plot_ang_v.setYRange(0.0, 30.0, padding=0.0)
-
-        self.plot_ang_force = self._make_plot("raw force based", "deg", min_height=quality_min_height)
-        self.curve_ang_force = self.plot_ang_force.plot(name="force_hat", pen=pg.mkPen((180, 120, 40), width=2))
-        self.plot_ang_force.setYRange(0.0, 30.0, padding=0.0)
-
-        grid.addWidget(self.plot_ang_geo, 0, 0)
-        grid.addWidget(self.plot_ang_f, 0, 1)
-        grid.addWidget(self.plot_ang_v, 0, 2)
-        grid.addWidget(self.plot_ang_force, 0, 3)
+        grid.addWidget(self.plot_trace, 0, 1)
         outer.addLayout(grid)
         return frame
 
@@ -581,7 +458,7 @@ class PlotWindow(QMainWindow):
 
     def update_all(self) -> None:
         arr = self.rosbuf.get_arrays()
-        latest, l_v_bar, l_f_bar = self.rosbuf.get_summary()
+        latest, l_n = self.rosbuf.get_summary()
 
         t = arr["t"]
         if t.size == 0:
@@ -605,29 +482,13 @@ class PlotWindow(QMainWindow):
         self.curve_l1.setData(t_win, arr["lambda1"][mask])
         self.curve_l2.setData(t_win, arr["lambda2"][mask])
         self.curve_l3.setData(t_win, arr["lambda3"][mask])
-        self.curve_mtau.setData(t_win, arr["e_tau_norm"][mask])
-        self.curve_vel.setData(t_win, arr["vel_norm"][mask])
-        self.curve_force.setData(t_win, arr["force_norm"][mask])
-
-        self.curve_rho_v.setData(t_win, arr["rho_v"][mask])
-        self.curve_rho_f.setData(t_win, arr["rho_f"][mask])
-        self.curve_alpha_v.setData(t_win, arr["alpha_v"][mask])
-        self.curve_alpha_f.setData(t_win, arr["alpha_f"][mask])
-        self.curve_tr_l_v.setData(t_win, arr["tr_l_v"][mask])
-        self.curve_tr_l_f.setData(t_win, arr["tr_l_f"][mask])
-
-        self.curve_ang_geo.setData(t_win, arr["angle_n_geo_deg"][mask])
-        self.curve_ang_f.setData(t_win, arr["angle_n_f_deg"][mask])
-        self.curve_ang_v.setData(t_win, arr["angle_n_v_deg"][mask])
-        self.curve_ang_force.setData(t_win, arr["angle_force_dir_deg"][mask])
+        self.curve_trace.setData(t_win, arr["tr_l_n"][mask])
 
         x_left = max(0.0, tmax - window)
         x_right = tmax if tmax >= window else window
         for plot in [
             self.plot_vy, self.plot_vz, self.plot_fx,
-            self.plot_lambda, self.plot_mtau, self.plot_vel, self.plot_force,
-            self.plot_rho, self.plot_alpha, self.plot_trace,
-            self.plot_ang_geo, self.plot_ang_f, self.plot_ang_v, self.plot_ang_force,
+            self.plot_lambda, self.plot_trace,
         ]:
             plot.setXRange(x_left, x_right, padding=0.0)
 
@@ -635,10 +496,7 @@ class PlotWindow(QMainWindow):
             f"vy(cmd/act)={self._fmt_scalar(latest['c_hat_vy_cmd'])}/{self._fmt_scalar(latest['c_hat_vy_act'])}   "
             f"vz(cmd/act)={self._fmt_scalar(latest['c_hat_vz_cmd'])}/{self._fmt_scalar(latest['c_hat_vz_act'])}   "
             f"fx(cmd/act)={self._fmt_scalar(latest['c_hat_fx_cmd'])}/{self._fmt_scalar(latest['c_hat_fx_act'])}   "
-            f"rho_v={self._fmt_scalar(latest['rho_v'])}   "
-            f"rho_f={self._fmt_scalar(latest['rho_f'])}   "
-            f"alpha_v={self._fmt_scalar(latest['alpha_v'])}   "
-            f"alpha_f={self._fmt_scalar(latest['alpha_f'])}   "
+            f"tr(L_n)={self._fmt_scalar(latest['tr_l_n'])}   "
             f"env={self.rosbuf.environment_type}"
         )
 

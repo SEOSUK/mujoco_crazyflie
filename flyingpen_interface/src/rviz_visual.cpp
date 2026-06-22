@@ -160,6 +160,11 @@ public:
     wall_size_x_ = this->declare_parameter<double>("wall.size.x", 0.1);
     wall_size_y_ = this->declare_parameter<double>("wall.size.y", 2.5);
     wall_size_z_ = this->declare_parameter<double>("wall.size.z", 2.5);
+    wall_pose_topic_ = this->declare_parameter<std::string>(
+      "wall.pose_topic", "/environment/wall_pose");
+    wall_com_x_ = this->declare_parameter<double>("wall.comX", 0.0);
+    wall_com_y_ = this->declare_parameter<double>("wall.comY", 0.0);
+    wall_com_z_ = this->declare_parameter<double>("wall.comZ", 0.0);
     wall_rgba_ = this->declare_parameter<std::vector<double>>(
       "wall.rgba", std::vector<double>{0.75, 0.93, 0.75, 0.25});
     if (wall_rgba_.size() != 4) {
@@ -167,6 +172,20 @@ public:
         this->get_logger(),
         "wall.rgba must have size 4. Falling back to [0.75, 0.93, 0.75, 0.25].");
       wall_rgba_ = {0.75, 0.93, 0.75, 0.25};
+    }
+    far_wall_pos_x_ = this->declare_parameter<double>("far_wall.pos.x", 2.0);
+    far_wall_pos_y_ = this->declare_parameter<double>("far_wall.pos.y", 0.0);
+    far_wall_pos_z_ = this->declare_parameter<double>("far_wall.pos.z", 0.0);
+    far_wall_size_x_ = this->declare_parameter<double>("far_wall.size.x", 0.05);
+    far_wall_size_y_ = this->declare_parameter<double>("far_wall.size.y", 5.0);
+    far_wall_size_z_ = this->declare_parameter<double>("far_wall.size.z", 5.0);
+    far_wall_rgba_ = this->declare_parameter<std::vector<double>>(
+      "far_wall.rgba", std::vector<double>{0.75, 0.85, 0.95, 0.35});
+    if (far_wall_rgba_.size() != 4) {
+      RCLCPP_WARN(
+        this->get_logger(),
+        "far_wall.rgba must have size 4. Falling back to [0.75, 0.85, 0.95, 0.35].");
+      far_wall_rgba_ = {0.75, 0.85, 0.95, 0.35};
     }
     surface_chain_pos_x_ = this->declare_parameter<double>("surface_chain.pos.x", 1.0);
     surface_chain_pos_y_ = this->declare_parameter<double>("surface_chain.pos.y", 0.0);
@@ -261,6 +280,9 @@ public:
     sub_cmd_active_pose_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
       cmd_active_topic_, 10,
       std::bind(&RvizVisual::cb_cmd_active_pose, this, std::placeholders::_1));
+    sub_wall_pose_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
+      wall_pose_topic_, 10,
+      std::bind(&RvizVisual::cb_wall_pose, this, std::placeholders::_1));
 
     sub_mob_2nd_order_ = this->create_subscription<geometry_msgs::msg::WrenchStamped>(
       mob_topic_2nd_order_, 10,
@@ -425,6 +447,13 @@ private:
     std::lock_guard<std::mutex> lk(mtx_);
     cmd_active_pose_ = *msg;
     have_cmd_active_pose_ = true;
+  }
+
+  void cb_wall_pose(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    wall_pose_ = *msg;
+    have_wall_pose_ = true;
   }
 
   void cb_mob_2nd_order(const geometry_msgs::msg::WrenchStamped::SharedPtr msg)
@@ -1039,10 +1068,40 @@ private:
     mk.type = visualization_msgs::msg::Marker::CUBE;
     mk.action = visualization_msgs::msg::Marker::ADD;
 
-    mk.pose.position.x = wall_pos_x_;
-    mk.pose.position.y = wall_pos_y_;
-    mk.pose.position.z = wall_pos_z_ + wall_size_z_;
-    mk.pose.orientation.w = 1.0;
+    bool have_wall_pose = false;
+    geometry_msgs::msg::Pose wall_pose;
+    {
+      std::lock_guard<std::mutex> lk(mtx_);
+      have_wall_pose = have_wall_pose_;
+      wall_pose = wall_pose_.pose;
+    }
+    const bool valid_wall_quat =
+      std::isfinite(wall_pose.orientation.x) &&
+      std::isfinite(wall_pose.orientation.y) &&
+      std::isfinite(wall_pose.orientation.z) &&
+      std::isfinite(wall_pose.orientation.w) &&
+      (wall_pose.orientation.x * wall_pose.orientation.x +
+      wall_pose.orientation.y * wall_pose.orientation.y +
+      wall_pose.orientation.z * wall_pose.orientation.z +
+      wall_pose.orientation.w * wall_pose.orientation.w) > 1.0e-12;
+    if (have_wall_pose && valid_wall_quat) {
+      tf2::Quaternion q(
+        wall_pose.orientation.x,
+        wall_pose.orientation.y,
+        wall_pose.orientation.z,
+        wall_pose.orientation.w);
+      q.normalize();
+      mk.pose = wall_pose;
+      mk.pose.orientation.x = q.x();
+      mk.pose.orientation.y = q.y();
+      mk.pose.orientation.z = q.z();
+      mk.pose.orientation.w = q.w();
+    } else {
+      mk.pose.position.x = wall_pos_x_;
+      mk.pose.position.y = wall_pos_y_;
+      mk.pose.position.z = wall_pos_z_;
+      mk.pose.orientation.w = 1.0;
+    }
 
     mk.scale.x = 2.0 * wall_size_x_;
     mk.scale.y = 2.0 * wall_size_y_;
@@ -1053,6 +1112,184 @@ private:
     mk.color.b = static_cast<float>(wall_rgba_[2]);
     mk.color.a = static_cast<float>(wall_rgba_[3]);
     mk.lifetime = rclcpp::Duration::from_seconds(0.0);
+    return mk;
+  }
+
+  visualization_msgs::msg::Marker make_wall_outline_marker(
+    const std::string & ns,
+    int id,
+    const std::string & frame_id,
+    const rclcpp::Time & stamp) const
+  {
+    visualization_msgs::msg::Marker mk;
+    mk.header.stamp = stamp;
+    mk.header.frame_id = frame_id;
+    mk.ns = ns;
+    mk.id = id;
+    mk.type = visualization_msgs::msg::Marker::LINE_LIST;
+    mk.action = visualization_msgs::msg::Marker::ADD;
+    mk.scale.x = 0.01;
+    mk.color.r = 0.05f;
+    mk.color.g = 0.05f;
+    mk.color.b = 0.05f;
+    mk.color.a = 1.0f;
+    mk.lifetime = rclcpp::Duration::from_seconds(0.0);
+
+    geometry_msgs::msg::Pose wall_pose;
+    bool have_wall_pose = false;
+    {
+      std::lock_guard<std::mutex> lk(mtx_);
+      have_wall_pose = have_wall_pose_;
+      wall_pose = wall_pose_.pose;
+    }
+
+    tf2::Quaternion q(0.0, 0.0, 0.0, 1.0);
+    if (have_wall_pose) {
+      const bool valid_wall_quat =
+        std::isfinite(wall_pose.orientation.x) &&
+        std::isfinite(wall_pose.orientation.y) &&
+        std::isfinite(wall_pose.orientation.z) &&
+        std::isfinite(wall_pose.orientation.w) &&
+        (wall_pose.orientation.x * wall_pose.orientation.x +
+        wall_pose.orientation.y * wall_pose.orientation.y +
+        wall_pose.orientation.z * wall_pose.orientation.z +
+        wall_pose.orientation.w * wall_pose.orientation.w) > 1.0e-12;
+      if (valid_wall_quat) {
+        q = tf2::Quaternion(
+          wall_pose.orientation.x,
+          wall_pose.orientation.y,
+          wall_pose.orientation.z,
+          wall_pose.orientation.w);
+        q.normalize();
+      }
+    } else {
+      wall_pose.position.x = wall_pos_x_;
+      wall_pose.position.y = wall_pos_y_;
+      wall_pose.position.z = wall_pos_z_;
+      wall_pose.orientation.w = 1.0;
+    }
+
+    const tf2::Vector3 c(
+      wall_pose.position.x,
+      wall_pose.position.y,
+      wall_pose.position.z);
+    const tf2::Matrix3x3 R(q);
+    const double hx = wall_size_x_;
+    const double hy = wall_size_y_;
+    const double hz = wall_size_z_;
+    const std::array<tf2::Vector3, 8> corners_local = {
+      tf2::Vector3(-hx, -hy, -hz), tf2::Vector3(hx, -hy, -hz),
+      tf2::Vector3(hx, hy, -hz), tf2::Vector3(-hx, hy, -hz),
+      tf2::Vector3(-hx, -hy, hz), tf2::Vector3(hx, -hy, hz),
+      tf2::Vector3(hx, hy, hz), tf2::Vector3(-hx, hy, hz)};
+    std::array<geometry_msgs::msg::Point, 8> corners_world;
+    for (size_t i = 0; i < corners_local.size(); ++i) {
+      const tf2::Vector3 p = c + R * corners_local[i];
+      corners_world[i].x = p.x();
+      corners_world[i].y = p.y();
+      corners_world[i].z = p.z();
+    }
+
+    const std::array<std::pair<int, int>, 12> edges = {{
+      {0, 1}, {1, 2}, {2, 3}, {3, 0},
+      {4, 5}, {5, 6}, {6, 7}, {7, 4},
+      {0, 4}, {1, 5}, {2, 6}, {3, 7}}};
+    mk.points.reserve(edges.size() * 2);
+    for (const auto & edge : edges) {
+      mk.points.push_back(corners_world[edge.first]);
+      mk.points.push_back(corners_world[edge.second]);
+    }
+    return mk;
+  }
+
+  visualization_msgs::msg::Marker make_far_wall_marker(
+    const std::string & ns,
+    int id,
+    const std::string & frame_id,
+    const rclcpp::Time & stamp) const
+  {
+    visualization_msgs::msg::Marker mk;
+    mk.header.stamp = stamp;
+    mk.header.frame_id = frame_id;
+    mk.ns = ns;
+    mk.id = id;
+    mk.type = visualization_msgs::msg::Marker::CUBE;
+    mk.action = visualization_msgs::msg::Marker::ADD;
+
+    mk.pose.position.x = far_wall_pos_x_;
+    mk.pose.position.y = far_wall_pos_y_;
+    mk.pose.position.z = far_wall_pos_z_ + far_wall_size_z_;
+    mk.pose.orientation.w = 1.0;
+
+    mk.scale.x = 2.0 * far_wall_size_x_;
+    mk.scale.y = 2.0 * far_wall_size_y_;
+    mk.scale.z = 2.0 * far_wall_size_z_;
+
+    mk.color.r = static_cast<float>(far_wall_rgba_[0]);
+    mk.color.g = static_cast<float>(far_wall_rgba_[1]);
+    mk.color.b = static_cast<float>(far_wall_rgba_[2]);
+    mk.color.a = static_cast<float>(far_wall_rgba_[3]);
+    mk.lifetime = rclcpp::Duration::from_seconds(0.0);
+    return mk;
+  }
+
+  visualization_msgs::msg::Marker make_wall_com_marker(
+    const std::string & ns,
+    int id,
+    const std::string & frame_id,
+    const rclcpp::Time & stamp) const
+  {
+    visualization_msgs::msg::Marker mk;
+    mk.header.stamp = stamp;
+    mk.header.frame_id = frame_id;
+    mk.ns = ns;
+    mk.id = id;
+    mk.type = visualization_msgs::msg::Marker::SPHERE;
+    mk.action = visualization_msgs::msg::Marker::ADD;
+    mk.pose.orientation.w = 1.0;
+    mk.scale.x = 0.05;
+    mk.scale.y = 0.05;
+    mk.scale.z = 0.05;
+    mk.color.r = 1.0f;
+    mk.color.g = 0.0f;
+    mk.color.b = 0.0f;
+    mk.color.a = 1.0f;
+    mk.lifetime = rclcpp::Duration::from_seconds(0.0);
+
+    geometry_msgs::msg::Pose wall_pose;
+    bool have_wall_pose = false;
+    {
+      std::lock_guard<std::mutex> lk(mtx_);
+      have_wall_pose = have_wall_pose_;
+      wall_pose = wall_pose_.pose;
+    }
+
+    if (have_wall_pose) {
+      tf2::Quaternion q(
+        wall_pose.orientation.x,
+        wall_pose.orientation.y,
+        wall_pose.orientation.z,
+        wall_pose.orientation.w);
+      if (q.length2() > 1.0e-12) {
+        q.normalize();
+      } else {
+        q.setValue(0.0, 0.0, 0.0, 1.0);
+      }
+      tf2::Matrix3x3 R(q);
+      tf2::Vector3 com_local(wall_com_x_, wall_com_y_, wall_com_z_);
+      const tf2::Vector3 com_world = R * com_local;
+      mk.pose.position.x = wall_pose.position.x + com_world.x();
+      mk.pose.position.y = wall_pose.position.y + com_world.y();
+      mk.pose.position.z = wall_pose.position.z + com_world.z();
+      mk.pose.orientation.x = q.x();
+      mk.pose.orientation.y = q.y();
+      mk.pose.orientation.z = q.z();
+      mk.pose.orientation.w = q.w();
+    } else {
+      mk.pose.position.x = wall_pos_x_ + wall_com_x_;
+      mk.pose.position.y = wall_pos_y_ + wall_com_y_;
+      mk.pose.position.z = wall_pos_z_ + wall_com_z_;
+    }
     return mk;
   }
 
@@ -2072,6 +2309,19 @@ private:
 
     pub_environment_marker_->publish(
       make_environment_marker("environment", 0, parent_frame_, stamp));
+    pub_environment_marker_->publish(
+      make_delete_marker("environment", 2, parent_frame_, stamp));
+    if (environment_type_ == "wall") {
+      pub_environment_marker_->publish(
+        make_wall_outline_marker("environment_outline", 3, parent_frame_, stamp));
+      pub_environment_marker_->publish(
+        make_wall_com_marker("environment_com", 1, parent_frame_, stamp));
+    } else {
+      pub_environment_marker_->publish(
+        make_delete_marker("environment_outline", 3, parent_frame_, stamp));
+      pub_environment_marker_->publish(
+        make_delete_marker("environment_com", 1, parent_frame_, stamp));
+    }
     pub_wind_indicator_markers_->publish(
       makeWindIndicatorMarkerArray(stamp, wind_indicator_force, have_wind_indicator_force));
 
@@ -2149,6 +2399,7 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_cmd_drone_pose_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_cmd_ee_pose_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_cmd_active_pose_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_wall_pose_;
 
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_2nd_order_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_consistency_;
@@ -2185,7 +2436,7 @@ private:
   // =========================
   // State
   // =========================
-  std::mutex mtx_;
+  mutable std::mutex mtx_;
 
   geometry_msgs::msg::PoseStamped pose_;
   geometry_msgs::msg::Vector3Stamped vel_;
@@ -2204,9 +2455,11 @@ private:
   geometry_msgs::msg::PoseStamped cmd_drone_pose_;
   geometry_msgs::msg::PoseStamped cmd_ee_pose_;
   geometry_msgs::msg::PoseStamped cmd_active_pose_;
+  geometry_msgs::msg::PoseStamped wall_pose_;
   bool have_cmd_drone_pose_{false};
   bool have_cmd_ee_pose_{false};
   bool have_cmd_active_pose_{false};
+  bool have_wall_pose_{false};
 
   std::array<float, 3> mob_force_2nd_order_{0.0f, 0.0f, 0.0f};
   std::array<float, 3> mob_force_consistency_{0.0f, 0.0f, 0.0f};
@@ -2320,7 +2573,18 @@ private:
   double wall_size_x_{0.1};
   double wall_size_y_{2.5};
   double wall_size_z_{2.5};
+  std::string wall_pose_topic_;
+  double wall_com_x_{0.0};
+  double wall_com_y_{0.0};
+  double wall_com_z_{0.0};
   std::vector<double> wall_rgba_{0.75, 0.93, 0.75, 0.85};
+  double far_wall_pos_x_{2.0};
+  double far_wall_pos_y_{0.0};
+  double far_wall_pos_z_{0.0};
+  double far_wall_size_x_{0.05};
+  double far_wall_size_y_{5.0};
+  double far_wall_size_z_{5.0};
+  std::vector<double> far_wall_rgba_{0.75, 0.85, 0.95, 0.35};
   double surface_chain_pos_x_{1.0};
   double surface_chain_pos_y_{0.0};
   double surface_chain_base_z_{0.0};

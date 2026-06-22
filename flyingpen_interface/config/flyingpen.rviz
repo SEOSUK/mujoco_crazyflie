@@ -9,7 +9,7 @@ Panels:
         - /TF1/Frames1
         - /MOB 2nd Force1
       Splitter Ratio: 0.36297640204429626
-    Tree Height: 363
+    Tree Height: 724
   - Class: rviz_common/Selection
     Name: Selection
   - Class: rviz_common/Tool Properties
@@ -146,6 +146,7 @@ Visualization Manager:
       Name: Environment
       Namespaces:
         environment: true
+        environment_com: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -180,10 +181,10 @@ Visualization Manager:
         Value: /rviz/EE_contact_force
       Value: false
     - Class: rviz_default_plugins/Marker
-      Enabled: false
+      Enabled: true
       Name: Estimated Normal
       Namespaces:
-        {}
+        estimated_contact_normal_ke: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -191,7 +192,7 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /rviz/estimated_contact_normal_ke
-      Value: false
+      Value: true
     - Class: rviz_default_plugins/Marker
       Enabled: false
       Name: EE Velocity
@@ -351,26 +352,26 @@ Visualization Manager:
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0.7720463871955872
-        Y: -0.9195394515991211
-        Z: -0.09514643251895905
+        X: 0.6961857676506042
+        Y: -0.007749481126666069
+        Z: -0.18932397663593292
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.9447970390319824
+      Pitch: 0.5197974443435669
       Target Frame: world
       Value: Orbit (rviz)
-      Yaw: 3.0817477703094482
+      Yaw: 2.2867462635040283
     Saved: ~
 Window Geometry:
   Displays:
-    collapsed: true
+    collapsed: false
   Height: 1016
-  Hide Left Dock: true
+  Hide Left Dock: false
   Hide Right Dock: true
-  QMainWindow State: 000000ff00000000fd0000000300000000000002290000035ffc0200000003fb000000100044006900730070006c006100790073000000003d0000035f000000c900fffffffb0000001200530065006c0065006300740069006f006e00000001ea000000ce0000005c00fffffffb0000001e0054006f006f006c002000500072006f0070006500720074006900650073000000026a000001090000005c00ffffff00000001000001cb0000039efc0200000001fb0000000a00560069006500770073000000003d0000039e000000a400ffffff000000030000073a00000039fc0100000001fb0000000800540069006d006501000000000000073a000002fb00ffffff0000073a0000035f00000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  QMainWindow State: 000000ff00000000fd0000000300000000000002290000035ffc0200000003fb000000100044006900730070006c006100790073010000003d0000035f000000c900fffffffb0000001200530065006c0065006300740069006f006e00000001ea000000ce0000005c00fffffffb0000001e0054006f006f006c002000500072006f0070006500720074006900650073000000026a000001090000005c00ffffff00000001000001cb0000039efc0200000001fb0000000a00560069006500770073000000003d0000039e000000a400ffffff000000030000073a00000039fc0100000001fb0000000800540069006d006501000000000000073a000002fb00ffffff0000050b0000035f00000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Selection:
     collapsed: false
   Time:

@@ -10,6 +10,7 @@ This branch contains the legacy Flying Pen simulation stack, RViz visualization,
 
 - `direction`
 - `normal_force_based`
+- `normal_velocity_PE_based`
 - `None`
 
 ### Method Summary
@@ -18,6 +19,8 @@ This branch contains the legacy Flying Pen simulation stack, RViz visualization,
   Normalizes the measured force direction and uses it directly as the contact normal.
 - `normal_force_based`
   Removes the velocity direction component from the force direction and estimates the normal from the corrected force. This is the latest version.
+- `normal_velocity_PE_based`
+  Implements Eqs. (13)-(14) from the referenced paper using the end-effector velocity `p_dot_e` and tunable `beta`, `gamma`.
 - `None`
   Disables normal estimation.
 

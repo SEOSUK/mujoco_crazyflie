@@ -147,7 +147,7 @@ data_logger:
 
 panel:
   ros__parameters:
-    selected: "" # "", "normal_vector_lvlf", "normal_vector_force", "normal_vector_mob"
+    selected: "" # "" -> auto-select from normal_estimator_method, or set "normal_vector_lvlf", "normal_vector_force", "normal_vector_mob"
     delay_sec: 1.5
     history_sec: 3.0
     update_hz: 30.0

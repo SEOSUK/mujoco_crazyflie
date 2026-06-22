@@ -19,6 +19,8 @@ def generate_launch_description():
     default_rviz_config = os.path.join(pkg_share, "config", "flyingpen.rviz")
     with open(params, "r") as f:
         params_config = yaml.safe_load(f) or {}
+    with open(su_params, "r") as f:
+        su_params_config = yaml.safe_load(f) or {}
 
     panel_config = (
         params_config.get("panel", {})
@@ -44,16 +46,6 @@ def generate_launch_description():
         parameters=[{"robot_description": robot_description}],
     )
 
-    # ---------- wall TF (world -> wall) ----------
-    # args: x y z roll pitch yaw parent child
-    world_to_wall_tf_node = Node(
-        package="tf2_ros",
-        executable="static_transform_publisher",
-        name="world_to_wall",
-        output="screen",
-        arguments=["1.5", "0", "0", "1.57", "0", "0", "world", "wall"],
-    )
-
     # ---------- mujoco_bridge ----------
     mujoco_bridge_node = Node(
         package="mujoco_bridge",
@@ -62,6 +54,7 @@ def generate_launch_description():
         output="screen",
         parameters=[
             params,
+            su_params,
             {
                 "viewer.window_x": 900,
                 "viewer.window_y": 40,
@@ -106,6 +99,16 @@ def generate_launch_description():
                     legacy_cfg.get("executable", f"normal_vector_{legacy_key}")
                 ).strip()
                 break
+    if not selected_panel:
+        estimator_method = str(
+            su_params_config.get("normal_vector_estimation", {})
+            .get("ros__parameters", {})
+            .get("normal_estimator_method", "")
+        ).strip()
+        if estimator_method == "normal_velocity_PE_based":
+            selected_panel = "normal_vector_lvlf"
+        elif estimator_method == "normal_force_based":
+            selected_panel = "normal_vector_force"
 
     panel_actions = []
     if selected_panel:
@@ -138,7 +141,7 @@ def generate_launch_description():
         executable="rviz_visual",
         name="rviz_visual",
         output="screen",
-        parameters=[params, rviz_visual_params],
+        parameters=[params, rviz_visual_params, su_params],
     )
 
     # ---------- data logger ----------
@@ -185,7 +188,6 @@ def generate_launch_description():
         rviz_config_arg,
         rviz2_node,
         robot_state_publisher_node,
-        world_to_wall_tf_node,
         controller_node,
         fk_ik_transform_node,
         normal_vector_estimation_node,

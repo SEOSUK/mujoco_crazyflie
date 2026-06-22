@@ -57,6 +57,13 @@ public:
     force_based_beta_n_ = this->declare_parameter<double>(
       "normal_force_based.normBeta", 1.0);
 
+    velocity_pe_based_beta_n_ = this->declare_parameter<double>(
+      "normal_velocity_PE_based.beta", 1.0);
+    velocity_pe_based_gamma_n_ = this->declare_parameter<double>(
+      "normal_velocity_PE_based.gamma", 1.0);
+    velocity_pe_based_force_threshold_ = this->declare_parameter<double>(
+      "normal_velocity_PE_based.force_threshold", 0.005);
+
     publish_hz_ = this->declare_parameter<double>(
       "publish_hz", 100.0);
 
@@ -78,6 +85,8 @@ public:
 
     contact_frame_quat_topic_ = this->declare_parameter<std::string>(
       "contact_frame_quat_topic", "/estimated_contact_frame_quat");
+    mujoco_contact_normal_topic_ = this->declare_parameter<std::string>(
+      "mujoco_contact_normal_topic", "/crazyflie/out/EE_contact_normal_mujoco");
     contact_force_x_topic_ = this->declare_parameter<std::string>(
       "contact_force_x_topic", "/su/contact_force_x");
     normal_debug_metrics_topic_ = this->declare_parameter<std::string>(
@@ -90,6 +99,9 @@ public:
     sub_contact_force_pure_ = this->create_subscription<geometry_msgs::msg::WrenchStamped>(
       pure_contact_force_topic_, 10,
       std::bind(&NormalVectorEstimation::contactForcePureCb, this, std::placeholders::_1));
+    sub_mujoco_contact_normal_ = this->create_subscription<geometry_msgs::msg::Vector3Stamped>(
+      mujoco_contact_normal_topic_, 10,
+      std::bind(&NormalVectorEstimation::mujocoContactNormalCb, this, std::placeholders::_1));
 
     sub_use_vel_mode_ = this->create_subscription<std_msgs::msg::Float32>(
       use_vel_mode_topic_, 10,
@@ -179,6 +191,18 @@ private:
     bool initialized = false;
   };
 
+  struct VelocityPEBasedNormalState
+  {
+    Eigen::Matrix3d l_n = Eigen::Matrix3d::Zero();
+    Eigen::Vector3d n_hat = Eigen::Vector3d(-1.0, 0.0, 0.0);
+    Eigen::Vector3d velocity_dir = Eigen::Vector3d::Zero();
+    Eigen::Vector3d force_dir = Eigen::Vector3d::Zero();
+    double vel_norm = 0.0;
+    double force_norm = 0.0;
+    bool gate_active = false;
+    bool initialized = false;
+  };
+
   struct EigenSpectrum
   {
     Eigen::Vector3d values = Eigen::Vector3d::Zero();
@@ -202,6 +226,11 @@ private:
   static Eigen::Vector3d fixedNormalWorld()
   {
     return Eigen::Vector3d(-1.0, 0.0, 0.0);
+  }
+
+  static Eigen::Matrix3d orthogonalProjector(const Eigen::Vector3d & unit_vec)
+  {
+    return Eigen::Matrix3d::Identity() - unit_vec * unit_vec.transpose();
   }
 
   static ContactFrame makeFixedContactFrame()
@@ -532,6 +561,129 @@ private:
     return true;
   }
 
+  bool estimateNormalVectorVelocityPEBased(
+    ContactFrame & cf_out,
+    const ReferenceState & ref,
+    Eigen::Vector3d force_world,
+    double dt)
+  {
+    dt = std::clamp(dt, 1e-4, 0.1);
+
+    force_world = toNormalEvidenceForce(force_world);
+    const double force_norm = force_world.norm();
+
+    const Eigen::Vector3d p_dot_e = ref.vel_w;
+    const double vel_norm_sq = p_dot_e.squaredNorm();
+    const double vel_norm = std::sqrt(vel_norm_sq);
+
+    Eigen::Vector3d n_hat = velocity_pe_based_state_.initialized ?
+      velocity_pe_based_state_.n_hat : cf_out.n_w;
+    if (n_hat.norm() < 1e-9) {
+      n_hat = fixedNormalWorld();
+    }
+    n_hat.normalize();
+
+    if (!(std::isfinite(force_norm) && force_norm > velocity_pe_based_force_threshold_)) {
+      Eigen::Vector3d velocity_dir = Eigen::Vector3d::Zero();
+      if (vel_norm > 1e-12) {
+        velocity_dir = p_dot_e / (vel_norm + 1e-12);
+      }
+      Eigen::Vector3d force_dir = Eigen::Vector3d::Zero();
+      if (force_norm > 1e-12) {
+        force_dir = force_world / (force_norm + 1e-12);
+      }
+      velocity_pe_based_state_.n_hat = n_hat;
+      velocity_pe_based_state_.velocity_dir = velocity_dir;
+      velocity_pe_based_state_.force_dir = force_dir;
+      velocity_pe_based_state_.vel_norm = vel_norm;
+      velocity_pe_based_state_.force_norm = force_norm;
+      velocity_pe_based_state_.gate_active = false;
+      velocity_pe_based_state_.initialized = true;
+      cf_out.n_w = n_hat;
+      return true;
+    }
+
+    const Eigen::Matrix3d l_n_dot =
+      -velocity_pe_based_beta_n_ * velocity_pe_based_state_.l_n +
+      (p_dot_e * p_dot_e.transpose()) / (1.0e-3 + vel_norm_sq);
+    velocity_pe_based_state_.l_n += dt * l_n_dot;
+
+    const Eigen::Vector3d n_hat_dot =
+      -velocity_pe_based_gamma_n_ *
+      orthogonalProjector(n_hat) *
+      velocity_pe_based_state_.l_n * n_hat;
+    n_hat += dt * n_hat_dot;
+
+    if (n_hat.norm() < 1e-9) {
+      n_hat = fixedNormalWorld();
+    } else {
+      n_hat.normalize();
+    }
+
+    if (cf_out.valid && n_hat.dot(cf_out.n_w) < 0.0) {
+      n_hat = -n_hat;
+    }
+
+    Eigen::Vector3d velocity_dir = Eigen::Vector3d::Zero();
+    if (vel_norm > 1e-12) {
+      velocity_dir = p_dot_e / (vel_norm + 1e-12);
+    }
+    Eigen::Vector3d force_dir = Eigen::Vector3d::Zero();
+    if (force_norm > 1e-12) {
+      force_dir = force_world / (force_norm + 1e-12);
+    }
+
+    velocity_pe_based_state_.n_hat = n_hat;
+    velocity_pe_based_state_.velocity_dir = velocity_dir;
+    velocity_pe_based_state_.force_dir = force_dir;
+    velocity_pe_based_state_.vel_norm = vel_norm;
+    velocity_pe_based_state_.force_norm = force_norm;
+    velocity_pe_based_state_.gate_active = true;
+    velocity_pe_based_state_.initialized = true;
+
+    cf_out.n_w = n_hat;
+    return true;
+  }
+
+  bool estimateNormalVectorMujocoMeasured(ContactFrame & cf_out)
+  {
+    Eigen::Vector3d normal_world = Eigen::Vector3d::Zero();
+    {
+      std::lock_guard<std::mutex> lk(force_mtx_);
+      if (!mujoco_contact_normal_received_) {
+        cf_out = makeFixedContactFrame();
+        return true;
+      }
+      normal_world = mujoco_contact_normal_world_;
+    }
+
+    const double normal_norm = normal_world.norm();
+    if (!(std::isfinite(normal_norm) && normal_norm > 1e-9)) {
+      cf_out = makeFixedContactFrame();
+      return true;
+    }
+
+    normal_world /= (normal_norm + 1e-12);
+    if (shouldFlipMeasuredForce()) {
+      normal_world = -normal_world;
+    }
+    if (cf_out.valid && normal_world.dot(cf_out.n_w) < 0.0) {
+      normal_world = -normal_world;
+    }
+
+    velocity_pe_based_state_.l_n = Eigen::Matrix3d::Zero();
+    velocity_pe_based_state_.n_hat = normal_world;
+    velocity_pe_based_state_.velocity_dir = Eigen::Vector3d::Zero();
+    velocity_pe_based_state_.force_dir = normal_world;
+    velocity_pe_based_state_.vel_norm = 0.0;
+    velocity_pe_based_state_.force_norm = 1.0;
+    velocity_pe_based_state_.gate_active = true;
+    velocity_pe_based_state_.initialized = true;
+
+    cf_out.n_w = normal_world;
+    return true;
+  }
+
   bool buildContactFrameFromNormal(ContactFrame & cf_out)
   {
     const double n_norm = cf_out.n_w.norm();
@@ -599,6 +751,16 @@ private:
     {
       ok = estimateNormalVectorForceBased(cf_out, ref, force_world, pure_force_world, dt);
     } else if (
+      normal_estimator_method_ == "normal_velocity_PE_based" ||
+      normal_estimator_method_ == "velocity_pe_based")
+    {
+      ok = estimateNormalVectorVelocityPEBased(cf_out, ref, force_world, dt);
+    } else if (
+      normal_estimator_method_ == "normal_mujoco_measured" ||
+      normal_estimator_method_ == "mujoco_measured")
+    {
+      ok = estimateNormalVectorMujocoMeasured(cf_out);
+    } else if (
       normal_estimator_method_ == "direction" ||
       normal_estimator_method_ == "direct")
     {
@@ -607,7 +769,7 @@ private:
       RCLCPP_WARN_THROTTLE(
         this->get_logger(), *this->get_clock(), 5000,
         "Unsupported normal_estimator_method '%s'. "
-        "Supported methods are: direction, normal_force_based, None. "
+        "Supported methods are: direction, normal_force_based, normal_velocity_PE_based, normal_mujoco_measured, None. "
         "Falling back to direction.",
         normal_estimator_method_.c_str());
       ok = estimateNormalVectorForceDirectly(cf_out, ref, force_world);
@@ -642,6 +804,31 @@ private:
     const auto nan = std::numeric_limits<double>::quiet_NaN();
 
     msg.data.resize(55, nan);
+    if (
+      (normal_estimator_method_ == "normal_velocity_PE_based" ||
+      normal_estimator_method_ == "velocity_pe_based") &&
+      velocity_pe_based_state_.initialized)
+    {
+      msg.data[0] = velocity_pe_based_state_.vel_norm;
+      msg.data[1] = velocity_pe_based_state_.force_norm;
+      msg.data[2] = velocity_pe_based_state_.gate_active ? 1.0 : 0.0;
+      for (int r = 0; r < 3; ++r) {
+        for (int c = 0; c < 3; ++c) {
+          msg.data[10 + r * 3 + c] = velocity_pe_based_state_.l_n(r, c);
+        }
+      }
+      msg.data[28] = velocity_pe_based_state_.n_hat.x();
+      msg.data[29] = velocity_pe_based_state_.n_hat.y();
+      msg.data[30] = velocity_pe_based_state_.n_hat.z();
+      msg.data[31] = velocity_pe_based_state_.velocity_dir.x();
+      msg.data[32] = velocity_pe_based_state_.velocity_dir.y();
+      msg.data[33] = velocity_pe_based_state_.velocity_dir.z();
+      msg.data[34] = velocity_pe_based_state_.force_dir.x();
+      msg.data[35] = velocity_pe_based_state_.force_dir.y();
+      msg.data[36] = velocity_pe_based_state_.force_dir.z();
+      pub_normal_debug_metrics_->publish(msg);
+      return;
+    }
     if (!force_based_state_.initialized) {
       pub_normal_debug_metrics_->publish(msg);
       return;
@@ -703,6 +890,15 @@ private:
     force_based_state_.force_norm = 0.0;
     force_based_state_.corrected_force_norm = 0.0;
     force_based_state_.initialized = false;
+
+    velocity_pe_based_state_.l_n = Eigen::Matrix3d::Zero();
+    velocity_pe_based_state_.n_hat = fixedNormalWorld();
+    velocity_pe_based_state_.velocity_dir = Eigen::Vector3d::Zero();
+    velocity_pe_based_state_.force_dir = Eigen::Vector3d::Zero();
+    velocity_pe_based_state_.vel_norm = 0.0;
+    velocity_pe_based_state_.force_norm = 0.0;
+    velocity_pe_based_state_.gate_active = false;
+    velocity_pe_based_state_.initialized = false;
   }
 
   void contactForceCb(const geometry_msgs::msg::WrenchStamped::SharedPtr msg)
@@ -721,6 +917,15 @@ private:
     contact_force_pure_[1] = msg->wrench.force.y;
     contact_force_pure_[2] = msg->wrench.force.z;
     force_pure_received_ = true;
+  }
+
+  void mujocoContactNormalCb(const geometry_msgs::msg::Vector3Stamped::SharedPtr msg)
+  {
+    std::lock_guard<std::mutex> lk(force_mtx_);
+    mujoco_contact_normal_world_.x() = msg->vector.x;
+    mujoco_contact_normal_world_.y() = msg->vector.y;
+    mujoco_contact_normal_world_.z() = msg->vector.z;
+    mujoco_contact_normal_received_ = true;
   }
 
   void useVelModeCb(const std_msgs::msg::Float32::SharedPtr msg)
@@ -881,6 +1086,7 @@ private:
 
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_contact_force_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_contact_force_pure_;
+  rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_mujoco_contact_normal_;
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_use_vel_mode_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_pose_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_vel_;
@@ -906,6 +1112,9 @@ private:
   double force_based_gamma_epsilon_{1.0e-2};
   double force_based_velocity_deadzone_{0.01};
   double force_based_beta_n_{1.0};
+  double velocity_pe_based_beta_n_{1.0};
+  double velocity_pe_based_gamma_n_{1.0};
+  double velocity_pe_based_force_threshold_{5.0e-3};
 
   std::string pose_topic_;
   std::string vel_topic_;
@@ -916,6 +1125,7 @@ private:
   std::string contact_force_topic_;
   std::string pure_contact_force_topic_;
   std::string contact_frame_quat_topic_;
+  std::string mujoco_contact_normal_topic_;
   std::string contact_force_x_topic_;
   std::string normal_debug_metrics_topic_;
   std::string use_vel_mode_topic_;
@@ -923,12 +1133,15 @@ private:
   std::mutex force_mtx_;
   std::array<double, 3> contact_force_{0.0, 0.0, 0.0};
   std::array<double, 3> contact_force_pure_{0.0, 0.0, 0.0};
+  Eigen::Vector3d mujoco_contact_normal_world_ = Eigen::Vector3d::Zero();
   bool force_received_{false};
   bool force_pure_received_{false};
+  bool mujoco_contact_normal_received_{false};
 
   std::mutex contact_frame_mtx_;
   ContactFrame contact_frame_;
   ForceBasedNormalState force_based_state_;
+  VelocityPEBasedNormalState velocity_pe_based_state_;
   Eigen::Matrix3d ke_raw_memory_l_n_ = Eigen::Matrix3d::Zero();
   Eigen::Matrix3d no_ke_raw_memory_l_n_ = Eigen::Matrix3d::Zero();
 

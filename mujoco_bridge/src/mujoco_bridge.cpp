@@ -251,7 +251,7 @@ public:
     setup_ros_interfaces();
 
     contact_manager_ = std::make_unique<MujocoContact>(
-      this, model_, data_, pub_contact_force_, pub_contact_force_filt_);
+      this, model_, data_, pub_contact_force_, pub_contact_force_filt_, pub_contact_normal_world_);
 
     sim_thread_ = std::thread(&MujocoBridge::sim_loop, this);
     viewer_thread_ = std::thread(&MujocoBridge::viewer_loop, this);
@@ -337,6 +337,9 @@ private:
     declare_parameter("wind.indicator_flutter_gain", 0.15);
     declare_parameter("wind.indicator_flutter_hz", 6.0);
     declare_parameter("end_effector_offset", std::vector<double>{0.09, 0.0, 0.085});
+    declare_parameter("wall.comX", 0.0);
+    declare_parameter("wall.comY", 0.0);
+    declare_parameter("wall.comZ", 0.2);
 
     declare_parameter("viewer.orbit_sensitivity", 1.0);
     declare_parameter("viewer.pan_sensitivity", 1.2);
@@ -414,6 +417,11 @@ private:
     wind_indicator_flutter_gain_ = get_parameter("wind.indicator_flutter_gain").as_double();
     wind_indicator_flutter_hz_ = get_parameter("wind.indicator_flutter_hz").as_double();
     end_effector_offset_ = vec3_from_parameter("end_effector_offset");
+    wall_com_body_ = {
+      get_parameter("wall.comX").as_double(),
+      get_parameter("wall.comY").as_double(),
+      get_parameter("wall.comZ").as_double()
+    };
 
     viewer_orbit_sensitivity_ = get_parameter("viewer.orbit_sensitivity").as_double();
     viewer_pan_sensitivity_ = get_parameter("viewer.pan_sensitivity").as_double();
@@ -457,6 +465,32 @@ private:
         end_effector_offset_[0], end_effector_offset_[1], end_effector_offset_[2]);
     }
 
+    const int bid_wall = mj_name2id(model_, mjOBJ_BODY, "wall");
+    if (bid_wall >= 0) {
+      double wall_geom_center_x = 0.0;
+      double wall_geom_center_y = 0.0;
+      double wall_geom_center_z = 0.0;
+      const int wall_geom_adr = model_->body_geomadr[bid_wall];
+      const int wall_geom_num = model_->body_geomnum[bid_wall];
+      if (wall_geom_num > 0 && wall_geom_adr >= 0) {
+        const int gid0 = wall_geom_adr;
+        wall_geom_center_x = static_cast<double>(model_->geom_pos[3 * gid0 + 0]);
+        wall_geom_center_y = static_cast<double>(model_->geom_pos[3 * gid0 + 1]);
+        wall_geom_center_z = static_cast<double>(model_->geom_pos[3 * gid0 + 2]);
+      }
+      const int adr = 3 * bid_wall;
+      model_->body_ipos[adr + 0] =
+        static_cast<mjtNum>(wall_geom_center_x + wall_com_body_[0]);
+      model_->body_ipos[adr + 1] =
+        static_cast<mjtNum>(wall_geom_center_y + wall_com_body_[1]);
+      model_->body_ipos[adr + 2] =
+        static_cast<mjtNum>(wall_geom_center_z + wall_com_body_[2]);
+      RCLCPP_INFO(
+        get_logger(),
+        "Applied MuJoCo wall CoM offset from geometric center = [%.4f %.4f %.4f]",
+        wall_com_body_[0], wall_com_body_[1], wall_com_body_[2]);
+    }
+
     data_ = mj_makeData(model_);
     if (!data_) {
       throw std::runtime_error("mj_makeData failed");
@@ -491,6 +525,22 @@ private:
     if (bid_wind_indicator_tip_ < 0) {
       RCLCPP_WARN(
         get_logger(), "Body 'wind_indicator_tip' not found. Wind indicator physics disabled.");
+    }
+
+    bid_wall_ = mj_name2id(model_, mjOBJ_BODY, "wall");
+    if (bid_wall_ >= 0) {
+      const int wall_jnt_adr = model_->body_jntadr[bid_wall_];
+      const int wall_jnt_num = model_->body_jntnum[bid_wall_];
+      if (wall_jnt_num >= 1) {
+        jid_wall_ = wall_jnt_adr;
+        qpos_adr_wall_ = model_->jnt_qposadr[jid_wall_];
+        if (model_->jnt_type[jid_wall_] != mjJNT_FREE) {
+          RCLCPP_WARN(
+            get_logger(), "Body 'wall' exists but is not FREE. Dynamic wall pose publishing disabled.");
+          jid_wall_ = -1;
+          qpos_adr_wall_ = -1;
+        }
+      }
     }
 
     imu_acc_sid_ = sensor_id("imu_acc");
@@ -585,6 +635,9 @@ private:
     pub_motor_thrust_ = create_publisher<std_msgs::msg::Float32MultiArray>("/crazyflie/out/motor_thrust", 10);
     pub_contact_force_ = create_publisher<geometry_msgs::msg::WrenchStamped>("/crazyflie/out/EE_contact_force", 10);
     pub_contact_force_filt_ = create_publisher<geometry_msgs::msg::WrenchStamped>("/crazyflie/out/EE_contact_force_filt", 10);
+    pub_contact_normal_world_ = create_publisher<geometry_msgs::msg::Vector3Stamped>(
+      "/crazyflie/out/EE_contact_normal_mujoco", 10);
+    pub_wall_pose_ = create_publisher<geometry_msgs::msg::PoseStamped>("/environment/wall_pose", 10);
   }
 
   void input_callback(const std_msgs::msg::Float32MultiArray::SharedPtr msg)
@@ -1015,6 +1068,22 @@ private:
     }
     pub_motor_thrust_->publish(motor_msg);
 
+    if (bid_wall_ >= 0) {
+      geometry_msgs::msg::PoseStamped wall_pose_msg;
+      wall_pose_msg.header.stamp = stamp;
+      wall_pose_msg.header.frame_id = "world";
+      const int wall_xpos_adr = 3 * bid_wall_;
+      const int wall_xquat_adr = 4 * bid_wall_;
+      wall_pose_msg.pose.position.x = static_cast<double>(data_->xpos[wall_xpos_adr + 0]);
+      wall_pose_msg.pose.position.y = static_cast<double>(data_->xpos[wall_xpos_adr + 1]);
+      wall_pose_msg.pose.position.z = static_cast<double>(data_->xpos[wall_xpos_adr + 2]);
+      wall_pose_msg.pose.orientation.w = static_cast<double>(data_->xquat[wall_xquat_adr + 0]);
+      wall_pose_msg.pose.orientation.x = static_cast<double>(data_->xquat[wall_xquat_adr + 1]);
+      wall_pose_msg.pose.orientation.y = static_cast<double>(data_->xquat[wall_xquat_adr + 2]);
+      wall_pose_msg.pose.orientation.z = static_cast<double>(data_->xquat[wall_xquat_adr + 3]);
+      pub_wall_pose_->publish(wall_pose_msg);
+    }
+
     contact_manager_->update_raw_and_publish(get_clock()->now());
   }
 
@@ -1269,9 +1338,12 @@ private:
   mjData* data_{nullptr};
 
   int bid_drone_{-1};
+  int bid_wall_{-1};
   int bid_wind_indicator_tip_{-1};
   int jid_drone_{-1};
+  int jid_wall_{-1};
   int qpos_adr_drone_{-1};
+  int qpos_adr_wall_{-1};
   int qvel_adr_drone_{-1};
 
   int imu_acc_sid_{-1};
@@ -1367,6 +1439,7 @@ private:
   std::array<double, 3> ang_vel_var_{{0.0, 0.0, 0.0}};
   std::array<double, 3> ang_acc_var_{{0.0, 0.0, 0.0}};
   std::array<double, 3> end_effector_offset_{{0.09, 0.0, 0.085}};
+  std::array<double, 3> wall_com_body_{{0.0, 0.0, 0.2}};
 
   std::mt19937 noise_rng_{1u};
   rclcpp::Time noise_last_update_{0, 0, RCL_ROS_TIME};
@@ -1393,6 +1466,7 @@ private:
   rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr sub_input_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_wind_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pub_pose_;
+  rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pub_wall_pose_;
   rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr pub_vel_;
   rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr pub_angvel_;
   rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr pub_acc_;
@@ -1401,6 +1475,7 @@ private:
   rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr pub_motor_thrust_;
   rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_contact_force_;
   rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_contact_force_filt_;
+  rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr pub_contact_normal_world_;
 
   std::unique_ptr<MujocoContact> contact_manager_;
 
