@@ -37,5 +37,14 @@
         "**/__pycache__": true
     },
 
-    "chatgpt.openOnStartup": false
+    "chatgpt.openOnStartup": false,
+    "ROS2.distro": "jazzy",
+    "python.autoComplete.extraPaths": [
+        "/home/mj/ros2_ws/build/ros2_python_tutorial",
+        "/home/mj/ros2_ws/install/ros2_python_tutorial/lib/python3.12/site-packages",
+        "/home/mj/ros2_ws/install/ros2_interfaces_tutorial/lib/python3.12/site-packages",
+        "/opt/ros/jazzy/lib/python3.12/site-packages",
+        "/home/mj/crazyflie/crazyflie-firmware/build",
+        ""
+    ]
 }

@@ -111,6 +111,9 @@ public:
       "contact_force_x_topic", "/su/contact_force_x");
     contact_signal_timeout_sec_ = declare_parameter<double>(
       "contact_signal_timeout_sec", 0.15);
+    wall_v_lat_contact_force_threshold_ = std::max(
+      0.0,
+      declare_parameter<double>("wall_v_lat_contact_force_threshold", 0.005));
 
     sub_keyboard_ = create_subscription<std_msgs::msg::Float64MultiArray>(
       "/su/keyboard_input", 10,
@@ -121,6 +124,12 @@ public:
     sub_cmd_force_ = create_subscription<std_msgs::msg::Float32>(
       "su/cmd_force", 10,
       std::bind(&TrajectoryGeneration::cmdForceCb, this, std::placeholders::_1));
+    sub_wall_omega_feedback_ = create_subscription<std_msgs::msg::Float64MultiArray>(
+      "/environment/wall_omega_feedback", 10,
+      std::bind(
+        &TrajectoryGeneration::wallOmegaFeedbackCb,
+        this,
+        std::placeholders::_1));
     sub_contact_frame_quat_ = create_subscription<geometry_msgs::msg::QuaternionStamped>(
       contact_frame_quat_topic_, 10,
       std::bind(&TrajectoryGeneration::contactFrameQuatCb, this, std::placeholders::_1));
@@ -615,6 +624,16 @@ private:
     cmd_force_desired_ = static_cast<double>(msg->data);
   }
 
+  void wallOmegaFeedbackCb(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
+  {
+    if (!msg || msg->data.size() < 5 || !std::isfinite(msg->data[4])) {
+      return;
+    }
+
+    std::lock_guard<std::mutex> lk(contact_mtx_);
+    wall_v_lat_cmd_ = msg->data[4];
+  }
+
   void contactFrameQuatCb(const geometry_msgs::msg::QuaternionStamped::SharedPtr msg)
   {
     std::lock_guard<std::mutex> lk(contact_mtx_);
@@ -797,6 +816,7 @@ private:
     Eigen::Vector3d contact_t2_w = Eigen::Vector3d::UnitZ();
     double contact_force_x_local = 0.0;
     double cmd_force_desired_local = 0.0;
+    double wall_v_lat_cmd_local = 0.0;
     bool contact_frame_ok = false;
     bool contact_force_ok = false;
     {
@@ -808,6 +828,7 @@ private:
       contact_t2_w = contact_t2_w_;
       contact_force_x_local = contact_force_x_;
       cmd_force_desired_local = cmd_force_desired_;
+      wall_v_lat_cmd_local = wall_v_lat_cmd_;
       contact_frame_ok = contact_frame_received_;
       contact_force_ok = contact_force_x_received_;
     }
@@ -816,6 +837,12 @@ private:
       contact_frame_ok && isSignalFresh(last_contact_frame_stamp_, now);
     contact_force_ok =
       contact_force_ok && isSignalFresh(last_contact_force_x_stamp_, now);
+    const bool wall_v_lat_contact_active =
+      contact_force_ok &&
+      std::abs(contact_force_x_local) >= wall_v_lat_contact_force_threshold_;
+    if (!wall_v_lat_contact_active) {
+      wall_v_lat_cmd_local = 0.0;
+    }
 
     if (!integrated_ref_initialized_) {
       syncIntegratedReferenceToMeasured(ref);
@@ -939,7 +966,9 @@ private:
     Eigen::Vector2d u_tan_scaled = Eigen::Vector2d::Zero();
     if (contact_basis_ok) {
       u_tan_scaled = computePatternTangentialVelocity(s_dot);
-      v_tan_world = contact_t1_w * u_tan_scaled.x() + contact_t2_w * u_tan_scaled.y();
+      v_tan_world =
+        contact_t1_w * (u_tan_scaled.x() + wall_v_lat_cmd_local) +
+        contact_t2_w * u_tan_scaled.y();
     }
 
     double v_n_feedback = 0.0;
@@ -1092,6 +1121,7 @@ private:
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_keyboard_;
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_use_vel_mode_;
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_cmd_force_;
+  rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_wall_omega_feedback_;
   rclcpp::Subscription<geometry_msgs::msg::QuaternionStamped>::SharedPtr sub_contact_frame_quat_;
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_contact_force_x_;
 
@@ -1162,6 +1192,7 @@ private:
   std::string contact_frame_quat_topic_;
   std::string contact_force_x_topic_;
   double contact_signal_timeout_sec_{0.15};
+  double wall_v_lat_contact_force_threshold_{0.005};
 
   std::mutex cmd_mtx_;
   std::array<double, 3> sp_in_{0.0, 0.0, 0.0};
@@ -1172,6 +1203,7 @@ private:
   std::mutex contact_mtx_;
   bool use_vel_mode_{false};
   double cmd_force_desired_{0.0};
+  double wall_v_lat_cmd_{0.0};
   Eigen::Matrix3d contact_R_C_{(Eigen::Matrix3d() <<
     -1.0, 0.0, 0.0,
      0.0, -1.0, 0.0,

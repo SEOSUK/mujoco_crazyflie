@@ -1,6 +1,7 @@
 #include <rclcpp/rclcpp.hpp>
 
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <geometry_msgs/msg/twist_stamped.hpp>
 #include <geometry_msgs/msg/vector3_stamped.hpp>
 #include <geometry_msgs/msg/wrench_stamped.hpp>
 #include <geometry_msgs/msg/quaternion_stamped.hpp>
@@ -157,11 +158,17 @@ public:
     wall_pos_x_ = this->declare_parameter<double>("wall.pos.x", 0.2);
     wall_pos_y_ = this->declare_parameter<double>("wall.pos.y", 0.0);
     wall_pos_z_ = this->declare_parameter<double>("wall.pos.z", 0.0);
-    wall_size_x_ = this->declare_parameter<double>("wall.size.x", 0.1);
-    wall_size_y_ = this->declare_parameter<double>("wall.size.y", 2.5);
-    wall_size_z_ = this->declare_parameter<double>("wall.size.z", 2.5);
+    wall_size_x_ = this->declare_parameter<double>("wall.size.x", 0.2);
+    wall_size_y_ = this->declare_parameter<double>("wall.size.y", 1.5);
+    wall_size_z_ = this->declare_parameter<double>("wall.size.z", 0.3);
     wall_pose_topic_ = this->declare_parameter<std::string>(
       "wall.pose_topic", "/environment/wall_pose");
+    wall_twist_topic_ = this->declare_parameter<std::string>(
+      "wall.twist_topic", "/environment/wall_twist");
+    wall_frame_ = this->declare_parameter<std::string>(
+      "wall.frame", "mujoco_wall");
+    wall_vel_scale_ = this->declare_parameter<double>("wall.velocity_scale", 1.0);
+    wall_angvel_scale_ = this->declare_parameter<double>("wall.angular_velocity_scale", 0.3);
     wall_com_x_ = this->declare_parameter<double>("wall.comX", 0.0);
     wall_com_y_ = this->declare_parameter<double>("wall.comY", 0.0);
     wall_com_z_ = this->declare_parameter<double>("wall.comZ", 0.0);
@@ -283,6 +290,9 @@ public:
     sub_wall_pose_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
       wall_pose_topic_, 10,
       std::bind(&RvizVisual::cb_wall_pose, this, std::placeholders::_1));
+    sub_wall_twist_ = this->create_subscription<geometry_msgs::msg::TwistStamped>(
+      wall_twist_topic_, 10,
+      std::bind(&RvizVisual::cb_wall_twist, this, std::placeholders::_1));
 
     sub_mob_2nd_order_ = this->create_subscription<geometry_msgs::msg::WrenchStamped>(
       mob_topic_2nd_order_, 10,
@@ -330,6 +340,8 @@ public:
       "/rviz/estimated_contact_normal_ke", 10);
     pub_true_normal_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
       "/rviz/true_contact_normal", 10);
+    pub_true_normal_vector_ = this->create_publisher<geometry_msgs::msg::Vector3Stamped>(
+      "/true_normal", 10);
     pub_ke_force_normal_raw_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
       "/rviz/ke_force_normal_raw", 10);
     pub_ke_force_normal_projected_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
@@ -356,6 +368,10 @@ public:
 
     pub_ee_acc_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
       "/rviz/EE_acceleration", 10);
+    pub_wall_vel_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
+      "/rviz/wall_velocity", 10);
+    pub_wall_angvel_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
+      "/rviz/wall_angular_velocity", 10);
     pub_environment_marker_ = this->create_publisher<visualization_msgs::msg::Marker>(
       environment_marker_topic_, 10);
     pub_wind_indicator_markers_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
@@ -454,6 +470,13 @@ private:
     std::lock_guard<std::mutex> lk(mtx_);
     wall_pose_ = *msg;
     have_wall_pose_ = true;
+  }
+
+  void cb_wall_twist(const geometry_msgs::msg::TwistStamped::SharedPtr msg)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    wall_twist_ = *msg;
+    have_wall_twist_ = true;
   }
 
   void cb_mob_2nd_order(const geometry_msgs::msg::WrenchStamped::SharedPtr msg)
@@ -756,6 +779,57 @@ private:
       static_cast<float>(r_wc[1][0]),
       static_cast<float>(r_wc[2][0])};
     return isFiniteVector(normal_world_out) && vectorNorm(normal_world_out) > 1e-9f;
+  }
+
+  static bool contactQuaternionFromNormal(
+    double nx,
+    double ny,
+    double nz,
+    geometry_msgs::msg::Quaternion & quat_out)
+  {
+    tf2::Vector3 normal(nx, ny, nz);
+    const double normal_norm = normal.length();
+    if (!(std::isfinite(normal_norm) && normal_norm > 1.0e-12)) {
+      return false;
+    }
+    normal /= normal_norm;
+
+    const tf2::Vector3 world_z(0.0, 0.0, 1.0);
+    tf2::Vector3 tangent_1 = world_z.cross(normal);
+    double tangent_1_norm = tangent_1.length();
+    if (tangent_1_norm < 1.0e-6) {
+      tf2::Vector3 fallback_axis(0.0, 1.0, 0.0);
+      if (std::abs(normal.dot(fallback_axis)) > 0.9) {
+        fallback_axis = tf2::Vector3(1.0, 0.0, 0.0);
+      }
+      tangent_1 = fallback_axis.cross(normal);
+      tangent_1_norm = tangent_1.length();
+      if (tangent_1_norm < 1.0e-12) {
+        return false;
+      }
+    }
+    tangent_1 /= tangent_1_norm;
+
+    tf2::Vector3 tangent_2 = normal.cross(tangent_1);
+    const double tangent_2_norm = tangent_2.length();
+    if (tangent_2_norm < 1.0e-12) {
+      return false;
+    }
+    tangent_2 /= tangent_2_norm;
+
+    const tf2::Matrix3x3 rotation(
+      normal.x(), tangent_1.x(), tangent_2.x(),
+      normal.y(), tangent_1.y(), tangent_2.y(),
+      normal.z(), tangent_1.z(), tangent_2.z());
+    tf2::Quaternion q_wc;
+    rotation.getRotation(q_wc);
+    q_wc.normalize();
+
+    quat_out.x = q_wc.x();
+    quat_out.y = q_wc.y();
+    quat_out.z = q_wc.z();
+    quat_out.w = q_wc.w();
+    return true;
   }
 
   static geometry_msgs::msg::Point makePoint(double x, double y, double z)
@@ -1539,13 +1613,50 @@ private:
     double & ny,
     double & nz) const
   {
-    (void)ee_pose;
     if (environment_type_ == "wall") {
-      nx = 1.0;
-      ny = 0.0;
-      nz = 0.0;
+      geometry_msgs::msg::Pose wall_pose;
+      bool have_wall_pose = false;
+      {
+        std::lock_guard<std::mutex> lk(mtx_);
+        have_wall_pose = have_wall_pose_;
+        wall_pose = wall_pose_.pose;
+      }
+
+      tf2::Quaternion q(0.0, 0.0, 0.0, 1.0);
+      if (have_wall_pose) {
+        const bool valid_wall_quat =
+          std::isfinite(wall_pose.orientation.x) &&
+          std::isfinite(wall_pose.orientation.y) &&
+          std::isfinite(wall_pose.orientation.z) &&
+          std::isfinite(wall_pose.orientation.w) &&
+          (wall_pose.orientation.x * wall_pose.orientation.x +
+          wall_pose.orientation.y * wall_pose.orientation.y +
+          wall_pose.orientation.z * wall_pose.orientation.z +
+          wall_pose.orientation.w * wall_pose.orientation.w) > 1.0e-12;
+        if (valid_wall_quat) {
+          q = tf2::Quaternion(
+            wall_pose.orientation.x,
+            wall_pose.orientation.y,
+            wall_pose.orientation.z,
+            wall_pose.orientation.w);
+          q.normalize();
+        }
+      }
+
+      const tf2::Vector3 local_normal(-1.0, 0.0, 0.0);
+      tf2::Vector3 world_normal = tf2::Matrix3x3(q) * local_normal;
+      const double norm = world_normal.length();
+      if (!(std::isfinite(norm)) || norm <= 1.0e-12) {
+        return false;
+      }
+      world_normal /= norm;
+      nx = world_normal.x();
+      ny = world_normal.y();
+      nz = world_normal.z();
       return true;
     }
+
+    (void)ee_pose;
 
     if (environment_type_ == "surface_chain") {
       const auto geom = makeSurfaceChainGeometry();
@@ -1883,7 +1994,8 @@ private:
   // =========================
   void loop_publish()
   {
-    geometry_msgs::msg::PoseStamped pose, ee_pose;
+    geometry_msgs::msg::PoseStamped pose, ee_pose, wall_pose;
+    geometry_msgs::msg::TwistStamped wall_twist;
     geometry_msgs::msg::Vector3Stamped vel, acc, ee_vel, ee_acc;
     geometry_msgs::msg::PoseStamped cmd_drone_pose, cmd_ee_pose, cmd_active_pose;
     std::array<float, 3> mob_force_2nd_order;
@@ -1901,7 +2013,7 @@ private:
     geometry_msgs::msg::Quaternion contact_q_pure;
     geometry_msgs::msg::Quaternion contact_q;
 
-    bool have_pose, have_vel, have_acc;
+    bool have_pose, have_vel, have_acc, have_wall_pose, have_wall_twist;
     bool have_ee_pose, have_ee_vel, have_ee_acc;
     bool have_cmd_drone_pose, have_cmd_ee_pose, have_cmd_active_pose;
     bool have_mob_force_2nd_order, have_mob_force_consistency;
@@ -1922,6 +2034,8 @@ private:
       vel = vel_;
       acc = acc_;
       ee_pose = ee_pose_;
+      wall_pose = wall_pose_;
+      wall_twist = wall_twist_;
       ee_vel = ee_vel_;
       ee_acc = ee_acc_;
 
@@ -1950,6 +2064,8 @@ private:
       have_ee_pose = have_ee_pose_;
       have_ee_vel = have_ee_vel_;
       have_ee_acc = have_ee_acc_;
+      have_wall_pose = have_wall_pose_;
+      have_wall_twist = have_wall_twist_;
 
       have_cmd_drone_pose = have_cmd_drone_pose_;
       have_cmd_ee_pose = have_cmd_ee_pose_;
@@ -1974,12 +2090,23 @@ private:
 
     const auto stamp = this->now();
 
+    geometry_msgs::msg::Quaternion true_contact_q;
+    bool have_true_contact_q = false;
+    if (have_ee_pose) {
+      double true_nx = 0.0;
+      double true_ny = 0.0;
+      double true_nz = 0.0;
+      have_true_contact_q =
+        computeTrueNormalAtEE(ee_pose, true_nx, true_ny, true_nz) &&
+        contactQuaternionFromNormal(true_nx, true_ny, true_nz, true_contact_q);
+    }
+
     if (have_ee_pose) {
       pushTrajectorySample(ee_pose, stamp);
     }
 
-    if (have_ee_pose && have_contact_q) {
-      pushHistorySample(ee_pose, contact_q, stamp);
+    if (have_ee_pose && have_true_contact_q) {
+      pushHistorySample(ee_pose, true_contact_q, stamp);
     }
 
     // 1) TF: world -> crazyflie
@@ -2047,8 +2174,21 @@ private:
       tf_broadcaster_->sendTransform(tf);
     }
 
-    // 6) TF: world -> estimated_contact_frame
-    if (have_ee_pose && have_contact_q) {
+    // 6) TF: world -> MuJoCo wall body. MuJoCo xquat is already expressed in world.
+    if (environment_type_ == "wall" && have_wall_pose) {
+      geometry_msgs::msg::TransformStamped tf;
+      tf.header.stamp = stamp;
+      tf.header.frame_id = parent_frame_;
+      tf.child_frame_id = wall_frame_;
+      tf.transform.translation.x = wall_pose.pose.position.x;
+      tf.transform.translation.y = wall_pose.pose.position.y;
+      tf.transform.translation.z = wall_pose.pose.position.z;
+      tf.transform.rotation = wall_pose.pose.orientation;
+      tf_broadcaster_->sendTransform(tf);
+    }
+
+    // 7) TF: world -> estimated_contact_frame, oriented from the environment true normal.
+    if (have_ee_pose && have_true_contact_q) {
       geometry_msgs::msg::TransformStamped tf;
       tf.header.stamp = stamp;
       tf.header.frame_id = parent_frame_;
@@ -2056,13 +2196,7 @@ private:
       tf.transform.translation.x = ee_pose.pose.position.x;
       tf.transform.translation.y = ee_pose.pose.position.y;
       tf.transform.translation.z = ee_pose.pose.position.z;
-
-      tf2::Quaternion q_wc(contact_q.x, contact_q.y, contact_q.z, contact_q.w);
-      q_wc.normalize();
-      tf.transform.rotation.x = q_wc.x();
-      tf.transform.rotation.y = q_wc.y();
-      tf.transform.rotation.z = q_wc.z();
-      tf.transform.rotation.w = q_wc.w();
+      tf.transform.rotation = true_contact_q;
       tf_broadcaster_->sendTransform(tf);
     }
 
@@ -2293,12 +2427,20 @@ private:
           "true_contact_normal", 0, parent_frame_, stamp,
           ee_pose.pose.position.x, ee_pose.pose.position.y, ee_pose.pose.position.z,
           nx, ny, nz,
-          1.50 * normal_scale_,
-          source_shaft,
-          source_head_diam,
-          source_head_len,
+          1.00 * normal_scale_,
+          normal_shaft,
+          normal_head_diam,
+          normal_head_len,
           0.70, 0.10, 0.90);
         pub_true_normal_arrow_->publish(mk);
+
+        geometry_msgs::msg::Vector3Stamped true_normal_msg;
+        true_normal_msg.header.stamp = stamp;
+        true_normal_msg.header.frame_id = parent_frame_;
+        true_normal_msg.vector.x = nx;
+        true_normal_msg.vector.y = ny;
+        true_normal_msg.vector.z = nz;
+        pub_true_normal_vector_->publish(true_normal_msg);
       } else {
         pub_true_normal_arrow_->publish(
           make_delete_marker("true_contact_normal", 0, parent_frame_, stamp));
@@ -2311,14 +2453,12 @@ private:
       make_environment_marker("environment", 0, parent_frame_, stamp));
     pub_environment_marker_->publish(
       make_delete_marker("environment", 2, parent_frame_, stamp));
+    pub_environment_marker_->publish(
+      make_delete_marker("environment_outline", 3, parent_frame_, stamp));
     if (environment_type_ == "wall") {
-      pub_environment_marker_->publish(
-        make_wall_outline_marker("environment_outline", 3, parent_frame_, stamp));
       pub_environment_marker_->publish(
         make_wall_com_marker("environment_com", 1, parent_frame_, stamp));
     } else {
-      pub_environment_marker_->publish(
-        make_delete_marker("environment_outline", 3, parent_frame_, stamp));
       pub_environment_marker_->publish(
         make_delete_marker("environment_com", 1, parent_frame_, stamp));
     }
@@ -2380,6 +2520,44 @@ private:
         0.2, 1.0, 1.0);
       pub_ee_acc_arrow_->publish(mk);
     }
+
+    // 14) Markers: push-box linear/angular velocity in world coordinates,
+    // anchored at the MuJoCo wall-body TF origin.
+    if (environment_type_ == "wall" && have_wall_pose && have_wall_twist) {
+      const double wall_arrow_shaft = 1.6 * source_shaft;
+      const double wall_arrow_head_diam = 1.6 * source_head_diam;
+      const double wall_arrow_head_len = 1.3 * source_head_len;
+
+      auto vel_marker = make_arrow_marker_with_dims(
+        "wall_velocity", 0, parent_frame_, stamp,
+        wall_pose.pose.position.x,
+        wall_pose.pose.position.y,
+        wall_pose.pose.position.z,
+        wall_twist.twist.linear.x,
+        wall_twist.twist.linear.y,
+        wall_twist.twist.linear.z,
+        wall_vel_scale_,
+        wall_arrow_shaft,
+        wall_arrow_head_diam,
+        wall_arrow_head_len,
+        0.10, 0.95, 0.25);
+      pub_wall_vel_arrow_->publish(vel_marker);
+
+      auto angvel_marker = make_arrow_marker_with_dims(
+        "wall_angular_velocity", 0, parent_frame_, stamp,
+        wall_pose.pose.position.x,
+        wall_pose.pose.position.y,
+        wall_pose.pose.position.z,
+        wall_twist.twist.angular.x,
+        wall_twist.twist.angular.y,
+        wall_twist.twist.angular.z,
+        wall_angvel_scale_,
+        wall_arrow_shaft,
+        wall_arrow_head_diam,
+        wall_arrow_head_len,
+        0.95, 0.20, 0.85);
+      pub_wall_angvel_arrow_->publish(angvel_marker);
+    }
   }
 
 private:
@@ -2400,6 +2578,7 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_cmd_ee_pose_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_cmd_active_pose_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_wall_pose_;
+  rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr sub_wall_twist_;
 
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_2nd_order_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_consistency_;
@@ -2417,6 +2596,7 @@ private:
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_estimated_normal_pure_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_estimated_normal_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_true_normal_arrow_;
+  rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr pub_true_normal_vector_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_ke_force_normal_raw_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_ke_force_normal_projected_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_ke_gamma_normal_arrow_;
@@ -2428,6 +2608,8 @@ private:
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_drone_acc_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_ee_vel_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_ee_acc_arrow_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_wall_vel_arrow_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_wall_angvel_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_environment_marker_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_wind_indicator_markers_;
 
@@ -2456,10 +2638,12 @@ private:
   geometry_msgs::msg::PoseStamped cmd_ee_pose_;
   geometry_msgs::msg::PoseStamped cmd_active_pose_;
   geometry_msgs::msg::PoseStamped wall_pose_;
+  geometry_msgs::msg::TwistStamped wall_twist_;
   bool have_cmd_drone_pose_{false};
   bool have_cmd_ee_pose_{false};
   bool have_cmd_active_pose_{false};
   bool have_wall_pose_{false};
+  bool have_wall_twist_{false};
 
   std::array<float, 3> mob_force_2nd_order_{0.0f, 0.0f, 0.0f};
   std::array<float, 3> mob_force_consistency_{0.0f, 0.0f, 0.0f};
@@ -2570,10 +2754,14 @@ private:
   double wall_pos_x_{0.2};
   double wall_pos_y_{0.0};
   double wall_pos_z_{0.0};
-  double wall_size_x_{0.1};
-  double wall_size_y_{2.5};
-  double wall_size_z_{2.5};
+  double wall_size_x_{0.2};
+  double wall_size_y_{1.5};
+  double wall_size_z_{0.3};
   std::string wall_pose_topic_;
+  std::string wall_twist_topic_;
+  std::string wall_frame_{"mujoco_wall"};
+  double wall_vel_scale_{1.0};
+  double wall_angvel_scale_{0.3};
   double wall_com_x_{0.0};
   double wall_com_y_{0.0};
   double wall_com_z_{0.0};

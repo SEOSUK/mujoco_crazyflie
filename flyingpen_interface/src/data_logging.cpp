@@ -14,6 +14,7 @@
 #include <rclcpp/rclcpp.hpp>
 
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <geometry_msgs/msg/twist_stamped.hpp>
 #include <geometry_msgs/msg/vector3_stamped.hpp>
 #include <geometry_msgs/msg/quaternion_stamped.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
@@ -228,6 +229,15 @@ public:
     sub_normal_quat_ke_ = create_subscription<geometry_msgs::msg::QuaternionStamped>(
       "/estimated_contact_frame_quat", 10,
       std::bind(&DataLogger::cb_normal_quat_ke, this, std::placeholders::_1));
+    sub_true_normal_ = create_subscription<geometry_msgs::msg::Vector3Stamped>(
+      "/true_normal", 10,
+      std::bind(&DataLogger::cb_true_normal, this, std::placeholders::_1));
+    sub_wall_twist_ = create_subscription<geometry_msgs::msg::TwistStamped>(
+      "/environment/wall_twist", 10,
+      std::bind(&DataLogger::cb_wall_twist, this, std::placeholders::_1));
+    sub_wall_omega_feedback_ = create_subscription<std_msgs::msg::Float64MultiArray>(
+      "/environment/wall_omega_feedback", 10,
+      std::bind(&DataLogger::cb_wall_omega_feedback, this, std::placeholders::_1));
 
     sub_force_lpf_ = create_subscription<std_msgs::msg::Float64MultiArray>(
       "/su/force_lpf", 10,
@@ -308,6 +318,12 @@ private:
       "n_f_x,n_f_y,n_f_z,"
       "n_alg_x,n_alg_y,n_alg_z,"
       "f_g_x,f_g_y,f_g_z,"
+      "true_normal_x,true_normal_y,true_normal_z,"
+      "wall_vel_x,wall_vel_y,wall_vel_z,"
+      "wall_angvel_x,wall_angvel_y,wall_angvel_z,"
+      "omega_des,omega_pushbox,error_omega,kp_omega,kd_omega,"
+      "error_omega_dot_raw,error_omega_dot,v_lat_cmd,"
+      "f_ext_x,f_ext_y,theta_fext,omega_fext_dir,omega_fext_dir_raw,"
       "offline_mob2_fx,offline_mob2_fy,offline_mob2_fz,offline_mob2_tx,offline_mob2_ty,offline_mob2_tz,"
       "offline_mobc_fx,offline_mobc_fy,offline_mobc_fz,offline_mobc_tx,offline_mobc_ty,offline_mobc_tz,"
       "offline_tauhat_x,offline_tauhat_y,offline_tauhat_z,"
@@ -514,6 +530,50 @@ private:
     have_normal_quat_ke_ = true;
   }
 
+  void cb_true_normal(const geometry_msgs::msg::Vector3Stamped::SharedPtr m)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    true_normal_ << m->vector.x, m->vector.y, m->vector.z;
+    have_true_normal_ = true;
+  }
+
+  void cb_wall_twist(const geometry_msgs::msg::TwistStamped::SharedPtr m)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    wall_vel_ <<
+      m->twist.linear.x,
+      m->twist.linear.y,
+      m->twist.linear.z;
+    wall_angvel_ <<
+      m->twist.angular.x,
+      m->twist.angular.y,
+      m->twist.angular.z;
+    have_wall_twist_ = true;
+  }
+
+  void cb_wall_omega_feedback(const std_msgs::msg::Float64MultiArray::SharedPtr m)
+  {
+    if (!m || m->data.size() < 13) {
+      return;
+    }
+
+    std::lock_guard<std::mutex> lk(mtx_);
+    omega_des_ = m->data[0];
+    omega_pushbox_ = m->data[1];
+    error_omega_ = m->data[2];
+    kp_omega_ = m->data[3];
+    v_lat_cmd_ = m->data[4];
+    f_ext_x_ = m->data[5];
+    f_ext_y_ = m->data[6];
+    theta_fext_ = m->data[7];
+    omega_fext_dir_ = m->data[8];
+    omega_fext_dir_raw_ = m->data[9];
+    kd_omega_ = m->data[10];
+    error_omega_dot_raw_ = m->data[11];
+    error_omega_dot_ = m->data[12];
+    have_wall_omega_feedback_ = true;
+  }
+
 
   void cb_force_lpf(const std_msgs::msg::Float64MultiArray::SharedPtr m)
   {
@@ -604,7 +664,8 @@ private:
     Eigen::Vector3d mob_2nd_tau_tauhat_world, mob_2nd_tau_rxf_world;
     Eigen::Vector3d wind_force, ee_vel;
     Eigen::Vector3d ee_pos, c_hat_v_cmd, c_hat_v_act, n_geo, n_f, n_alg, f_g;
-    Eigen::Vector3d normal_pure, normal_ke, n_ke_gamma_proj;
+    Eigen::Vector3d normal_pure, normal_ke, n_ke_gamma_proj, true_normal;
+    Eigen::Vector3d wall_vel, wall_angvel;
     Eigen::Vector3d n_ke_raw_direct(quiet_nan(), quiet_nan(), quiet_nan());
     Eigen::Vector3d n_ke_gamma_proj_direct(quiet_nan(), quiet_nan(), quiet_nan());
     Eigen::Vector3d w_s_direct(quiet_nan(), quiet_nan(), quiet_nan());
@@ -616,6 +677,9 @@ private:
     double rolld, pitchd, yawd;
     double Fz, cmd_force, F_error_dot_raw, F_error_dot_filt, c_hat_fx_act;
     double alpha_frame, omega_n, normal_leakage, alpha_u1, alpha_u2, preload_feedback, c_tau, pattern_progress, pattern_speed_cmd;
+    double omega_des, omega_pushbox, error_omega;
+    double kp_omega, kd_omega, error_omega_dot_raw, error_omega_dot, v_lat_cmd;
+    double f_ext_x, f_ext_y, theta_fext, omega_fext_dir, omega_fext_dir_raw;
 
 
     uint32_t mask;
@@ -662,6 +726,22 @@ private:
       n_f = n_f_;
       n_alg = n_alg_;
       f_g = f_g_;
+      true_normal = true_normal_;
+      wall_vel = wall_vel_;
+      wall_angvel = wall_angvel_;
+      omega_des = omega_des_;
+      omega_pushbox = omega_pushbox_;
+      error_omega = error_omega_;
+      kp_omega = kp_omega_;
+      kd_omega = kd_omega_;
+      error_omega_dot_raw = error_omega_dot_raw_;
+      error_omega_dot = error_omega_dot_;
+      v_lat_cmd = v_lat_cmd_;
+      f_ext_x = f_ext_x_;
+      f_ext_y = f_ext_y_;
+      theta_fext = theta_fext_;
+      omega_fext_dir = omega_fext_dir_;
+      omega_fext_dir_raw = omega_fext_dir_raw_;
       n_ke_gamma_proj = n_ke_gamma_proj_;
       normal_pure = normal_pure_;
       normal_ke = normal_ke_;
@@ -705,6 +785,9 @@ private:
       mask |= (have_control_metrics_ ? (1u<<25) : 0u);
       mask |= (have_normal_quat_pure_ ? (1u<<26) : 0u);
       mask |= (have_normal_quat_ke_ ? (1u<<27) : 0u);
+      mask |= (have_true_normal_ ? (1u<<28) : 0u);
+      mask |= (have_wall_twist_ ? (1u<<30) : 0u);
+      mask |= (have_wall_omega_feedback_ ? (1u<<31) : 0u);
 
     }
 
@@ -767,7 +850,7 @@ private:
     }
 
     std_msgs::msg::Float64MultiArray msg;
-    msg.data.resize(108);
+    msg.data.resize(130);
 
     msg.data[0]  = t;
 
@@ -894,6 +977,28 @@ private:
     msg.data[105] = f_g.x();
     msg.data[106] = f_g.y();
     msg.data[107] = f_g.z();
+    msg.data[108] = true_normal.x();
+    msg.data[109] = true_normal.y();
+    msg.data[110] = true_normal.z();
+    msg.data[111] = wall_vel.x();
+    msg.data[112] = wall_vel.y();
+    msg.data[113] = wall_vel.z();
+    msg.data[114] = wall_angvel.x();
+    msg.data[115] = wall_angvel.y();
+    msg.data[116] = wall_angvel.z();
+    msg.data[117] = omega_des;
+    msg.data[118] = omega_pushbox;
+    msg.data[119] = error_omega;
+    msg.data[120] = kp_omega;
+    msg.data[121] = v_lat_cmd;
+    msg.data[122] = f_ext_x;
+    msg.data[123] = f_ext_y;
+    msg.data[124] = theta_fext;
+    msg.data[125] = omega_fext_dir;
+    msg.data[126] = omega_fext_dir_raw;
+    msg.data[127] = kd_omega;
+    msg.data[128] = error_omega_dot_raw;
+    msg.data[129] = error_omega_dot;
 
 
 
@@ -937,6 +1042,14 @@ private:
            << msg.data[99] << "," << msg.data[100] << "," << msg.data[101] << ","
            << msg.data[102] << "," << msg.data[103] << "," << msg.data[104] << ","
            << msg.data[105] << "," << msg.data[106] << "," << msg.data[107] << ","
+           << msg.data[108] << "," << msg.data[109] << "," << msg.data[110] << ","
+           << msg.data[111] << "," << msg.data[112] << "," << msg.data[113] << ","
+           << msg.data[114] << "," << msg.data[115] << "," << msg.data[116] << ","
+           << msg.data[117] << "," << msg.data[118] << "," << msg.data[119] << ","
+           << msg.data[120] << "," << msg.data[127] << ","
+           << msg.data[128] << "," << msg.data[129] << "," << msg.data[121] << ","
+           << msg.data[122] << "," << msg.data[123] << "," << msg.data[124] << "," << msg.data[125] << ","
+           << msg.data[126] << ","
            << mob_force_2nd_order.x() << "," << mob_force_2nd_order.y() << "," << mob_force_2nd_order.z() << ","
            << mob_torque_2nd_order.x() << "," << mob_torque_2nd_order.y() << "," << mob_torque_2nd_order.z() << ","
            << mob_force_2nd_tau.x() << "," << mob_force_2nd_tau.y() << "," << mob_force_2nd_tau.z() << ","
@@ -998,6 +1111,22 @@ private:
   Eigen::Vector3d n_f_{0,0,0};
   Eigen::Vector3d n_alg_{0,0,0};
   Eigen::Vector3d f_g_{0,0,0};
+  Eigen::Vector3d true_normal_{quiet_nan(), quiet_nan(), quiet_nan()};
+  Eigen::Vector3d wall_vel_{quiet_nan(), quiet_nan(), quiet_nan()};
+  Eigen::Vector3d wall_angvel_{quiet_nan(), quiet_nan(), quiet_nan()};
+  double omega_des_{quiet_nan()};
+  double omega_pushbox_{quiet_nan()};
+  double error_omega_{quiet_nan()};
+  double kp_omega_{quiet_nan()};
+  double kd_omega_{quiet_nan()};
+  double error_omega_dot_raw_{quiet_nan()};
+  double error_omega_dot_{quiet_nan()};
+  double v_lat_cmd_{quiet_nan()};
+  double f_ext_x_{quiet_nan()};
+  double f_ext_y_{quiet_nan()};
+  double theta_fext_{quiet_nan()};
+  double omega_fext_dir_{quiet_nan()};
+  double omega_fext_dir_raw_{quiet_nan()};
   double alpha_frame_{quiet_nan()};
   double omega_n_{quiet_nan()};
   double normal_leakage_{quiet_nan()};
@@ -1051,6 +1180,9 @@ private:
   bool have_wind_{false};
   bool have_normal_quat_pure_{false};
   bool have_normal_quat_ke_{false};
+  bool have_true_normal_{false};
+  bool have_wall_twist_{false};
+  bool have_wall_omega_feedback_{false};
 
   double publish_hz_{400.0};
   double compare_velocity_epsilon_{0.01};
@@ -1079,6 +1211,9 @@ private:
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_normal_debug_metrics_;
   rclcpp::Subscription<geometry_msgs::msg::QuaternionStamped>::SharedPtr sub_normal_quat_pure_;
   rclcpp::Subscription<geometry_msgs::msg::QuaternionStamped>::SharedPtr sub_normal_quat_ke_;
+  rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_true_normal_;
+  rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr sub_wall_twist_;
+  rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_wall_omega_feedback_;
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_force_lpf_;
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_control_metrics_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_wrench_2nd_order_;

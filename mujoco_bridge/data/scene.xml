@@ -1,6 +1,6 @@
 <mujoco model="cf21B_scene">
   <include file="cf21B_500.xml"/>
-  <include file="wall.xml"/>
+  <include file="push_box.xml"/>
 
   <visual>
     <rgba haze="0.28 0.36 0.44 1"/>
@@ -39,9 +39,20 @@
 
   <default>
     <default class="env_ground">
-      <geom contype="1" conaffinity="6" friction="1.0 0 0" condim="3" margin="0" gap="0"/>
+      <geom contype="1" conaffinity="6" friction="0.01 0 0" condim="3" margin="0" gap="0"/>
     </default>
   </default>
+
+  <contact>
+    <pair name="ee_push_box_frictionless"
+          geom1="ee_tip_sphere"
+          geom2="push_box_collision"
+          condim="1"
+          margin="0.0015"
+          gap="0.0005"
+          solref="0.03 1.0"
+          solimp="0.90 0.95 0.001"/>
+  </contact>
 
   <worldbody>
     <light

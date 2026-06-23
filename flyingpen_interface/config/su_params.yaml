@@ -2,7 +2,7 @@
   ros__parameters:
     wall.comX: 0.0  # shared [m] object CoM offset from the geometric center
     wall.comY: 0.0  # shared [m] object CoM offset from the geometric center
-    wall.comZ: 0.2  # shared [m] object CoM offset from the geometric center
+    wall.comZ: 0.0  # shared [m] object CoM offset from the geometric center
 
 wrench_observer:
   ros__parameters:
@@ -36,7 +36,7 @@ trajectory_generation:
 normal_vector_estimation:
   ros__parameters:
     reference_object: "end_effector"  # shared command reference: "drone" or "end_effector"
-    normal_estimator_method: "normal_velocity_PE_based"  # "direction", "normal_force_based", "normal_velocity_PE_based", "normal_mujoco_measured", "None"
+    normal_estimator_method: "normal_mujoco_measured"  # "direction", "normal_force_based", "normal_velocity_PE_based", "normal_mujoco_measured", "None"
 
     normal_force_based:
       normBeta: 2.0  # [1/s] beta ≈ 2*pi*f_c, decay rate of the normal-axis memory matrix

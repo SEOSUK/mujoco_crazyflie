@@ -17,8 +17,8 @@ find_package(sensor_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(glfw3 REQUIRED)
 
-set(MUJOCO_INCLUDE_DIR "/home/seosuk/.local/lib/python3.10/site-packages/mujoco/include")
-set(MUJOCO_LIBRARY "/home/seosuk/.local/lib/python3.10/site-packages/mujoco/libmujoco.so.3.4.0")
+set(MUJOCO_INCLUDE_DIR "/home/mj/venvs/ROS2/lib/python3.12/site-packages/mujoco/include")
+set(MUJOCO_LIBRARY "/home/mj/venvs/ROS2/lib/python3.12/site-packages/mujoco/libmujoco.so.3.5.0")
 
 message(STATUS "MUJOCO_INCLUDE_DIR = ${MUJOCO_INCLUDE_DIR}")
 message(STATUS "MUJOCO_LIBRARY     = ${MUJOCO_LIBRARY}")

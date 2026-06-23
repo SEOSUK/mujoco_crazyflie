@@ -8,6 +8,7 @@ command_publisher:
     velocity_tick: [0.055, 0.055, 0.055]
     yaw_tick_deg: 2.0
     force_tick: 0.01
+    wall_angular_velocity_tick: 0.01
     gravity: 9.81
     calibration_window_sec: 1.0
 
@@ -17,6 +18,14 @@ plant:
     pub_hz: 400.0
     viewer_hz: 60.0
     end_effector_offset: [0.1, 0.0, 0.04]
+    omega_des: 0.0  # [rad/s], 0: rotation suppression/translation mode
+    kp_omega: 5.0  # [m/rad], signed yaw-rate-error to lateral-velocity gain
+    kd_omega: 1.0  # [m*s/rad], yaw-rate-error derivative gain
+    v_lat_max: 1.0  # [m/s], symmetric clamp for the final lateral velocity command
+    error_omega_dot_lpf:
+      cutoff_hz: 1.0  # [Hz], 1st-order LPF for yaw-rate-error derivative
+    omega_fext_lpf:
+      cutoff_hz: 1.0  # [Hz], 1st-order LPF for MOB force-direction yaw-rate proxy
 
     arm_xy: 0.035355
     k_tau: 0.00569278844371417
@@ -136,12 +145,13 @@ low_level_controller:
 trajectory_generation:
   ros__parameters:
     contact_force_x_topic: "/su/contact_force_x"
+    wall_v_lat_contact_force_threshold: 0.005  # [N], enable v_lat_cmd only during contact
     normal_debug_metrics_topic: "/normal_vector/debug_metrics"
       
 data_logger:
   ros__parameters:
-#    csv_dir: "~/ros2_ws/src/mujoco_crazyflie/flyingpen_interface/bag" # MJ
-    csv_dir: "~/mujoco_crazyflie/src/flyingpen_interface/bag" # SU
+    csv_dir: "~/sitl_ws/src/mujoco_crazyflie/flyingpen_interface/bag" # MJ
+#    csv_dir: "~/mujoco_crazyflie/src/flyingpen_interface/bag" # SU
     compare_velocity_epsilon: 0.01
     compare_gamma_epsilon: 3.0e-3
 

@@ -8,9 +8,12 @@
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <geometry_msgs/msg/twist_stamped.hpp>
 #include <geometry_msgs/msg/vector3_stamped.hpp>
 #include <geometry_msgs/msg/wrench_stamped.hpp>
+#include <std_msgs/msg/float32.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
+#include <std_msgs/msg/float64_multi_array.hpp>
 
 #include <array>
 #include <atomic>
@@ -340,6 +343,12 @@ private:
     declare_parameter("wall.comX", 0.0);
     declare_parameter("wall.comY", 0.0);
     declare_parameter("wall.comZ", 0.2);
+    declare_parameter("omega_des", 0.0);
+    declare_parameter("kp_omega", 0.02);
+    declare_parameter("kd_omega", 0.0);
+    declare_parameter("v_lat_max", 1.0);
+    declare_parameter("error_omega_dot_lpf.cutoff_hz", 10.0);
+    declare_parameter("omega_fext_lpf.cutoff_hz", 10.0);
 
     declare_parameter("viewer.orbit_sensitivity", 1.0);
     declare_parameter("viewer.pan_sensitivity", 1.2);
@@ -422,6 +431,14 @@ private:
       get_parameter("wall.comY").as_double(),
       get_parameter("wall.comZ").as_double()
     };
+    omega_des_ = get_parameter("omega_des").as_double();
+    kp_omega_ = get_parameter("kp_omega").as_double();
+    kd_omega_ = get_parameter("kd_omega").as_double();
+    v_lat_max_ = std::max(0.0, get_parameter("v_lat_max").as_double());
+    error_omega_dot_lpf_cutoff_hz_ =
+      std::max(0.0, get_parameter("error_omega_dot_lpf.cutoff_hz").as_double());
+    omega_fext_lpf_cutoff_hz_ =
+      std::max(0.0, get_parameter("omega_fext_lpf.cutoff_hz").as_double());
 
     viewer_orbit_sensitivity_ = get_parameter("viewer.orbit_sensitivity").as_double();
     viewer_pan_sensitivity_ = get_parameter("viewer.pan_sensitivity").as_double();
@@ -465,7 +482,10 @@ private:
         end_effector_offset_[0], end_effector_offset_[1], end_effector_offset_[2]);
     }
 
-    const int bid_wall = mj_name2id(model_, mjOBJ_BODY, "wall");
+    int bid_wall = mj_name2id(model_, mjOBJ_BODY, "push_box");
+    if (bid_wall < 0) {
+      bid_wall = mj_name2id(model_, mjOBJ_BODY, "wall");
+    }
     if (bid_wall >= 0) {
       double wall_geom_center_x = 0.0;
       double wall_geom_center_y = 0.0;
@@ -487,7 +507,7 @@ private:
         static_cast<mjtNum>(wall_geom_center_z + wall_com_body_[2]);
       RCLCPP_INFO(
         get_logger(),
-        "Applied MuJoCo wall CoM offset from geometric center = [%.4f %.4f %.4f]",
+        "Applied MuJoCo environment box CoM offset from geometric center = [%.4f %.4f %.4f]",
         wall_com_body_[0], wall_com_body_[1], wall_com_body_[2]);
     }
 
@@ -527,7 +547,10 @@ private:
         get_logger(), "Body 'wind_indicator_tip' not found. Wind indicator physics disabled.");
     }
 
-    bid_wall_ = mj_name2id(model_, mjOBJ_BODY, "wall");
+    bid_wall_ = mj_name2id(model_, mjOBJ_BODY, "push_box");
+    if (bid_wall_ < 0) {
+      bid_wall_ = mj_name2id(model_, mjOBJ_BODY, "wall");
+    }
     if (bid_wall_ >= 0) {
       const int wall_jnt_adr = model_->body_jntadr[bid_wall_];
       const int wall_jnt_num = model_->body_jntnum[bid_wall_];
@@ -536,7 +559,8 @@ private:
         qpos_adr_wall_ = model_->jnt_qposadr[jid_wall_];
         if (model_->jnt_type[jid_wall_] != mjJNT_FREE) {
           RCLCPP_WARN(
-            get_logger(), "Body 'wall' exists but is not FREE. Dynamic wall pose publishing disabled.");
+            get_logger(),
+            "Environment box body exists but is not FREE. Dynamic box pose publishing disabled.");
           jid_wall_ = -1;
           qpos_adr_wall_ = -1;
         }
@@ -625,6 +649,18 @@ private:
     sub_wind_ = create_subscription<geometry_msgs::msg::Vector3Stamped>(
       "/crazyflie/in/wind", 10,
       std::bind(&MujocoBridge::wind_callback, this, std::placeholders::_1));
+    sub_wall_angular_velocity_cmd_ = create_subscription<std_msgs::msg::Float32>(
+      "/su/cmd_wall_angular_velocity", 10,
+      std::bind(
+        &MujocoBridge::wall_angular_velocity_cmd_callback,
+        this,
+        std::placeholders::_1));
+    sub_mob_wrench_2nd_order_ = create_subscription<geometry_msgs::msg::WrenchStamped>(
+      "/crazyflie/out/mob_2nd", 10,
+      std::bind(
+        &MujocoBridge::mob_wrench_2nd_order_callback,
+        this,
+        std::placeholders::_1));
 
     pub_pose_ = create_publisher<geometry_msgs::msg::PoseStamped>("/crazyflie/out/pose", 10);
     pub_vel_ = create_publisher<geometry_msgs::msg::Vector3Stamped>("/crazyflie/out/vel", 10);
@@ -638,6 +674,10 @@ private:
     pub_contact_normal_world_ = create_publisher<geometry_msgs::msg::Vector3Stamped>(
       "/crazyflie/out/EE_contact_normal_mujoco", 10);
     pub_wall_pose_ = create_publisher<geometry_msgs::msg::PoseStamped>("/environment/wall_pose", 10);
+    pub_wall_twist_ = create_publisher<geometry_msgs::msg::TwistStamped>(
+      "/environment/wall_twist", 10);
+    pub_wall_omega_feedback_ = create_publisher<std_msgs::msg::Float64MultiArray>(
+      "/environment/wall_omega_feedback", 10);
   }
 
   void input_callback(const std_msgs::msg::Float32MultiArray::SharedPtr msg)
@@ -662,6 +702,51 @@ private:
     std::lock_guard<std::mutex> lock(wind_mtx_);
     wind_force_ = {msg->vector.x, msg->vector.y, msg->vector.z};
     wind_topic_received_ = true;
+  }
+
+  void wall_angular_velocity_cmd_callback(const std_msgs::msg::Float32::SharedPtr msg)
+  {
+    if (!msg || !std::isfinite(msg->data)) {
+      return;
+    }
+
+    std::lock_guard<std::mutex> lock(omega_mtx_);
+    omega_des_ = static_cast<double>(msg->data);
+  }
+
+  void mob_wrench_2nd_order_callback(
+    const geometry_msgs::msg::WrenchStamped::SharedPtr msg)
+  {
+    if (!msg ||
+      !std::isfinite(msg->wrench.force.x) ||
+      !std::isfinite(msg->wrench.force.y))
+    {
+      return;
+    }
+
+    const rclcpp::Time stamp(msg->header.stamp);
+    const double theta_fext = std::atan2(msg->wrench.force.y, msg->wrench.force.x);
+
+    std::lock_guard<std::mutex> lock(omega_mtx_);
+    f_ext_x_ = msg->wrench.force.x;
+    f_ext_y_ = msg->wrench.force.y;
+    theta_fext_ = theta_fext;
+
+    if (theta_fext_initialized_) {
+      const double dt = (stamp - prev_theta_fext_stamp_).seconds();
+      if (std::isfinite(dt) && dt > 1e-9) {
+        omega_fext_dir_raw_ = wrap_to_pi(theta_fext_ - prev_theta_fext_) / dt;
+        const double alpha = lpf_alpha(dt, omega_fext_lpf_cutoff_hz_);
+        omega_fext_dir_ += alpha * (omega_fext_dir_raw_ - omega_fext_dir_);
+      }
+    } else {
+      omega_fext_dir_raw_ = 0.0;
+      omega_fext_dir_ = 0.0;
+      theta_fext_initialized_ = true;
+    }
+
+    prev_theta_fext_ = theta_fext_;
+    prev_theta_fext_stamp_ = stamp;
   }
 
   std::array<double, 4> apply_actuator_dynamics(const std::array<double, 4>& f_cmd)
@@ -1082,6 +1167,74 @@ private:
       wall_pose_msg.pose.orientation.y = static_cast<double>(data_->xquat[wall_xquat_adr + 2]);
       wall_pose_msg.pose.orientation.z = static_cast<double>(data_->xquat[wall_xquat_adr + 3]);
       pub_wall_pose_->publish(wall_pose_msg);
+
+      mjtNum wall_velocity[6] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+      mj_objectVelocity(
+        model_, data_, mjOBJ_BODY, bid_wall_, wall_velocity, 0);
+
+      geometry_msgs::msg::TwistStamped wall_twist_msg;
+      wall_twist_msg.header.stamp = stamp;
+      wall_twist_msg.header.frame_id = "world";
+      wall_twist_msg.twist.angular.x = static_cast<double>(wall_velocity[0]);
+      wall_twist_msg.twist.angular.y = static_cast<double>(wall_velocity[1]);
+      wall_twist_msg.twist.angular.z = static_cast<double>(wall_velocity[2]);
+      wall_twist_msg.twist.linear.x = static_cast<double>(wall_velocity[3]);
+      wall_twist_msg.twist.linear.y = static_cast<double>(wall_velocity[4]);
+      wall_twist_msg.twist.linear.z = static_cast<double>(wall_velocity[5]);
+      pub_wall_twist_->publish(wall_twist_msg);
+
+      double omega_des = 0.0;
+      double f_ext_x = 0.0;
+      double f_ext_y = 0.0;
+      double theta_fext = 0.0;
+      double omega_fext_dir = 0.0;
+      double omega_fext_dir_raw = 0.0;
+      {
+        std::lock_guard<std::mutex> lock(omega_mtx_);
+        omega_des = omega_des_;
+        f_ext_x = f_ext_x_;
+        f_ext_y = f_ext_y_;
+        theta_fext = theta_fext_;
+        omega_fext_dir = omega_fext_dir_;
+        omega_fext_dir_raw = omega_fext_dir_raw_;
+      }
+      omega_pushbox_ = static_cast<double>(wall_velocity[2]);
+      error_omega_ = omega_des - omega_fext_dir;
+      if (error_omega_initialized_) {
+        const double dt = (stamp - prev_error_omega_stamp_).seconds();
+        if (std::isfinite(dt) && dt > 1e-9) {
+          error_omega_dot_raw_ = (error_omega_ - prev_error_omega_) / dt;
+          const double alpha = lpf_alpha(dt, error_omega_dot_lpf_cutoff_hz_);
+          error_omega_dot_ += alpha * (error_omega_dot_raw_ - error_omega_dot_);
+        }
+      } else {
+        error_omega_dot_raw_ = 0.0;
+        error_omega_dot_ = 0.0;
+        error_omega_initialized_ = true;
+      }
+      prev_error_omega_ = error_omega_;
+      prev_error_omega_stamp_ = stamp;
+      v_lat_cmd_ =
+        kp_omega_ * error_omega_ +
+        kd_omega_ * error_omega_dot_;
+      v_lat_cmd_ = std::clamp(v_lat_cmd_, -v_lat_max_, v_lat_max_);
+
+      std_msgs::msg::Float64MultiArray omega_feedback_msg;
+      omega_feedback_msg.data = {
+        omega_des,
+        omega_pushbox_,
+        error_omega_,
+        kp_omega_,
+        v_lat_cmd_,
+        f_ext_x,
+        f_ext_y,
+        theta_fext,
+        omega_fext_dir,
+        omega_fext_dir_raw,
+        kd_omega_,
+        error_omega_dot_raw_,
+        error_omega_dot_};
+      pub_wall_omega_feedback_->publish(omega_feedback_msg);
     }
 
     contact_manager_->update_raw_and_publish(get_clock()->now());
@@ -1367,6 +1520,7 @@ private:
   std::mutex scene_mtx_;
   std::mutex cmd_mtx_;
   std::mutex wind_mtx_;
+  std::mutex omega_mtx_;
   std::array<double, 4> u_cmd_{{0.0, 0.0, 0.0, 0.0}};
 
   bool act_delay_enable_{true};
@@ -1385,6 +1539,28 @@ private:
   double wind_indicator_force_gain_{1.0};
   double wind_indicator_flutter_gain_{0.15};
   double wind_indicator_flutter_hz_{6.0};
+  double omega_des_{0.0};
+  double omega_pushbox_{0.0};
+  double f_ext_x_{0.0};
+  double f_ext_y_{0.0};
+  double theta_fext_{0.0};
+  double prev_theta_fext_{0.0};
+  double omega_fext_dir_{0.0};
+  double omega_fext_dir_raw_{0.0};
+  double omega_fext_lpf_cutoff_hz_{10.0};
+  bool theta_fext_initialized_{false};
+  rclcpp::Time prev_theta_fext_stamp_{0, 0, RCL_ROS_TIME};
+  double error_omega_{0.0};
+  double prev_error_omega_{0.0};
+  double error_omega_dot_raw_{0.0};
+  double error_omega_dot_{0.0};
+  bool error_omega_initialized_{false};
+  rclcpp::Time prev_error_omega_stamp_{0, 0, RCL_ROS_TIME};
+  double kp_omega_{0.02};
+  double kd_omega_{0.0};
+  double v_lat_max_{1.0};
+  double error_omega_dot_lpf_cutoff_hz_{10.0};
+  double v_lat_cmd_{0.0};
 
   bool noise_enable_{false};
   int64_t rng_seed_{0};
@@ -1465,8 +1641,12 @@ private:
 
   rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr sub_input_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_wind_;
+  rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_wall_angular_velocity_cmd_;
+  rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_wrench_2nd_order_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pub_pose_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pub_wall_pose_;
+  rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr pub_wall_twist_;
+  rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr pub_wall_omega_feedback_;
   rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr pub_vel_;
   rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr pub_angvel_;
   rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr pub_acc_;
