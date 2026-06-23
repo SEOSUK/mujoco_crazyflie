@@ -19,13 +19,22 @@ plant:
     viewer_hz: 60.0
     end_effector_offset: [0.1, 0.0, 0.04]
     omega_des: 0.0  # [rad/s], 0: rotation suppression/translation mode
-    kp_omega: 5.0  # [m/rad], signed yaw-rate-error to lateral-velocity gain
-    kd_omega: 1.0  # [m*s/rad], yaw-rate-error derivative gain
+    kp_omega: 3.0  # [m/rad], signed yaw-rate-error to lateral-velocity gain
+    ki_omega: 0.0  # [m/(rad*s)], yaw-rate-error integral gain
+    kd_omega: 0.0  # [m*s/rad], yaw-rate-error derivative gain
+    omega_i_term_max: 1.0  # [m/s], symmetric clamp for the omega I-term
     v_lat_max: 1.0  # [m/s], symmetric clamp for the final lateral velocity command
     error_omega_dot_lpf:
-      cutoff_hz: 1.0  # [Hz], 1st-order LPF for yaw-rate-error derivative
+      cutoff_hz: 2.5  # [Hz], 1st-order LPF for yaw-rate-error derivative
     omega_fext_lpf:
-      cutoff_hz: 1.0  # [Hz], 1st-order LPF for MOB force-direction yaw-rate proxy
+      cutoff_hz: 2.5  # [Hz], 1st-order LPF for MOB force-direction yaw-rate proxy
+    omega_control_startup_delay_sec: 2.0  # [s], inhibit all omega-driven lateral motion after startup
+    omega_contact_force_timeout_sec: 0.1  # [s], reject stale contact-force samples
+    omega_d_contact_force_threshold: 0.000001  # [N], contact-force threshold for j-commanded initial-contact D/I ramp
+    omega_cmd_force_threshold: 0.000001  # [N], require nonzero j/k force command before omega D/I ramp can start
+    omega_lateral_enable_delay_sec: 0.5  # [s], hold lateral motion command at zero after initial contact
+    omega_d_ramp_sec: 0.3  # [s], linear ramp from zero to full omega D gain
+    omega_i_ramp_sec: 1.0  # [s], linear ramp from zero to full omega I gain
 
     arm_xy: 0.035355
     k_tau: 0.00569278844371417

@@ -321,8 +321,9 @@ private:
       "true_normal_x,true_normal_y,true_normal_z,"
       "wall_vel_x,wall_vel_y,wall_vel_z,"
       "wall_angvel_x,wall_angvel_y,wall_angvel_z,"
-      "omega_des,omega_pushbox,error_omega,kp_omega,kd_omega,"
-      "error_omega_dot_raw,error_omega_dot,v_lat_cmd,"
+      "omega_des,omega_pushbox,error_omega,kp_omega,ki_omega,kd_omega,"
+      "error_omega_integral,omega_i_term,error_omega_dot_raw,error_omega_dot,"
+      "omega_d_ramp_gain,omega_i_ramp_gain,omega_contact_active,v_lat_cmd,"
       "f_ext_x,f_ext_y,theta_fext,omega_fext_dir,omega_fext_dir_raw,"
       "offline_mob2_fx,offline_mob2_fy,offline_mob2_fz,offline_mob2_tx,offline_mob2_ty,offline_mob2_tz,"
       "offline_mobc_fx,offline_mobc_fy,offline_mobc_fz,offline_mobc_tx,offline_mobc_ty,offline_mobc_tz,"
@@ -571,6 +572,16 @@ private:
     kd_omega_ = m->data[10];
     error_omega_dot_raw_ = m->data[11];
     error_omega_dot_ = m->data[12];
+    if (m->data.size() >= 18) {
+      ki_omega_ = m->data[13];
+      error_omega_integral_ = m->data[14];
+      omega_i_term_ = m->data[15];
+      omega_d_ramp_gain_ = m->data[16];
+      omega_contact_active_ = m->data[17];
+      if (m->data.size() >= 19) {
+        omega_i_ramp_gain_ = m->data[18];
+      }
+    }
     have_wall_omega_feedback_ = true;
   }
 
@@ -678,7 +689,9 @@ private:
     double Fz, cmd_force, F_error_dot_raw, F_error_dot_filt, c_hat_fx_act;
     double alpha_frame, omega_n, normal_leakage, alpha_u1, alpha_u2, preload_feedback, c_tau, pattern_progress, pattern_speed_cmd;
     double omega_des, omega_pushbox, error_omega;
-    double kp_omega, kd_omega, error_omega_dot_raw, error_omega_dot, v_lat_cmd;
+    double kp_omega, ki_omega, kd_omega, error_omega_integral, omega_i_term;
+    double error_omega_dot_raw, error_omega_dot, omega_d_ramp_gain, omega_i_ramp_gain;
+    double omega_contact_active, v_lat_cmd;
     double f_ext_x, f_ext_y, theta_fext, omega_fext_dir, omega_fext_dir_raw;
 
 
@@ -733,9 +746,15 @@ private:
       omega_pushbox = omega_pushbox_;
       error_omega = error_omega_;
       kp_omega = kp_omega_;
+      ki_omega = ki_omega_;
       kd_omega = kd_omega_;
+      error_omega_integral = error_omega_integral_;
+      omega_i_term = omega_i_term_;
       error_omega_dot_raw = error_omega_dot_raw_;
       error_omega_dot = error_omega_dot_;
+      omega_d_ramp_gain = omega_d_ramp_gain_;
+      omega_i_ramp_gain = omega_i_ramp_gain_;
+      omega_contact_active = omega_contact_active_;
       v_lat_cmd = v_lat_cmd_;
       f_ext_x = f_ext_x_;
       f_ext_y = f_ext_y_;
@@ -850,7 +869,7 @@ private:
     }
 
     std_msgs::msg::Float64MultiArray msg;
-    msg.data.resize(130);
+    msg.data.resize(136);
 
     msg.data[0]  = t;
 
@@ -999,6 +1018,12 @@ private:
     msg.data[127] = kd_omega;
     msg.data[128] = error_omega_dot_raw;
     msg.data[129] = error_omega_dot;
+    msg.data[130] = ki_omega;
+    msg.data[131] = error_omega_integral;
+    msg.data[132] = omega_i_term;
+    msg.data[133] = omega_d_ramp_gain;
+    msg.data[134] = omega_contact_active;
+    msg.data[135] = omega_i_ramp_gain;
 
 
 
@@ -1046,8 +1071,11 @@ private:
            << msg.data[111] << "," << msg.data[112] << "," << msg.data[113] << ","
            << msg.data[114] << "," << msg.data[115] << "," << msg.data[116] << ","
            << msg.data[117] << "," << msg.data[118] << "," << msg.data[119] << ","
-           << msg.data[120] << "," << msg.data[127] << ","
-           << msg.data[128] << "," << msg.data[129] << "," << msg.data[121] << ","
+           << msg.data[120] << "," << msg.data[130] << "," << msg.data[127] << ","
+           << msg.data[131] << "," << msg.data[132] << ","
+           << msg.data[128] << "," << msg.data[129] << ","
+           << msg.data[133] << "," << msg.data[135] << ","
+           << msg.data[134] << "," << msg.data[121] << ","
            << msg.data[122] << "," << msg.data[123] << "," << msg.data[124] << "," << msg.data[125] << ","
            << msg.data[126] << ","
            << mob_force_2nd_order.x() << "," << mob_force_2nd_order.y() << "," << mob_force_2nd_order.z() << ","
@@ -1118,9 +1146,15 @@ private:
   double omega_pushbox_{quiet_nan()};
   double error_omega_{quiet_nan()};
   double kp_omega_{quiet_nan()};
+  double ki_omega_{quiet_nan()};
   double kd_omega_{quiet_nan()};
+  double error_omega_integral_{quiet_nan()};
+  double omega_i_term_{quiet_nan()};
   double error_omega_dot_raw_{quiet_nan()};
   double error_omega_dot_{quiet_nan()};
+  double omega_d_ramp_gain_{quiet_nan()};
+  double omega_i_ramp_gain_{quiet_nan()};
+  double omega_contact_active_{quiet_nan()};
   double v_lat_cmd_{quiet_nan()};
   double f_ext_x_{quiet_nan()};
   double f_ext_y_{quiet_nan()};

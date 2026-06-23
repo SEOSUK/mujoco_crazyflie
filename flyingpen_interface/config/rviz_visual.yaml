@@ -23,7 +23,7 @@
     wall.pos.y: 0.0
     wall.pos.z: 0.3005
     wall.size.x: 0.2
-    wall.size.y: 1.5
+    wall.size.y: 0.5
     wall.size.z: 0.3
     wall.pose_topic: "/environment/wall_pose"
     wall.twist_topic: "/environment/wall_twist"

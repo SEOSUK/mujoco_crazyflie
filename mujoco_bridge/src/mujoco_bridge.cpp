@@ -245,6 +245,7 @@ public:
   {
     declare_parameters();
     load_parameters();
+    omega_control_start_stamp_ = now();
     init_noise_generator();
 
     load_model();
@@ -345,10 +346,19 @@ private:
     declare_parameter("wall.comZ", 0.2);
     declare_parameter("omega_des", 0.0);
     declare_parameter("kp_omega", 0.02);
+    declare_parameter("ki_omega", 0.0);
     declare_parameter("kd_omega", 0.0);
+    declare_parameter("omega_i_term_max", 0.2);
     declare_parameter("v_lat_max", 1.0);
     declare_parameter("error_omega_dot_lpf.cutoff_hz", 10.0);
     declare_parameter("omega_fext_lpf.cutoff_hz", 10.0);
+    declare_parameter("omega_control_startup_delay_sec", 2.0);
+    declare_parameter("omega_contact_force_timeout_sec", 0.1);
+    declare_parameter("omega_d_contact_force_threshold", 0.005);
+    declare_parameter("omega_cmd_force_threshold", 1.0e-6);
+    declare_parameter("omega_lateral_enable_delay_sec", 0.5);
+    declare_parameter("omega_d_ramp_sec", 0.3);
+    declare_parameter("omega_i_ramp_sec", 1.0);
 
     declare_parameter("viewer.orbit_sensitivity", 1.0);
     declare_parameter("viewer.pan_sensitivity", 1.2);
@@ -433,12 +443,29 @@ private:
     };
     omega_des_ = get_parameter("omega_des").as_double();
     kp_omega_ = get_parameter("kp_omega").as_double();
+    ki_omega_ = get_parameter("ki_omega").as_double();
     kd_omega_ = get_parameter("kd_omega").as_double();
+    omega_i_term_max_ =
+      std::max(0.0, get_parameter("omega_i_term_max").as_double());
     v_lat_max_ = std::max(0.0, get_parameter("v_lat_max").as_double());
     error_omega_dot_lpf_cutoff_hz_ =
       std::max(0.0, get_parameter("error_omega_dot_lpf.cutoff_hz").as_double());
     omega_fext_lpf_cutoff_hz_ =
       std::max(0.0, get_parameter("omega_fext_lpf.cutoff_hz").as_double());
+    omega_control_startup_delay_sec_ =
+      std::max(0.0, get_parameter("omega_control_startup_delay_sec").as_double());
+    omega_contact_force_timeout_sec_ =
+      std::max(0.0, get_parameter("omega_contact_force_timeout_sec").as_double());
+    omega_d_contact_force_threshold_ =
+      std::max(0.0, get_parameter("omega_d_contact_force_threshold").as_double());
+    omega_cmd_force_threshold_ =
+      std::max(0.0, get_parameter("omega_cmd_force_threshold").as_double());
+    omega_lateral_enable_delay_sec_ =
+      std::max(0.0, get_parameter("omega_lateral_enable_delay_sec").as_double());
+    omega_d_ramp_sec_ =
+      std::max(0.0, get_parameter("omega_d_ramp_sec").as_double());
+    omega_i_ramp_sec_ =
+      std::max(0.0, get_parameter("omega_i_ramp_sec").as_double());
 
     viewer_orbit_sensitivity_ = get_parameter("viewer.orbit_sensitivity").as_double();
     viewer_pan_sensitivity_ = get_parameter("viewer.pan_sensitivity").as_double();
@@ -461,9 +488,46 @@ private:
     const std::string xml_path = share_dir + "/data/scene.xml";
 
     char error[1024] = {0};
-    model_ = mj_loadXML(xml_path.c_str(), nullptr, error, sizeof(error));
+    std::unique_ptr<mjSpec, decltype(&mj_deleteSpec)> spec(
+      mj_parseXML(xml_path.c_str(), nullptr, error, sizeof(error)),
+      &mj_deleteSpec);
+    if (!spec) {
+      throw std::runtime_error(std::string("mj_parseXML failed: ") + error);
+    }
+
+    mjsBody * wall_spec = mjs_findBody(spec.get(), "push_box");
+    if (!wall_spec) {
+      wall_spec = mjs_findBody(spec.get(), "wall");
+    }
+    if (wall_spec) {
+      std::array<double, 3> wall_geom_center{{0.0, 0.0, 0.0}};
+      mjsElement * geom_element =
+        mjs_findElement(spec.get(), mjOBJ_GEOM, "push_box_visual");
+      if (geom_element) {
+        if (mjsGeom * geom_spec = mjs_asGeom(geom_element)) {
+          wall_geom_center = {
+            geom_spec->pos[0],
+            geom_spec->pos[1],
+            geom_spec->pos[2]
+          };
+        }
+      }
+      for (int i = 0; i < 3; ++i) {
+        wall_spec->ipos[i] = wall_geom_center[i] + wall_com_body_[i];
+      }
+      wall_spec->explicitinertial = 1;
+    } else {
+      RCLCPP_WARN(
+        get_logger(),
+        "Body 'push_box'/'wall' not found in MuJoCo spec; wall.com* was not applied.");
+    }
+
+    model_ = mj_compile(spec.get(), nullptr);
     if (!model_) {
-      throw std::runtime_error(std::string("mj_loadXML failed: ") + error);
+      const char * compile_error = mjs_getError(spec.get());
+      throw std::runtime_error(
+              std::string("mj_compile failed: ") +
+              (compile_error ? compile_error : "unknown error"));
     }
 
     const int bid_ee_tip = mj_name2id(model_, mjOBJ_BODY, "ee_tip");
@@ -487,28 +551,13 @@ private:
       bid_wall = mj_name2id(model_, mjOBJ_BODY, "wall");
     }
     if (bid_wall >= 0) {
-      double wall_geom_center_x = 0.0;
-      double wall_geom_center_y = 0.0;
-      double wall_geom_center_z = 0.0;
-      const int wall_geom_adr = model_->body_geomadr[bid_wall];
-      const int wall_geom_num = model_->body_geomnum[bid_wall];
-      if (wall_geom_num > 0 && wall_geom_adr >= 0) {
-        const int gid0 = wall_geom_adr;
-        wall_geom_center_x = static_cast<double>(model_->geom_pos[3 * gid0 + 0]);
-        wall_geom_center_y = static_cast<double>(model_->geom_pos[3 * gid0 + 1]);
-        wall_geom_center_z = static_cast<double>(model_->geom_pos[3 * gid0 + 2]);
-      }
       const int adr = 3 * bid_wall;
-      model_->body_ipos[adr + 0] =
-        static_cast<mjtNum>(wall_geom_center_x + wall_com_body_[0]);
-      model_->body_ipos[adr + 1] =
-        static_cast<mjtNum>(wall_geom_center_y + wall_com_body_[1]);
-      model_->body_ipos[adr + 2] =
-        static_cast<mjtNum>(wall_geom_center_z + wall_com_body_[2]);
       RCLCPP_INFO(
         get_logger(),
-        "Applied MuJoCo environment box CoM offset from geometric center = [%.4f %.4f %.4f]",
-        wall_com_body_[0], wall_com_body_[1], wall_com_body_[2]);
+        "Compiled MuJoCo environment box CoM at body-frame position = [%.4f %.4f %.4f]",
+        static_cast<double>(model_->body_ipos[adr + 0]),
+        static_cast<double>(model_->body_ipos[adr + 1]),
+        static_cast<double>(model_->body_ipos[adr + 2]));
     }
 
     data_ = mj_makeData(model_);
@@ -661,6 +710,18 @@ private:
         &MujocoBridge::mob_wrench_2nd_order_callback,
         this,
         std::placeholders::_1));
+    sub_contact_force_x_ = create_subscription<std_msgs::msg::Float32>(
+      "/su/contact_force_x", 10,
+      std::bind(
+        &MujocoBridge::contact_force_x_callback,
+        this,
+        std::placeholders::_1));
+    sub_cmd_force_ = create_subscription<std_msgs::msg::Float32>(
+      "su/cmd_force", 10,
+      std::bind(
+        &MujocoBridge::cmd_force_callback,
+        this,
+        std::placeholders::_1));
 
     pub_pose_ = create_publisher<geometry_msgs::msg::PoseStamped>("/crazyflie/out/pose", 10);
     pub_vel_ = create_publisher<geometry_msgs::msg::Vector3Stamped>("/crazyflie/out/vel", 10);
@@ -712,6 +773,29 @@ private:
 
     std::lock_guard<std::mutex> lock(omega_mtx_);
     omega_des_ = static_cast<double>(msg->data);
+  }
+
+  void contact_force_x_callback(const std_msgs::msg::Float32::SharedPtr msg)
+  {
+    if (!msg || !std::isfinite(msg->data)) {
+      return;
+    }
+
+    std::lock_guard<std::mutex> lock(omega_mtx_);
+    contact_force_x_ = static_cast<double>(msg->data);
+    contact_force_x_stamp_ = now();
+    contact_force_x_received_ = true;
+  }
+
+  void cmd_force_callback(const std_msgs::msg::Float32::SharedPtr msg)
+  {
+    if (!msg || !std::isfinite(msg->data)) {
+      return;
+    }
+
+    std::lock_guard<std::mutex> lock(omega_mtx_);
+    cmd_force_desired_ = static_cast<double>(msg->data);
+    cmd_force_received_ = true;
   }
 
   void mob_wrench_2nd_order_callback(
@@ -1189,6 +1273,11 @@ private:
       double theta_fext = 0.0;
       double omega_fext_dir = 0.0;
       double omega_fext_dir_raw = 0.0;
+      double contact_force_x = 0.0;
+      double cmd_force_desired = 0.0;
+      bool cmd_force_received = false;
+      rclcpp::Time contact_force_x_stamp(0, 0, RCL_ROS_TIME);
+      bool contact_force_x_received = false;
       {
         std::lock_guard<std::mutex> lock(omega_mtx_);
         omega_des = omega_des_;
@@ -1197,27 +1286,135 @@ private:
         theta_fext = theta_fext_;
         omega_fext_dir = omega_fext_dir_;
         omega_fext_dir_raw = omega_fext_dir_raw_;
+        contact_force_x = contact_force_x_;
+        cmd_force_desired = cmd_force_desired_;
+        cmd_force_received = cmd_force_received_;
+        contact_force_x_stamp = contact_force_x_stamp_;
+        contact_force_x_received = contact_force_x_received_;
       }
       omega_pushbox_ = static_cast<double>(wall_velocity[2]);
       error_omega_ = omega_des - omega_fext_dir;
-      if (error_omega_initialized_) {
+      const double startup_elapsed_sec = (stamp - omega_control_start_stamp_).seconds();
+      const bool omega_control_startup_ready =
+        std::isfinite(startup_elapsed_sec) &&
+        startup_elapsed_sec >= omega_control_startup_delay_sec_;
+      const double contact_force_age_sec =
+        contact_force_x_received ? (stamp - contact_force_x_stamp).seconds() : -1.0;
+      const bool contact_force_fresh =
+        contact_force_x_received &&
+        std::isfinite(contact_force_age_sec) &&
+        contact_force_age_sec >= 0.0 &&
+        (omega_contact_force_timeout_sec_ <= 1e-9 ||
+        contact_force_age_sec <= omega_contact_force_timeout_sec_);
+      const bool cmd_force_active =
+        cmd_force_received &&
+        std::abs(cmd_force_desired) >= omega_cmd_force_threshold_;
+      const bool omega_contact_active =
+        omega_control_startup_ready &&
+        cmd_force_active &&
+        contact_force_fresh &&
+        std::abs(contact_force_x) >= omega_d_contact_force_threshold_;
+      const bool omega_contact_rising =
+        omega_contact_active && !omega_contact_active_prev_;
+      const bool omega_contact_falling =
+        !omega_contact_active && omega_contact_active_prev_;
+      double omega_control_dt = 0.0;
+
+      if (omega_contact_rising) {
+        prev_error_omega_ = error_omega_;
+        prev_error_omega_stamp_ = stamp;
+        error_omega_dot_raw_ = 0.0;
+        error_omega_dot_ = 0.0;
+        error_omega_initialized_ = true;
+        omega_contact_elapsed_sec_ = 0.0;
+        omega_d_ramp_elapsed_sec_ = 0.0;
+        omega_i_ramp_elapsed_sec_ = 0.0;
+        error_omega_integral_ = 0.0;
+      } else if (error_omega_initialized_) {
         const double dt = (stamp - prev_error_omega_stamp_).seconds();
         if (std::isfinite(dt) && dt > 1e-9) {
+          omega_control_dt = dt;
           error_omega_dot_raw_ = (error_omega_ - prev_error_omega_) / dt;
           const double alpha = lpf_alpha(dt, error_omega_dot_lpf_cutoff_hz_);
           error_omega_dot_ += alpha * (error_omega_dot_raw_ - error_omega_dot_);
+          if (omega_contact_active) {
+            omega_contact_elapsed_sec_ += dt;
+          }
         }
       } else {
         error_omega_dot_raw_ = 0.0;
         error_omega_dot_ = 0.0;
         error_omega_initialized_ = true;
       }
+      if (omega_contact_falling) {
+        omega_contact_elapsed_sec_ = 0.0;
+      }
+      const bool omega_lateral_enabled =
+        omega_contact_active &&
+        omega_contact_elapsed_sec_ >= omega_lateral_enable_delay_sec_;
+      if (omega_lateral_enabled && omega_control_dt > 0.0) {
+        omega_d_ramp_elapsed_sec_ += omega_control_dt;
+        omega_i_ramp_elapsed_sec_ += omega_control_dt;
+      }
       prev_error_omega_ = error_omega_;
       prev_error_omega_stamp_ = stamp;
-      v_lat_cmd_ =
-        kp_omega_ * error_omega_ +
-        kd_omega_ * error_omega_dot_;
-      v_lat_cmd_ = std::clamp(v_lat_cmd_, -v_lat_max_, v_lat_max_);
+      omega_contact_active_prev_ = omega_contact_active;
+
+      double omega_d_ramp_gain = 0.0;
+      if (omega_lateral_enabled) {
+        omega_d_ramp_gain =
+          omega_d_ramp_sec_ <= 1e-9 ?
+          1.0 :
+          std::clamp(omega_d_ramp_elapsed_sec_ / omega_d_ramp_sec_, 0.0, 1.0);
+      } else {
+        omega_d_ramp_elapsed_sec_ = 0.0;
+        omega_i_ramp_elapsed_sec_ = 0.0;
+      }
+
+      double omega_i_ramp_gain = 0.0;
+      if (omega_lateral_enabled) {
+        omega_i_ramp_gain =
+          omega_i_ramp_sec_ <= 1e-9 ?
+          1.0 :
+          std::clamp(omega_i_ramp_elapsed_sec_ / omega_i_ramp_sec_, 0.0, 1.0);
+      }
+
+      const double omega_p_term =
+        omega_lateral_enabled ? kp_omega_ * error_omega_ : 0.0;
+      const double omega_d_term =
+        omega_d_ramp_gain * kd_omega_ * error_omega_dot_;
+      if (!omega_lateral_enabled || std::abs(ki_omega_) <= 1e-12 ||
+        omega_i_term_max_ <= 0.0)
+      {
+        error_omega_integral_ = 0.0;
+      } else if (omega_control_dt > 0.0) {
+        const double integral_limit = omega_i_term_max_ / std::abs(ki_omega_);
+        const double integral_candidate = std::clamp(
+          error_omega_integral_ + error_omega_ * omega_control_dt,
+          -integral_limit,
+          integral_limit);
+        const double current_i_term =
+          omega_i_ramp_gain * ki_omega_ * error_omega_integral_;
+        const double candidate_i_term =
+          omega_i_ramp_gain * ki_omega_ * integral_candidate;
+        const double candidate_command =
+          omega_p_term + candidate_i_term + omega_d_term;
+        const bool winds_up_high =
+          candidate_command > v_lat_max_ && candidate_i_term > current_i_term;
+        const bool winds_up_low =
+          candidate_command < -v_lat_max_ && candidate_i_term < current_i_term;
+        if (!winds_up_high && !winds_up_low) {
+          error_omega_integral_ = integral_candidate;
+        }
+      }
+      omega_i_term_ = std::clamp(
+        omega_i_ramp_gain * ki_omega_ * error_omega_integral_,
+        -omega_i_term_max_,
+        omega_i_term_max_);
+      v_lat_cmd_ = std::clamp(
+        omega_p_term + omega_i_term_ + omega_d_term,
+        -v_lat_max_,
+        v_lat_max_);
 
       std_msgs::msg::Float64MultiArray omega_feedback_msg;
       omega_feedback_msg.data = {
@@ -1233,7 +1430,15 @@ private:
         omega_fext_dir_raw,
         kd_omega_,
         error_omega_dot_raw_,
-        error_omega_dot_};
+        error_omega_dot_,
+        ki_omega_,
+        error_omega_integral_,
+        omega_i_term_,
+        omega_d_ramp_gain,
+        omega_contact_active ? 1.0 : 0.0,
+        omega_i_ramp_gain,
+        omega_lateral_enabled ? 1.0 : 0.0,
+        omega_contact_elapsed_sec_};
       pub_wall_omega_feedback_->publish(omega_feedback_msg);
     }
 
@@ -1557,9 +1762,30 @@ private:
   bool error_omega_initialized_{false};
   rclcpp::Time prev_error_omega_stamp_{0, 0, RCL_ROS_TIME};
   double kp_omega_{0.02};
+  double ki_omega_{0.0};
   double kd_omega_{0.0};
+  double error_omega_integral_{0.0};
+  double omega_i_term_{0.0};
+  double omega_i_term_max_{0.2};
   double v_lat_max_{1.0};
   double error_omega_dot_lpf_cutoff_hz_{10.0};
+  double contact_force_x_{0.0};
+  double cmd_force_desired_{0.0};
+  bool cmd_force_received_{false};
+  rclcpp::Time contact_force_x_stamp_{0, 0, RCL_ROS_TIME};
+  bool contact_force_x_received_{false};
+  rclcpp::Time omega_control_start_stamp_{0, 0, RCL_ROS_TIME};
+  double omega_control_startup_delay_sec_{2.0};
+  double omega_contact_force_timeout_sec_{0.1};
+  double omega_d_contact_force_threshold_{0.005};
+  double omega_cmd_force_threshold_{1.0e-6};
+  double omega_lateral_enable_delay_sec_{0.5};
+  double omega_contact_elapsed_sec_{0.0};
+  double omega_d_ramp_sec_{0.3};
+  double omega_d_ramp_elapsed_sec_{0.0};
+  double omega_i_ramp_sec_{1.0};
+  double omega_i_ramp_elapsed_sec_{0.0};
+  bool omega_contact_active_prev_{false};
   double v_lat_cmd_{0.0};
 
   bool noise_enable_{false};
@@ -1643,6 +1869,8 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_wind_;
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_wall_angular_velocity_cmd_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_wrench_2nd_order_;
+  rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_contact_force_x_;
+  rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_cmd_force_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pub_pose_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pub_wall_pose_;
   rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr pub_wall_twist_;

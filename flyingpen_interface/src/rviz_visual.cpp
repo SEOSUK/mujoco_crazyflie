@@ -159,7 +159,7 @@ public:
     wall_pos_y_ = this->declare_parameter<double>("wall.pos.y", 0.0);
     wall_pos_z_ = this->declare_parameter<double>("wall.pos.z", 0.0);
     wall_size_x_ = this->declare_parameter<double>("wall.size.x", 0.2);
-    wall_size_y_ = this->declare_parameter<double>("wall.size.y", 1.5);
+    wall_size_y_ = this->declare_parameter<double>("wall.size.y", 0.5);
     wall_size_z_ = this->declare_parameter<double>("wall.size.z", 0.3);
     wall_pose_topic_ = this->declare_parameter<std::string>(
       "wall.pose_topic", "/environment/wall_pose");
@@ -168,7 +168,7 @@ public:
     wall_frame_ = this->declare_parameter<std::string>(
       "wall.frame", "mujoco_wall");
     wall_vel_scale_ = this->declare_parameter<double>("wall.velocity_scale", 1.0);
-    wall_angvel_scale_ = this->declare_parameter<double>("wall.angular_velocity_scale", 0.3);
+    wall_angvel_scale_ = this->declare_parameter<double>("wall.angular_velocity_scale", 2.0);
     wall_com_x_ = this->declare_parameter<double>("wall.comX", 0.0);
     wall_com_y_ = this->declare_parameter<double>("wall.comY", 0.0);
     wall_com_z_ = this->declare_parameter<double>("wall.comZ", 0.0);
@@ -2521,8 +2521,9 @@ private:
       pub_ee_acc_arrow_->publish(mk);
     }
 
-    // 14) Markers: push-box linear/angular velocity in world coordinates,
-    // anchored at the MuJoCo wall-body TF origin.
+    // 14) Markers: push-box linear velocity and a body-frame angular-velocity cue.
+    // The angular cue is anchored at the box CoM. Positive z yaw is shown along
+    // body -Y; negative z yaw is shown along body +Z.
     if (environment_type_ == "wall" && have_wall_pose && have_wall_twist) {
       const double wall_arrow_shaft = 1.6 * source_shaft;
       const double wall_arrow_head_diam = 1.6 * source_head_diam;
@@ -2543,20 +2544,45 @@ private:
         0.10, 0.95, 0.25);
       pub_wall_vel_arrow_->publish(vel_marker);
 
-      auto angvel_marker = make_arrow_marker_with_dims(
-        "wall_angular_velocity", 0, parent_frame_, stamp,
-        wall_pose.pose.position.x,
-        wall_pose.pose.position.y,
-        wall_pose.pose.position.z,
-        wall_twist.twist.angular.x,
-        wall_twist.twist.angular.y,
-        wall_twist.twist.angular.z,
-        wall_angvel_scale_,
-        wall_arrow_shaft,
-        wall_arrow_head_diam,
-        wall_arrow_head_len,
-        0.95, 0.20, 0.85);
-      pub_wall_angvel_arrow_->publish(angvel_marker);
+      const double omega_z = wall_twist.twist.angular.z;
+      if (std::abs(omega_z) <= 1.0e-9) {
+        pub_wall_angvel_arrow_->publish(
+          make_delete_marker("wall_angular_velocity", 0, parent_frame_, stamp));
+      } else {
+        tf2::Quaternion q_wall(
+          wall_pose.pose.orientation.x,
+          wall_pose.pose.orientation.y,
+          wall_pose.pose.orientation.z,
+          wall_pose.pose.orientation.w);
+        if (q_wall.length2() > 1.0e-12) {
+          q_wall.normalize();
+        } else {
+          q_wall.setValue(0.0, 0.0, 0.0, 1.0);
+        }
+        const tf2::Matrix3x3 R_wall(q_wall);
+        const tf2::Vector3 com_world =
+          R_wall * tf2::Vector3(wall_com_x_, wall_com_y_, wall_com_z_);
+        const tf2::Vector3 dir_body =
+          omega_z > 0.0 ?
+          tf2::Vector3(0.0, -1.0, 0.0) :
+          tf2::Vector3(0.0, 0.0, 1.0);
+        const tf2::Vector3 dir_world = R_wall * dir_body;
+
+        auto angvel_marker = make_arrow_marker_with_dims(
+          "wall_angular_velocity", 0, parent_frame_, stamp,
+          wall_pose.pose.position.x + com_world.x(),
+          wall_pose.pose.position.y + com_world.y(),
+          wall_pose.pose.position.z + com_world.z(),
+          std::abs(omega_z) * dir_world.x(),
+          std::abs(omega_z) * dir_world.y(),
+          std::abs(omega_z) * dir_world.z(),
+          wall_angvel_scale_,
+          wall_arrow_shaft,
+          wall_arrow_head_diam,
+          wall_arrow_head_len,
+          0.95, 0.20, 0.85);
+        pub_wall_angvel_arrow_->publish(angvel_marker);
+      }
     }
   }
 
@@ -2755,7 +2781,7 @@ private:
   double wall_pos_y_{0.0};
   double wall_pos_z_{0.0};
   double wall_size_x_{0.2};
-  double wall_size_y_{1.5};
+  double wall_size_y_{0.5};
   double wall_size_z_{0.3};
   std::string wall_pose_topic_;
   std::string wall_twist_topic_;
