@@ -8,3 +8,11 @@
 *~
 *.swp
 
+
+# VS Code local cache
+.vscode/
+**/.vscode/
+*.vc.db
+*.VC.db
+*.db
+ipch/
