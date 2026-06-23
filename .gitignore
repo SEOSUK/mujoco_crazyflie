@@ -1,26 +1,15 @@
-# ---- data logs ----
-
-# optional: generated data
-*.csv
-*.zip
-
-# editor temp files
-*~
-*.swp
-
+# ROS2 build outputs
+build/
+install/
+log/
 
 # VS Code local cache
 .vscode/
 **/.vscode/
 *.vc.db
 *.VC.db
-*.db
 ipch/
 
-# VS Code local cache
-.vscode/
-**/.vscode/
-*.vc.db
-*.VC.db
-*.db
-ipch/
+# Python cache
+__pycache__/
+*.pyc
