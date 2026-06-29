@@ -8,7 +8,8 @@ command_publisher:
     velocity_tick: [0.055, 0.055, 0.055]
     yaw_tick_deg: 2.0
     force_tick: 0.01
-    wall_angular_velocity_tick: 0.01
+    wall_angular_velocity_tick: 0.01  # [rad/s], target omega_des increment for g/h
+    wall_angular_velocity_ramp_time_sec: 1.0  # [s], time for g/h omega_des command to reach the new target
     gravity: 9.81
     calibration_window_sec: 1.0
 
@@ -18,10 +19,11 @@ plant:
     pub_hz: 400.0
     viewer_hz: 60.0
     end_effector_offset: [0.1, 0.0, 0.04]
+    omega_tracking_enabled: false  # false: publish omega diagnostics but force automatic lateral steering to zero
     omega_des: 0.0  # [rad/s], 0: rotation suppression/translation mode
-    kp_omega: 3.0  # [m/rad], signed yaw-rate-error to lateral-velocity gain
-    ki_omega: 0.0  # [m/(rad*s)], yaw-rate-error integral gain
-    kd_omega: 0.0  # [m*s/rad], yaw-rate-error derivative gain
+    kp_omega: 2.0  # [m/rad], signed yaw-rate-error to lateral-velocity gain
+    ki_omega: 0.2  # [m/(rad*s)], yaw-rate-error integral gain
+    kd_omega: 0.5  # [m*s/rad], yaw-rate-error derivative gain
     omega_i_term_max: 1.0  # [m/s], symmetric clamp for the omega I-term
     v_lat_max: 1.0  # [m/s], symmetric clamp for the final lateral velocity command
     error_omega_dot_lpf:
@@ -128,15 +130,15 @@ low_level_controller:
     # 반응성 높이면 좋음. 좋은게 좋은거.
     # Position loop: pos error -> v_des
     pos:
-      x: { kp: 1.0, ki: 0.0, kd: 0.15, i_limit: 0.5 }
-      y: { kp: 1.0, ki: 0.00, kd: 0.15, i_limit: 0.5 }
+      x: { kp: 2.0, ki: 0.0, kd: 0.15, i_limit: 0.5 }
+      y: { kp: 2.0, ki: 0.00, kd: 0.15, i_limit: 0.5 }
       z: { kp: 3.0, ki: 0.00, kd: 0.21, i_limit: 0.5 }
 
     # Velocity loop: vel error -> a_des
     vel:
-      x: { kp: 3.0, ki: 0.0, kd: 0.1, i_limit: 0.5 }
-      y: { kp: 3.0, ki: 0.0, kd: 0.1, i_limit: 0.5 }
-      z: { kp: 3.0, ki: 0.0, kd: 0.1, i_limit: 0.5 }
+      x: { kp: 4.0, ki: 0.0, kd: 0.1, i_limit: 0.5 }
+      y: { kp: 4.0, ki: 0.0, kd: 0.1, i_limit: 0.5 }
+      z: { kp: 4.0, ki: 0.0, kd: 0.1, i_limit: 0.5 }
 
     # Attitude loop: (roll_d, pitch_d, yaw_d) error -> w_des
     att:
@@ -154,7 +156,13 @@ low_level_controller:
 trajectory_generation:
   ros__parameters:
     contact_force_x_topic: "/su/contact_force_x"
-    wall_v_lat_contact_force_threshold: 0.005  # [N], enable v_lat_cmd only during contact
+    wall_v_lat_contact_force_threshold: 0.01  # [N], enable v_lat_cmd only during contact
+    pe_lateral:
+      enabled: true  # true: add A*sin(2*pi*f*t) lateral PE along the estimated contact surface tangent
+      force_topic: "/crazyflie/out/mob_2nd_tau"  # MOB estimated contact force used for contact gating
+      contact_force_threshold: 0.01  # [N], enable PE when ||estimated contact force|| exceeds this
+      amplitude: 0.06  # [m/s], A in A*sin(2*pi*f*t)
+      frequency_hz: 0.5  # [Hz], f in A*sin(2*pi*f*t)
     normal_debug_metrics_topic: "/normal_vector/debug_metrics"
       
 data_logger:

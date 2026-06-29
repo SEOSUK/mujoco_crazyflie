@@ -114,6 +114,14 @@ public:
     wall_v_lat_contact_force_threshold_ = std::max(
       0.0,
       declare_parameter<double>("wall_v_lat_contact_force_threshold", 0.005));
+    pe_lateral_enabled_ = declare_parameter<bool>("pe_lateral.enabled", false);
+    pe_lateral_force_topic_ = declare_parameter<std::string>(
+      "pe_lateral.force_topic", "/crazyflie/out/mob_2nd_tau");
+    pe_lateral_contact_force_threshold_ = std::max(
+      0.0,
+      declare_parameter<double>("pe_lateral.contact_force_threshold", 0.02));
+    pe_lateral_amplitude_ = declare_parameter<double>("pe_lateral.amplitude", 0.0);
+    pe_lateral_frequency_hz_ = declare_parameter<double>("pe_lateral.frequency_hz", 0.0);
 
     sub_keyboard_ = create_subscription<std_msgs::msg::Float64MultiArray>(
       "/su/keyboard_input", 10,
@@ -136,6 +144,9 @@ public:
     sub_contact_force_x_ = create_subscription<std_msgs::msg::Float32>(
       contact_force_x_topic_, 10,
       std::bind(&TrajectoryGeneration::contactForceXCb, this, std::placeholders::_1));
+    sub_pe_lateral_force_ = create_subscription<geometry_msgs::msg::WrenchStamped>(
+      pe_lateral_force_topic_, 10,
+      std::bind(&TrajectoryGeneration::peLateralForceCb, this, std::placeholders::_1));
     sub_pose_ = create_subscription<geometry_msgs::msg::PoseStamped>(
       pose_topic_, 10, std::bind(&TrajectoryGeneration::poseCb, this, std::placeholders::_1));
     sub_vel_ = create_subscription<geometry_msgs::msg::Vector3Stamped>(
@@ -654,6 +665,26 @@ private:
     last_contact_force_x_stamp_ = this->now();
   }
 
+  void peLateralForceCb(const geometry_msgs::msg::WrenchStamped::SharedPtr msg)
+  {
+    if (!msg ||
+      !std::isfinite(msg->wrench.force.x) ||
+      !std::isfinite(msg->wrench.force.y) ||
+      !std::isfinite(msg->wrench.force.z))
+    {
+      return;
+    }
+
+    const Eigen::Vector3d force_w(
+      msg->wrench.force.x,
+      msg->wrench.force.y,
+      msg->wrench.force.z);
+    std::lock_guard<std::mutex> lk(contact_mtx_);
+    pe_lateral_force_norm_ = force_w.norm();
+    pe_lateral_force_received_ = true;
+    last_pe_lateral_force_stamp_ = this->now();
+  }
+
   void poseCb(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
   {
     std::lock_guard<std::mutex> lk(state_mtx_);
@@ -817,8 +848,11 @@ private:
     double contact_force_x_local = 0.0;
     double cmd_force_desired_local = 0.0;
     double wall_v_lat_cmd_local = 0.0;
+    double pe_lateral_force_norm_local = 0.0;
+    rclcpp::Time last_pe_lateral_force_stamp_local(0, 0, RCL_ROS_TIME);
     bool contact_frame_ok = false;
     bool contact_force_ok = false;
+    bool pe_lateral_force_ok = false;
     {
       std::lock_guard<std::mutex> lk(contact_mtx_);
       use_vel_mode_local = use_vel_mode_;
@@ -829,20 +863,36 @@ private:
       contact_force_x_local = contact_force_x_;
       cmd_force_desired_local = cmd_force_desired_;
       wall_v_lat_cmd_local = wall_v_lat_cmd_;
+      pe_lateral_force_norm_local = pe_lateral_force_norm_;
+      last_pe_lateral_force_stamp_local = last_pe_lateral_force_stamp_;
       contact_frame_ok = contact_frame_received_;
       contact_force_ok = contact_force_x_received_;
+      pe_lateral_force_ok = pe_lateral_force_received_;
     }
 
     contact_frame_ok =
       contact_frame_ok && isSignalFresh(last_contact_frame_stamp_, now);
     contact_force_ok =
       contact_force_ok && isSignalFresh(last_contact_force_x_stamp_, now);
+    pe_lateral_force_ok =
+      pe_lateral_force_ok && isSignalFresh(last_pe_lateral_force_stamp_local, now);
     const bool wall_v_lat_contact_active =
       contact_force_ok &&
       std::abs(contact_force_x_local) >= wall_v_lat_contact_force_threshold_;
     if (!wall_v_lat_contact_active) {
       wall_v_lat_cmd_local = 0.0;
     }
+    const bool pe_lateral_contact_active =
+      pe_lateral_enabled_ &&
+      pe_lateral_force_ok &&
+      pe_lateral_force_norm_local >= pe_lateral_contact_force_threshold_;
+    if (pe_lateral_contact_active) {
+      pe_lateral_elapsed_sec_ =
+        pe_lateral_contact_active_prev_ ? pe_lateral_elapsed_sec_ + dt : 0.0;
+    } else {
+      pe_lateral_elapsed_sec_ = 0.0;
+    }
+    pe_lateral_contact_active_prev_ = pe_lateral_contact_active;
 
     if (!integrated_ref_initialized_) {
       syncIntegratedReferenceToMeasured(ref);
@@ -966,8 +1016,15 @@ private:
     Eigen::Vector2d u_tan_scaled = Eigen::Vector2d::Zero();
     if (contact_basis_ok) {
       u_tan_scaled = computePatternTangentialVelocity(s_dot);
+      const double pattern_lateral_cmd = u_tan_scaled.x();
+      const double omega_lateral_cmd = wall_v_lat_cmd_local;
+      const double pe_lateral_cmd =
+        pe_lateral_contact_active ?
+        pe_lateral_amplitude_ *
+        std::sin(2.0 * M_PI * pe_lateral_frequency_hz_ * pe_lateral_elapsed_sec_) :
+        0.0;
       v_tan_world =
-        contact_t1_w * (u_tan_scaled.x() + wall_v_lat_cmd_local) +
+        contact_t1_w * (pattern_lateral_cmd + omega_lateral_cmd + pe_lateral_cmd) +
         contact_t2_w * u_tan_scaled.y();
     }
 
@@ -1124,6 +1181,7 @@ private:
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_wall_omega_feedback_;
   rclcpp::Subscription<geometry_msgs::msg::QuaternionStamped>::SharedPtr sub_contact_frame_quat_;
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_contact_force_x_;
+  rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_pe_lateral_force_;
 
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_pose_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_vel_;
@@ -1191,8 +1249,13 @@ private:
   std::string ee_acc_topic_;
   std::string contact_frame_quat_topic_;
   std::string contact_force_x_topic_;
+  std::string pe_lateral_force_topic_;
   double contact_signal_timeout_sec_{0.15};
   double wall_v_lat_contact_force_threshold_{0.005};
+  bool pe_lateral_enabled_{false};
+  double pe_lateral_contact_force_threshold_{0.02};
+  double pe_lateral_amplitude_{0.0};
+  double pe_lateral_frequency_hz_{0.0};
 
   std::mutex cmd_mtx_;
   std::array<double, 3> sp_in_{0.0, 0.0, 0.0};
@@ -1212,10 +1275,15 @@ private:
   Eigen::Vector3d contact_t1_w_{-Eigen::Vector3d::UnitY()};
   Eigen::Vector3d contact_t2_w_{Eigen::Vector3d::UnitZ()};
   double contact_force_x_{0.0};
+  double pe_lateral_force_norm_{0.0};
   bool contact_frame_received_{true};
   bool contact_force_x_received_{false};
+  bool pe_lateral_force_received_{false};
   rclcpp::Time last_contact_frame_stamp_{0, 0, RCL_ROS_TIME};
   rclcpp::Time last_contact_force_x_stamp_{0, 0, RCL_ROS_TIME};
+  rclcpp::Time last_pe_lateral_force_stamp_{0, 0, RCL_ROS_TIME};
+  bool pe_lateral_contact_active_prev_{false};
+  double pe_lateral_elapsed_sec_{0.0};
 
   std::mutex state_mtx_;
   std::array<double, 3> pose_w_{0.0, 0.0, 0.0};

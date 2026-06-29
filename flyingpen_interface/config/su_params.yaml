@@ -36,7 +36,11 @@ trajectory_generation:
 normal_vector_estimation:
   ros__parameters:
     reference_object: "end_effector"  # shared command reference: "drone" or "end_effector"
-    normal_estimator_method: "normal_mujoco_measured"  # "direction", "normal_force_based", "normal_velocity_PE_based", "normal_mujoco_measured", "None"
+    normal_estimator_method: "force_PE_based"  # "force_PE_based" "direction", "normal_force_based", "normal_velocity_PE_based", "force_PE_based", "normal_mujoco_measured", "None"
+
+    force_PE_based:
+      beta_n: 1.0  # [1/s], larger=faster; tau≈1/beta_n, fc≈beta_n/(2*pi), alpha=1-exp(-beta_n*dt)
+      force_threshold: 0.01  # [N], minimum MOB force norm required to update the forgetting matrix
 
     normal_force_based:
       normBeta: 2.0  # [1/s] beta ≈ 2*pi*f_c, decay rate of the normal-axis memory matrix

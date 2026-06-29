@@ -344,6 +344,7 @@ private:
     declare_parameter("wall.comX", 0.0);
     declare_parameter("wall.comY", 0.0);
     declare_parameter("wall.comZ", 0.2);
+    declare_parameter("omega_tracking_enabled", true);
     declare_parameter("omega_des", 0.0);
     declare_parameter("kp_omega", 0.02);
     declare_parameter("ki_omega", 0.0);
@@ -441,6 +442,7 @@ private:
       get_parameter("wall.comY").as_double(),
       get_parameter("wall.comZ").as_double()
     };
+    omega_tracking_enabled_ = get_parameter("omega_tracking_enabled").as_bool();
     omega_des_ = get_parameter("omega_des").as_double();
     kp_omega_ = get_parameter("kp_omega").as_double();
     ki_omega_ = get_parameter("ki_omega").as_double();
@@ -606,12 +608,14 @@ private:
       if (wall_jnt_num >= 1) {
         jid_wall_ = wall_jnt_adr;
         qpos_adr_wall_ = model_->jnt_qposadr[jid_wall_];
+        qvel_adr_wall_ = model_->jnt_dofadr[jid_wall_];
         if (model_->jnt_type[jid_wall_] != mjJNT_FREE) {
           RCLCPP_WARN(
             get_logger(),
             "Environment box body exists but is not FREE. Dynamic box pose publishing disabled.");
           jid_wall_ = -1;
           qpos_adr_wall_ = -1;
+          qvel_adr_wall_ = -1;
         }
       }
     }
@@ -704,6 +708,12 @@ private:
         &MujocoBridge::wall_angular_velocity_cmd_callback,
         this,
         std::placeholders::_1));
+    sub_push_box_z_angular_velocity_cmd_ = create_subscription<std_msgs::msg::Float32>(
+      "/su/cmd_push_box_z_angular_velocity", 10,
+      std::bind(
+        &MujocoBridge::push_box_z_angular_velocity_cmd_callback,
+        this,
+        std::placeholders::_1));
     sub_mob_wrench_2nd_order_ = create_subscription<geometry_msgs::msg::WrenchStamped>(
       "/crazyflie/out/mob_2nd", 10,
       std::bind(
@@ -773,6 +783,17 @@ private:
 
     std::lock_guard<std::mutex> lock(omega_mtx_);
     omega_des_ = static_cast<double>(msg->data);
+  }
+
+  void push_box_z_angular_velocity_cmd_callback(const std_msgs::msg::Float32::SharedPtr msg)
+  {
+    if (!msg || !std::isfinite(msg->data)) {
+      return;
+    }
+
+    std::lock_guard<std::mutex> lock(push_box_motion_mtx_);
+    push_box_forced_wz_ = static_cast<double>(msg->data);
+    push_box_forced_motion_received_ = true;
   }
 
   void contact_force_x_callback(const std_msgs::msg::Float32::SharedPtr msg)
@@ -935,6 +956,26 @@ private:
       static_cast<mjtNum>(wind_indicator_force_gain_ * wind_force[0] - flutter * wind_y);
     data_->xfrc_applied[indicator_adr + 1] =
       static_cast<mjtNum>(wind_indicator_force_gain_ * wind_force[1] + flutter * wind_x);
+  }
+
+  void apply_push_box_forced_motion_locked()
+  {
+    if (qvel_adr_wall_ < 0) {
+      return;
+    }
+
+    double forced_wz = 0.0;
+    bool active = false;
+    {
+      std::lock_guard<std::mutex> lock(push_box_motion_mtx_);
+      forced_wz = push_box_forced_wz_;
+      active = push_box_forced_motion_received_;
+    }
+    if (!active) {
+      return;
+    }
+
+    data_->qvel[qvel_adr_wall_ + 5] = static_cast<mjtNum>(forced_wz);
   }
 
   void update_propeller_visuals_locked()
@@ -1350,6 +1391,7 @@ private:
         omega_contact_elapsed_sec_ = 0.0;
       }
       const bool omega_lateral_enabled =
+        omega_tracking_enabled_ &&
         omega_contact_active &&
         omega_contact_elapsed_sec_ >= omega_lateral_enable_delay_sec_;
       if (omega_lateral_enabled && omega_control_dt > 0.0) {
@@ -1438,7 +1480,8 @@ private:
         omega_contact_active ? 1.0 : 0.0,
         omega_i_ramp_gain,
         omega_lateral_enabled ? 1.0 : 0.0,
-        omega_contact_elapsed_sec_};
+        omega_contact_elapsed_sec_,
+        omega_tracking_enabled_ ? 1.0 : 0.0};
       pub_wall_omega_feedback_->publish(omega_feedback_msg);
     }
 
@@ -1459,6 +1502,7 @@ private:
         std::lock_guard<std::mutex> lock(scene_mtx_);
         apply_control_locked();
         apply_wind_disturbance_locked();
+        apply_push_box_forced_motion_locked();
         update_propeller_visuals_locked();
         mj_step(model_, data_);
       }
@@ -1703,6 +1747,7 @@ private:
   int qpos_adr_drone_{-1};
   int qpos_adr_wall_{-1};
   int qvel_adr_drone_{-1};
+  int qvel_adr_wall_{-1};
 
   int imu_acc_sid_{-1};
   int imu_gyro_sid_{-1};
@@ -1744,6 +1789,10 @@ private:
   double wind_indicator_force_gain_{1.0};
   double wind_indicator_flutter_gain_{0.15};
   double wind_indicator_flutter_hz_{6.0};
+  std::mutex push_box_motion_mtx_;
+  double push_box_forced_wz_{0.0};
+  bool push_box_forced_motion_received_{false};
+  bool omega_tracking_enabled_{true};
   double omega_des_{0.0};
   double omega_pushbox_{0.0};
   double f_ext_x_{0.0};
@@ -1868,6 +1917,7 @@ private:
   rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr sub_input_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_wind_;
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_wall_angular_velocity_cmd_;
+  rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_push_box_z_angular_velocity_cmd_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_wrench_2nd_order_;
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_contact_force_x_;
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_cmd_force_;

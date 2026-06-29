@@ -9,6 +9,7 @@
 #include <ncurses.h>
 
 #include <array>
+#include <algorithm>
 #include <chrono>
 #include <cctype>
 #include <cmath>
@@ -36,6 +37,8 @@ public:
         "su/cmd_force", 10);
     wall_angular_velocity_pub_ = this->create_publisher<std_msgs::msg::Float32>(
         "/su/cmd_wall_angular_velocity", 10);
+    push_box_z_angular_velocity_pub_ = this->create_publisher<std_msgs::msg::Float32>(
+        "/su/cmd_push_box_z_angular_velocity", 10);
 
     pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
         "/crazyflie/out/pose", 10,
@@ -53,6 +56,8 @@ public:
     force_delta_ = this->declare_parameter<double>("force_tick", 0.02);
     wall_angular_velocity_tick_ =
         this->declare_parameter<double>("wall_angular_velocity_tick", 0.05);
+    wall_angular_velocity_ramp_time_sec_ =
+        std::max(0.0, this->declare_parameter<double>("wall_angular_velocity_ramp_time_sec", 1.0));
     gravity_ = this->declare_parameter<double>("gravity", 9.81);
     calibration_window_sec_ = this->declare_parameter<double>("calibration_window_sec", 1.0);
 
@@ -61,6 +66,8 @@ public:
     latest_input_tau_fz_.fill(0.0);
     force_des_ = 0.0;
     wall_angular_velocity_des_ = 0.0;
+    wall_angular_velocity_cmd_ = 0.0;
+    push_box_z_angular_velocity_des_ = 0.0;
     use_vel_mode_ = false;
     trajectory_enabled_ = false;
     position_reset_requested_ = true;
@@ -145,6 +152,7 @@ private:
     }
 
     updateCalibration();
+    updateWallAngularVelocityRamp();
     publishPositionCmd();
     publishUseVelMode();
     drawStatusBlock();
@@ -209,15 +217,17 @@ private:
     }
     else if (key == 'm')
     {
-      trajectory_enabled_ = true;
-      status_msg_ = "trajectory running";
-      pushInputHistory("m : trajectory run");
+      push_box_z_angular_velocity_des_ -= wall_angular_velocity_tick_;
+      publishPushBoxZAngularVelocity();
+      status_msg_ = "MuJoCo push-box forced z angular velocity decreased";
+      pushInputHistory("m : forced box wz -= tick");
     }
     else if (key == 'n')
     {
-      trajectory_enabled_ = false;
-      status_msg_ = "trajectory stopped";
-      pushInputHistory("n : trajectory stop");
+      push_box_z_angular_velocity_des_ += wall_angular_velocity_tick_;
+      publishPushBoxZAngularVelocity();
+      status_msg_ = "MuJoCo push-box forced z angular velocity increased";
+      pushInputHistory("n : forced box wz += tick");
     }
     else if (key == 'j')
     {
@@ -247,23 +257,25 @@ private:
     else if (key == 'g')
     {
       wall_angular_velocity_des_ += wall_angular_velocity_tick_;
-      publishWallAngularVelocity();
-      status_msg_ = "push-box desired angular velocity increased";
-      pushInputHistory("g : wall angular velocity += 0.05 rad/s");
+      beginWallAngularVelocityRamp();
+      status_msg_ = "omega desired target increased";
+      pushInputHistory("g : omega_des target += tick");
     }
     else if (key == 'h')
     {
       wall_angular_velocity_des_ -= wall_angular_velocity_tick_;
-      publishWallAngularVelocity();
-      status_msg_ = "push-box desired angular velocity decreased";
-      pushInputHistory("h : wall angular velocity -= 0.05 rad/s");
+      beginWallAngularVelocityRamp();
+      status_msg_ = "omega desired target decreased";
+      pushInputHistory("h : omega_des target -= tick");
     }
     else if (key == 'b')
     {
       wall_angular_velocity_des_ = 0.0;
-      publishWallAngularVelocity();
-      status_msg_ = "push-box desired angular velocity reset";
-      pushInputHistory("b : wall angular velocity = 0 rad/s");
+      beginWallAngularVelocityRamp();
+      push_box_z_angular_velocity_des_ = 0.0;
+      publishPushBoxZAngularVelocity();
+      status_msg_ = "omega desired target and MuJoCo push-box forced wz reset";
+      pushInputHistory("b : omega_des target = 0, forced box wz = 0");
     }
     else if (key == 't')
     {
@@ -372,6 +384,54 @@ private:
   double yawTickRad() const
   {
     return yaw_tick_deg_ * M_PI / 180.0;
+  }
+
+  void updateWallAngularVelocityRamp()
+  {
+    const rclcpp::Time now = this->now();
+    if (!wall_angular_velocity_ramp_active_)
+    {
+      publishWallAngularVelocity();
+      return;
+    }
+
+    const double elapsed = (now - wall_angular_velocity_ramp_start_time_).seconds();
+    if (!(std::isfinite(elapsed) && elapsed >= 0.0))
+    {
+      return;
+    }
+
+    const double duration = wall_angular_velocity_ramp_time_sec_;
+    if (duration <= 1e-9 || elapsed >= duration)
+    {
+      wall_angular_velocity_cmd_ = wall_angular_velocity_ramp_target_;
+      wall_angular_velocity_ramp_active_ = false;
+    }
+    else
+    {
+      const double alpha = elapsed / duration;
+      wall_angular_velocity_cmd_ =
+          wall_angular_velocity_ramp_start_ +
+          alpha * (wall_angular_velocity_ramp_target_ - wall_angular_velocity_ramp_start_);
+    }
+
+    publishWallAngularVelocity();
+  }
+
+  void beginWallAngularVelocityRamp()
+  {
+    wall_angular_velocity_ramp_start_ = wall_angular_velocity_cmd_;
+    wall_angular_velocity_ramp_target_ = wall_angular_velocity_des_;
+    wall_angular_velocity_ramp_start_time_ = this->now();
+    wall_angular_velocity_ramp_active_ = true;
+
+    if (wall_angular_velocity_ramp_time_sec_ <= 1e-9 ||
+      std::abs(wall_angular_velocity_ramp_target_ - wall_angular_velocity_ramp_start_) <= 1e-9)
+    {
+      wall_angular_velocity_cmd_ = wall_angular_velocity_ramp_target_;
+      wall_angular_velocity_ramp_active_ = false;
+      publishWallAngularVelocity();
+    }
   }
 
   void beginHoverCalibration()
@@ -665,8 +725,15 @@ private:
   void publishWallAngularVelocity()
   {
     std_msgs::msg::Float32 msg;
-    msg.data = static_cast<float>(wall_angular_velocity_des_);
+    msg.data = static_cast<float>(wall_angular_velocity_cmd_);
     wall_angular_velocity_pub_->publish(msg);
+  }
+
+  void publishPushBoxZAngularVelocity()
+  {
+    std_msgs::msg::Float32 msg;
+    msg.data = static_cast<float>(push_box_z_angular_velocity_des_);
+    push_box_z_angular_velocity_pub_->publish(msg);
   }
 
   void poseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
@@ -728,7 +795,7 @@ private:
     mvprintw(2, 0, "position: w/s(x), a/d(y), e/q(z), z/c(yaw offset), x(hold), i->velocity");
     mvprintw(3, 0, "velocity: w/s/a/d/e/q(v), z/c(yaw rate), x(zero vel), u->position");
     mvprintw(4, 0, "force/cal: j/k/l(cmd_fx), f(hover mass/com + yaml sync), t quit");
-    mvprintw(5, 0, "push-box yaw rate: g(+0.05), h(-0.05), b(reset) [rad/s]");
+    mvprintw(5, 0, "forced MuJoCo push-box wz: n(+tick), m(-tick), b(reset) [rad/s]");
     mvprintw(6, 0, "========================status========================");
     mvprintw(16, 0, "========================command========================");
     refresh();
@@ -748,9 +815,11 @@ private:
     move(9, 0);
     clrtoeol();
     printw(
-        "force_des=%.3f | wall angular vel des=%.3f rad/s | latest input tau/fz=(%.4f %.4f %.4f %.4f)",
+        "force_des=%.3f | omega_des=%.3f->%.3f rad/s | forced box wz=%.3f rad/s | latest input tau/fz=(%.4f %.4f %.4f %.4f)",
         force_des_,
+        wall_angular_velocity_cmd_,
         wall_angular_velocity_des_,
+        push_box_z_angular_velocity_des_,
         latest_input_tau_fz_[0], latest_input_tau_fz_[1], latest_input_tau_fz_[2], latest_input_tau_fz_[3]);
 
     move(10, 0);
@@ -827,6 +896,7 @@ private:
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr use_vel_mode_pub_;
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr force_pub_;
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr wall_angular_velocity_pub_;
+  rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr push_box_z_angular_velocity_pub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
   rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr input_sub_;
   rclcpp::TimerBase::SharedPtr timer_;
@@ -843,7 +913,12 @@ private:
   double force_delta_{0.035};
   double force_des_{0.0};
   double wall_angular_velocity_tick_{0.05};
+  double wall_angular_velocity_ramp_time_sec_{1.0};
   double wall_angular_velocity_des_{0.0};
+  double wall_angular_velocity_cmd_{0.0};
+  double wall_angular_velocity_ramp_start_{0.0};
+  double wall_angular_velocity_ramp_target_{0.0};
+  double push_box_z_angular_velocity_des_{0.0};
   double gravity_{9.81};
   double calibration_window_sec_{1.0};
   double latest_pose_roll_rad_{0.0};
@@ -858,6 +933,8 @@ private:
 
   rclcpp::Time calibration_start_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time calibration_last_sample_time_{0, 0, RCL_ROS_TIME};
+  rclcpp::Time wall_angular_velocity_ramp_start_time_{0, 0, RCL_ROS_TIME};
+  bool wall_angular_velocity_ramp_active_{false};
   double calibration_integral_world_fz_{0.0};
   double calibration_integral_body_fz_{0.0};
   double calibration_integral_tau_x_{0.0};

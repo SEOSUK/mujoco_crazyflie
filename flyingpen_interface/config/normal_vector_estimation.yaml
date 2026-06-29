@@ -1,6 +1,6 @@
 /**:
   ros__parameters:
-    normal_estimator_method: "normal_force_based" # overridden by su_params.yaml when needed; "direction", "normal_force_based", "normal_velocity_PE_based", "normal_mujoco_measured", "None"
+    normal_estimator_method: "normal_force_based" # overridden by su_params.yaml when needed; "direction", "normal_force_based", "normal_velocity_PE_based", "force_PE_based", "normal_mujoco_measured", "None"
     publish_hz: 100.0  # normal estimator publish/update rate [Hz]
 
     flip_measured_force: false  # follow firmware sign by default; enable only for an explicit experimental frame flip

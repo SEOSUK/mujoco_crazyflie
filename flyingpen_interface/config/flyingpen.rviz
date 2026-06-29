@@ -176,14 +176,14 @@ Visualization Manager:
       Enabled: true
       Name: Estimated Normal
       Namespaces:
-        {}
+        estimated_contact_normal_ke: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /rviz/wall_angular_velocity
+        Value: /rviz/estimated_contact_normal_ke
       Value: true
     - Class: rviz_default_plugins/Marker
       Enabled: true
@@ -215,7 +215,7 @@ Visualization Manager:
       Enabled: true
       Name: Wall Angular Velocity
       Namespaces:
-        {}
+        wall_angular_velocity: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -225,10 +225,10 @@ Visualization Manager:
         Value: /rviz/wall_angular_velocity
       Value: true
     - Class: rviz_default_plugins/Marker
-      Enabled: true
+      Enabled: false
       Name: True Normal
       Namespaces:
-        true_contact_normal: true
+        {}
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -236,7 +236,7 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /rviz/true_contact_normal
-      Value: true
+      Value: false
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Name: MarkerArray
@@ -307,11 +307,11 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Scale: 471.42523193359375
+      Scale: 1307.29931640625
       Target Frame: world
       Value: TopDownOrtho (rviz_default_plugins)
-      X: 0.6757548451423645
-      Y: 0.006584271788597107
+      X: 0.3879958391189575
+      Y: -0.06608882546424866
     Saved: ~
 Window Geometry:
   Displays:
