@@ -29,14 +29,22 @@ trajectory_generation:
       traj1Period: 10.  # [s], desired time to complete one full pattern cycle
 
       preloadEn: 1  # 0: fixed normal [-1,0,0], 1: force-dominant normal estimator
-      preloadGf: 20.0  # effective gain from normal force error to normal velocity command
-      preloadGv: 20.0  # effective gain from normal velocity leakage to command
+      preloadGf: 2.0  # effective gain from normal force error to normal velocity command
+      preloadGv: 2.0  # effective gain from normal velocity leakage to command
       preloadNu: 0.3  # [m/s], symmetric saturation bound for normal velocity command
 
 normal_vector_estimation:
   ros__parameters:
     reference_object: "end_effector"  # shared command reference: "drone" or "end_effector"
-    normal_estimator_method: "force_PE_based"  # "force_PE_based" "direction", "normal_force_based", "normal_velocity_PE_based", "force_PE_based", "normal_mujoco_measured", "None"
+    normal_estimator_method: "force_PE_Online_Contact"  # "force_PE_based", "force_PE_Online_Contact", "direction", "normal_force_based", "normal_velocity_PE_based", "normal_mujoco_measured", "None"
+
+    force_PE_Online_Contact:
+      beta_n: 1.0  # [1/s], larger=faster; tau≈1/beta_n, fc≈beta_n/(2*pi), alpha=1-exp(-beta_n*dt)
+      gamma_n: 4.0  # [1/s], Eq. (13) adaptation gain for the Online Contact-style normal update when using force_PE_Online_Contact
+      force_threshold: 0.01  # [N], minimum MOB force norm required to update the forgetting matrix
+      force_only: true  # true: use normalized force direction directly as the normal estimate for ablation
+      force_only_lpf_hz: 1.0  # [Hz], 1st-order LPF cutoff applied to normalized force when force_only=true; 0 disables filtering
+      force_only_yaw_scale_about_180_deg: 0.993  # [1], applied to raw force direction yaw first: yaw_force' = scale * (yaw_force - 180 deg) + 180 deg when force_only=true
 
     force_PE_based:
       beta_n: 1.0  # [1/s], larger=faster; tau≈1/beta_n, fc≈beta_n/(2*pi), alpha=1-exp(-beta_n*dt)

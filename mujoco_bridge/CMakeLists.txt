@@ -17,8 +17,31 @@ find_package(sensor_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(glfw3 REQUIRED)
 
-set(MUJOCO_INCLUDE_DIR "/home/mj/venvs/ROS2/lib/python3.12/site-packages/mujoco/include")
-set(MUJOCO_LIBRARY "/home/mj/venvs/ROS2/lib/python3.12/site-packages/mujoco/libmujoco.so.3.5.0")
+set(MUJOCO_SEARCH_HINTS
+  "$ENV{MUJOCO_DIR}"
+  "$ENV{MUJOCO_PATH}"
+  "$ENV{HOME}/.local/lib/python3.10/site-packages/mujoco"
+  "$ENV{HOME}/.local/lib/python3.11/site-packages/mujoco"
+  "$ENV{HOME}/.local/lib/python3.12/site-packages/mujoco"
+)
+
+find_path(MUJOCO_INCLUDE_DIR
+  NAMES mujoco/mujoco.h
+  HINTS ${MUJOCO_SEARCH_HINTS}
+  PATH_SUFFIXES include
+)
+
+find_library(MUJOCO_LIBRARY
+  NAMES libmujoco.so.3.5.0 libmujoco.so.3.4.0 libmujoco.so
+  HINTS ${MUJOCO_SEARCH_HINTS}
+)
+
+if(NOT MUJOCO_INCLUDE_DIR OR NOT MUJOCO_LIBRARY)
+  message(FATAL_ERROR
+    "MuJoCo not found. Set MUJOCO_DIR or MUJOCO_PATH to the MuJoCo package root "
+    "(the directory containing include/ and libmujoco.so)."
+  )
+endif()
 
 message(STATUS "MUJOCO_INCLUDE_DIR = ${MUJOCO_INCLUDE_DIR}")
 message(STATUS "MUJOCO_LIBRARY     = ${MUJOCO_LIBRARY}")

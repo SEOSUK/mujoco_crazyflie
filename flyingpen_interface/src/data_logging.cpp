@@ -217,6 +217,9 @@ public:
     sub_contact_vel_actual_ = create_subscription<geometry_msgs::msg::Vector3Stamped>(
       "/su/debug/contact_vel_actual", 10,
       std::bind(&DataLogger::cb_contact_vel_actual, this, std::placeholders::_1));
+    sub_contact_frame_quat_ = create_subscription<geometry_msgs::msg::QuaternionStamped>(
+      "/estimated_contact_frame_quat", 10,
+      std::bind(&DataLogger::cb_contact_frame_quat, this, std::placeholders::_1));
     sub_force_actual_ = create_subscription<std_msgs::msg::Float32>(
       "/su/contact_force_x", 10,
       std::bind(&DataLogger::cb_force_actual, this, std::placeholders::_1));
@@ -311,7 +314,10 @@ private:
       "mob_2nd_tau_rxf_x,mob_2nd_tau_rxf_y,mob_2nd_tau_rxf_z,"
       "wind_x,wind_y,wind_z,"
       "ee_pos_x,ee_pos_y,ee_pos_z,"
+      "ee_vel_x,ee_vel_y,ee_vel_z,"
       "c_hat_vy_cmd,c_hat_vy_act,c_hat_vz_cmd,c_hat_vz_act,"
+      "t1_cmd_world_x,t1_cmd_world_y,t1_cmd_world_z,"
+      "t1_act_world_x,t1_act_world_y,t1_act_world_z,"
       "c_hat_fx_act,"
       "alphaFrame,omegaN,normalLeakage,alphaU1,alphaU2,preloadFeedback,cTau,patternProgress,patternSpeed,"
       "n_geo_x,n_geo_y,n_geo_z,"
@@ -332,6 +338,7 @@ private:
       "offline_etau_x,offline_etau_y,offline_etau_z,offline_rho_tau,"
       "offline_normal_pure_nx,offline_normal_pure_ny,offline_normal_pure_nz,"
       "offline_normal_k1_nx,offline_normal_k1_ny,offline_normal_k1_nz,"
+      "offline_normal_online_contact_nx,offline_normal_online_contact_ny,offline_normal_online_contact_nz,"
       "offline_normal_ke_raw_nx,offline_normal_ke_raw_ny,offline_normal_ke_raw_nz,"
       "offline_normal_ke_gamma_proj_nx,offline_normal_ke_gamma_proj_ny,offline_normal_ke_gamma_proj_nz,"
       "offline_ws_x,offline_ws_y,offline_ws_z,"
@@ -483,6 +490,18 @@ private:
     have_contact_vel_actual_ = true;
   }
 
+  void cb_contact_frame_quat(const geometry_msgs::msg::QuaternionStamped::SharedPtr m)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    const Eigen::Quaterniond q(
+      m->quaternion.w, m->quaternion.x, m->quaternion.y, m->quaternion.z);
+    if (q.norm() < 1.0e-9) {
+      return;
+    }
+    contact_R_C_ = q.normalized().toRotationMatrix();
+    have_contact_frame_quat_ = true;
+  }
+
   void cb_force_actual(const std_msgs::msg::Float32::SharedPtr m)
   {
     std::lock_guard<std::mutex> lk(mtx_);
@@ -502,6 +521,11 @@ private:
       n_ke_gamma_proj_ << m->data[43], m->data[44], m->data[45];
     } else {
       n_ke_gamma_proj_ << quiet_nan(), quiet_nan(), quiet_nan();
+    }
+    if (m->data.size() >= 58) {
+      online_contact_normal_ << m->data[55], m->data[56], m->data[57];
+    } else {
+      online_contact_normal_ << quiet_nan(), quiet_nan(), quiet_nan();
     }
     have_normal_debug_metrics_ = true;
   }
@@ -675,7 +699,8 @@ private:
     Eigen::Vector3d mob_2nd_tau_tauhat_world, mob_2nd_tau_rxf_world;
     Eigen::Vector3d wind_force, ee_vel;
     Eigen::Vector3d ee_pos, c_hat_v_cmd, c_hat_v_act, n_geo, n_f, n_alg, f_g;
-    Eigen::Vector3d normal_pure, normal_ke, n_ke_gamma_proj, true_normal;
+    Eigen::Matrix3d contact_R_C = Eigen::Matrix3d::Identity();
+    Eigen::Vector3d normal_pure, normal_ke, online_contact_normal, n_ke_gamma_proj, true_normal;
     Eigen::Vector3d wall_vel, wall_angvel;
     Eigen::Vector3d n_ke_raw_direct(quiet_nan(), quiet_nan(), quiet_nan());
     Eigen::Vector3d n_ke_gamma_proj_direct(quiet_nan(), quiet_nan(), quiet_nan());
@@ -734,6 +759,7 @@ private:
       ee_pos = ee_pos_;
       c_hat_v_cmd = c_hat_v_cmd_;
       c_hat_v_act = c_hat_v_act_;
+      contact_R_C = contact_R_C_;
       c_hat_fx_act = c_hat_fx_act_;
       n_geo = n_geo_;
       n_f = n_f_;
@@ -761,6 +787,7 @@ private:
       theta_fext = theta_fext_;
       omega_fext_dir = omega_fext_dir_;
       omega_fext_dir_raw = omega_fext_dir_raw_;
+      online_contact_normal = online_contact_normal_;
       n_ke_gamma_proj = n_ke_gamma_proj_;
       normal_pure = normal_pure_;
       normal_ke = normal_ke_;
@@ -790,6 +817,7 @@ private:
       mask |= (have_contact_filt_ ? (1u<<11) : 0u);
       mask |= (have_cmd_force_ ? (1u<<12) : 0u);
       mask |= (have_force_lpf_ ? (1u<<13) : 0u);
+      mask |= (have_contact_frame_quat_ ? (1u<<14) : 0u);
       mask |= (have_mob_wrench_2nd_order_ ? (1u<<15) : 0u);
       mask |= (have_mob_wrench_2nd_tau_ ? (1u<<16) : 0u);
       mask |= (have_mob_2nd_tau_terms_ ? (1u<<17) : 0u);
@@ -818,6 +846,13 @@ private:
     const double gamma_eps = compare_gamma_epsilon_;
     const double mob_force_norm = ke_force_ee_applied.norm();
     const double ee_vel_norm = ee_vel.norm();
+    Eigen::Vector3d t1_cmd_world(quiet_nan(), quiet_nan(), quiet_nan());
+    Eigen::Vector3d t1_act_world(quiet_nan(), quiet_nan(), quiet_nan());
+    if ((mask & (1u << 14)) != 0u) {
+      const Eigen::Vector3d contact_t1_w = contact_R_C.col(1);
+      t1_cmd_world = contact_t1_w * c_hat_v_cmd.y();
+      t1_act_world = contact_t1_w * c_hat_v_act.y();
+    }
     const bool have_force = std::isfinite(mob_force_norm) && mob_force_norm > force_eps;
     const bool have_vel_eps0 = std::isfinite(ee_vel_norm) && ee_vel_norm > 1.0e-12;
     const bool have_vel_eps = std::isfinite(ee_vel_norm) && ee_vel_norm > vel_eps;
@@ -1058,7 +1093,10 @@ private:
            << msg.data[73] << "," << msg.data[74] << "," << msg.data[75] << ","
            << msg.data[76] << "," << msg.data[77] << "," << msg.data[78] << ","
            << msg.data[79] << "," << msg.data[80] << "," << msg.data[81] << ","
+           << ee_vel.x() << "," << ee_vel.y() << "," << ee_vel.z() << ","
            << msg.data[82] << "," << msg.data[83] << "," << msg.data[84] << "," << msg.data[85] << ","
+           << t1_cmd_world.x() << "," << t1_cmd_world.y() << "," << t1_cmd_world.z() << ","
+           << t1_act_world.x() << "," << t1_act_world.y() << "," << t1_act_world.z() << ","
            << msg.data[86] << ","
            << msg.data[87] << "," << msg.data[88] << "," << msg.data[89] << "," << msg.data[90] << ","
            << msg.data[91] << "," << msg.data[92] << "," << msg.data[93] << "," << msg.data[94] << ","
@@ -1088,6 +1126,7 @@ private:
            << quiet_nan() << ","
            << normal_pure.x() << "," << normal_pure.y() << "," << normal_pure.z() << ","
            << normal_ke.x() << "," << normal_ke.y() << "," << normal_ke.z() << ","
+           << online_contact_normal.x() << "," << online_contact_normal.y() << "," << online_contact_normal.z() << ","
            << n_ke_raw_direct.x() << "," << n_ke_raw_direct.y() << "," << n_ke_raw_direct.z() << ","
            << n_ke_gamma_proj_direct.x() << "," << n_ke_gamma_proj_direct.y() << "," << n_ke_gamma_proj_direct.z() << ","
            << w_s_direct.x() << "," << w_s_direct.y() << "," << w_s_direct.z() << ","
@@ -1113,6 +1152,7 @@ private:
   Eigen::Vector3d pos_{0,0,0};
   Eigen::Vector3d ee_pos_{0,0,0};
   Eigen::Vector3d ee_vel_{0,0,0};
+  Eigen::Matrix3d contact_R_C_{Eigen::Matrix3d::Identity()};
   double roll_{0.0}, pitch_{0.0}, yaw_{0.0};
 
   Eigen::Vector3d vel_{0,0,0};
@@ -1171,6 +1211,7 @@ private:
   double pattern_progress_{quiet_nan()};
   double pattern_speed_cmd_{quiet_nan()};
   Eigen::Vector3d n_ke_gamma_proj_{quiet_nan(), quiet_nan(), quiet_nan()};
+  Eigen::Vector3d online_contact_normal_{quiet_nan(), quiet_nan(), quiet_nan()};
   Eigen::Vector3d normal_pure_{quiet_nan(), quiet_nan(), quiet_nan()};
   Eigen::Vector3d normal_ke_{quiet_nan(), quiet_nan(), quiet_nan()};
   double F_error_dot_raw_{0.0};
@@ -1202,6 +1243,7 @@ private:
   bool have_cmd_force_{false};
   bool have_contact_vel_cmd_{false};
   bool have_contact_vel_actual_{false};
+  bool have_contact_frame_quat_{false};
   bool have_force_actual_{false};
   bool have_normal_debug_metrics_{false};
   bool have_control_metrics_{false};
@@ -1241,6 +1283,7 @@ private:
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_cmd_force_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_contact_vel_cmd_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_contact_vel_actual_;
+  rclcpp::Subscription<geometry_msgs::msg::QuaternionStamped>::SharedPtr sub_contact_frame_quat_;
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_force_actual_;
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_normal_debug_metrics_;
   rclcpp::Subscription<geometry_msgs::msg::QuaternionStamped>::SharedPtr sub_normal_quat_pure_;

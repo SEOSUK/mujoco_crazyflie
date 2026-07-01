@@ -43,6 +43,9 @@ public:
     pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
         "/crazyflie/out/pose", 10,
         std::bind(&CommandPublisher::poseCallback, this, std::placeholders::_1));
+    wall_pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
+        "/environment/wall_pose", 10,
+        std::bind(&CommandPublisher::wallPoseCallback, this, std::placeholders::_1));
     input_sub_ = this->create_subscription<std_msgs::msg::Float32MultiArray>(
         "/crazyflie/in/input", 10,
         std::bind(&CommandPublisher::inputCallback, this, std::placeholders::_1));
@@ -58,6 +61,12 @@ public:
         this->declare_parameter<double>("wall_angular_velocity_tick", 0.05);
     wall_angular_velocity_ramp_time_sec_ =
         std::max(0.0, this->declare_parameter<double>("wall_angular_velocity_ramp_time_sec", 1.0));
+    wall_yaw_limit_deg_ =
+        std::max(0.0, this->declare_parameter<double>("wall_yaw_limit_deg", 29.5));
+    wall_yaw_auto_accel_rad_s2_ =
+        std::max(1.0e-6, this->declare_parameter<double>("wall_yaw_auto_accel_rad_s2", 0.05));
+    wall_yaw_auto_decel_band_deg_ =
+        std::max(1.0e-6, this->declare_parameter<double>("wall_yaw_auto_decel_band_deg", 8.0));
     gravity_ = this->declare_parameter<double>("gravity", 9.81);
     calibration_window_sec_ = this->declare_parameter<double>("calibration_window_sec", 1.0);
 
@@ -143,6 +152,15 @@ private:
     return std::filesystem::path(__FILE__).parent_path().parent_path() / "config" / "wrench_observer.yaml";
   }
 
+  static double moveToward(double current, double target, double max_delta)
+  {
+    if (current < target)
+    {
+      return std::min(current + max_delta, target);
+    }
+    return std::max(current - max_delta, target);
+  }
+
   void timerCallback()
   {
     int ch = 0;
@@ -153,6 +171,7 @@ private:
 
     updateCalibration();
     updateWallAngularVelocityRamp();
+    updatePushBoxYawAuto();
     publishPositionCmd();
     publishUseVelMode();
     drawStatusBlock();
@@ -217,17 +236,11 @@ private:
     }
     else if (key == 'm')
     {
-      push_box_z_angular_velocity_des_ -= wall_angular_velocity_tick_;
-      publishPushBoxZAngularVelocity();
-      status_msg_ = "MuJoCo push-box forced z angular velocity decreased";
-      pushInputHistory("m : forced box wz -= tick");
+      startPushBoxYawAutoToSignedLimit(+1.0);
     }
     else if (key == 'n')
     {
-      push_box_z_angular_velocity_des_ += wall_angular_velocity_tick_;
-      publishPushBoxZAngularVelocity();
-      status_msg_ = "MuJoCo push-box forced z angular velocity increased";
-      pushInputHistory("n : forced box wz += tick");
+      startPushBoxYawAutoToSignedLimit(-1.0);
     }
     else if (key == 'j')
     {
@@ -273,6 +286,7 @@ private:
       wall_angular_velocity_des_ = 0.0;
       beginWallAngularVelocityRamp();
       push_box_z_angular_velocity_des_ = 0.0;
+      push_box_yaw_auto_active_ = false;
       publishPushBoxZAngularVelocity();
       status_msg_ = "omega desired target and MuJoCo push-box forced wz reset";
       pushInputHistory("b : omega_des target = 0, forced box wz = 0");
@@ -432,6 +446,72 @@ private:
       wall_angular_velocity_ramp_active_ = false;
       publishWallAngularVelocity();
     }
+  }
+
+  void startPushBoxYawAutoToSignedLimit(double sign)
+  {
+    if (!has_latest_wall_pose_)
+    {
+      status_msg_ = "wall pose not ready for auto yaw rotation";
+      return;
+    }
+
+    const double limit_deg = wall_yaw_limit_deg_;
+    if (!(std::isfinite(limit_deg) && limit_deg > 1.0e-6))
+    {
+      status_msg_ = "wall yaw limit is not valid";
+      return;
+    }
+
+    push_box_yaw_target_deg_ = (sign >= 0.0) ? limit_deg : -limit_deg;
+    push_box_yaw_auto_speed_rad_s_ = std::max(1.0e-6, std::abs(wall_angular_velocity_tick_));
+    push_box_yaw_auto_active_ = true;
+    push_box_yaw_auto_last_update_time_ = this->now();
+
+    std::ostringstream oss;
+    oss << "auto wall yaw target = " << std::fixed << std::setprecision(1)
+        << push_box_yaw_target_deg_ << " deg";
+    status_msg_ = oss.str();
+    pushInputHistory(sign >= 0.0 ? "m : auto wall yaw -> +limit" : "n : auto wall yaw -> -limit");
+  }
+
+  void updatePushBoxYawAuto()
+  {
+    if (!push_box_yaw_auto_active_)
+    {
+      return;
+    }
+    if (!has_latest_wall_pose_)
+    {
+      return;
+    }
+
+    const double error_deg = push_box_yaw_target_deg_ - latest_wall_yaw_deg_;
+    if (std::abs(error_deg) <= push_box_yaw_target_tolerance_deg_)
+    {
+      push_box_z_angular_velocity_des_ = 0.0;
+      push_box_yaw_auto_active_ = false;
+      publishPushBoxZAngularVelocity();
+      status_msg_ = "auto wall yaw target reached";
+      return;
+    }
+
+    const rclcpp::Time now = this->now();
+    double dt = (now - push_box_yaw_auto_last_update_time_).seconds();
+    push_box_yaw_auto_last_update_time_ = now;
+    if (!(std::isfinite(dt) && dt > 0.0 && dt < 0.2))
+    {
+      dt = 0.05;
+    }
+
+    const double error_abs_deg = std::abs(error_deg);
+    const double taper = std::clamp(error_abs_deg / wall_yaw_auto_decel_band_deg_, 0.0, 1.0);
+    const double target_speed_rad_s =
+      (error_deg > 0.0 ? 1.0 : -1.0) * push_box_yaw_auto_speed_rad_s_ * taper;
+    const double max_delta_speed = wall_yaw_auto_accel_rad_s2_ * dt;
+    push_box_z_angular_velocity_des_ =
+      moveToward(push_box_z_angular_velocity_des_, target_speed_rad_s, max_delta_speed);
+    publishPushBoxZAngularVelocity();
   }
 
   void beginHoverCalibration()
@@ -775,6 +855,20 @@ private:
     has_latest_input_ = true;
   }
 
+  void wallPoseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
+  {
+    if (!msg)
+    {
+      return;
+    }
+
+    const auto &q = msg->pose.orientation;
+    const double siny_cosp = 2.0 * (q.w * q.z + q.x * q.y);
+    const double cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z);
+    latest_wall_yaw_deg_ = std::atan2(siny_cosp, cosy_cosp) * 180.0 / M_PI;
+    has_latest_wall_pose_ = true;
+  }
+
   void pushInputHistory(const std::string &entry)
   {
     input_history_.push_front(entry);
@@ -837,6 +931,17 @@ private:
 
     move(11, 0);
     clrtoeol();
+    if (has_latest_wall_pose_)
+    {
+      printw("wall orientation yaw=%.1f deg", latest_wall_yaw_deg_);
+    }
+    else
+    {
+      printw("wall orientation: waiting for /environment/wall_pose");
+    }
+
+    move(12, 0);
+    clrtoeol();
     if (calibration_active_)
     {
       const double elapsed = (this->now() - calibration_start_time_).seconds();
@@ -847,7 +952,7 @@ private:
       printw("calibration: idle");
     }
 
-    move(12, 0);
+    move(13, 0);
     clrtoeol();
     printw("status: %s", status_msg_.c_str());
 
@@ -898,6 +1003,7 @@ private:
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr wall_angular_velocity_pub_;
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr push_box_z_angular_velocity_pub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr wall_pose_sub_;
   rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr input_sub_;
   rclcpp::TimerBase::SharedPtr timer_;
   std::shared_ptr<rclcpp::AsyncParametersClient> observer_param_client_;
@@ -914,26 +1020,36 @@ private:
   double force_des_{0.0};
   double wall_angular_velocity_tick_{0.05};
   double wall_angular_velocity_ramp_time_sec_{1.0};
+  double wall_yaw_limit_deg_{29.5};
+  double wall_yaw_auto_accel_rad_s2_{0.05};
+  double wall_yaw_auto_decel_band_deg_{8.0};
   double wall_angular_velocity_des_{0.0};
   double wall_angular_velocity_cmd_{0.0};
   double wall_angular_velocity_ramp_start_{0.0};
   double wall_angular_velocity_ramp_target_{0.0};
   double push_box_z_angular_velocity_des_{0.0};
+  bool push_box_yaw_auto_active_{false};
+  double push_box_yaw_target_deg_{0.0};
+  double push_box_yaw_auto_speed_rad_s_{0.0};
+  double push_box_yaw_target_tolerance_deg_{0.5};
   double gravity_{9.81};
   double calibration_window_sec_{1.0};
   double latest_pose_roll_rad_{0.0};
   double latest_pose_pitch_rad_{0.0};
+  double latest_wall_yaw_deg_{0.0};
 
   bool use_vel_mode_{false};
   bool trajectory_enabled_{false};
   bool position_reset_requested_{true};
   bool has_latest_pose_{false};
+  bool has_latest_wall_pose_{false};
   bool has_latest_input_{false};
   bool calibration_active_{false};
 
   rclcpp::Time calibration_start_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time calibration_last_sample_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time wall_angular_velocity_ramp_start_time_{0, 0, RCL_ROS_TIME};
+  rclcpp::Time push_box_yaw_auto_last_update_time_{0, 0, RCL_ROS_TIME};
   bool wall_angular_velocity_ramp_active_{false};
   double calibration_integral_world_fz_{0.0};
   double calibration_integral_body_fz_{0.0};

@@ -100,6 +100,12 @@ inline std::array<double, 4> quat_wxyz_to_xyzw(const std::array<double, 4>& q)
   return {q[1], q[2], q[3], q[0]};
 }
 
+inline std::array<double, 4> yaw_to_quat_wxyz(const double yaw_rad)
+{
+  const double half = 0.5 * yaw_rad;
+  return {std::cos(half), 0.0, 0.0, std::sin(half)};
+}
+
 inline std::array<double, 3> mat3_mul_vec(const double R[9], const std::array<double, 3>& v)
 {
   return {
@@ -250,6 +256,8 @@ public:
 
     load_model();
     bind_handles();
+    apply_initial_wall_pose_locked();
+    mj_forward(model_, data_);
     init_allocation();
 
     setup_ros_interfaces();
@@ -340,10 +348,11 @@ private:
     declare_parameter("wind.indicator_force_gain", 1.0);
     declare_parameter("wind.indicator_flutter_gain", 0.15);
     declare_parameter("wind.indicator_flutter_hz", 6.0);
-    declare_parameter("end_effector_offset", std::vector<double>{0.09, 0.0, 0.085});
+    declare_parameter("end_effector_offset", std::vector<double>{0.1, 0.0, 0.04});
     declare_parameter("wall.comX", 0.0);
     declare_parameter("wall.comY", 0.0);
     declare_parameter("wall.comZ", 0.2);
+    declare_parameter("wall.initial_yaw_deg", 0.0);
     declare_parameter("omega_tracking_enabled", true);
     declare_parameter("omega_des", 0.0);
     declare_parameter("kp_omega", 0.02);
@@ -442,6 +451,7 @@ private:
       get_parameter("wall.comY").as_double(),
       get_parameter("wall.comZ").as_double()
     };
+    wall_initial_yaw_deg_ = get_parameter("wall.initial_yaw_deg").as_double();
     omega_tracking_enabled_ = get_parameter("omega_tracking_enabled").as_bool();
     omega_des_ = get_parameter("omega_des").as_double();
     kp_omega_ = get_parameter("kp_omega").as_double();
@@ -692,6 +702,25 @@ private:
     }
 
     compute_inverse_4x4(B_, B_inv_);
+  }
+
+  void apply_initial_wall_pose_locked()
+  {
+    if (qpos_adr_wall_ < 0) {
+      return;
+    }
+
+    const auto q_wall = yaw_to_quat_wxyz(wall_initial_yaw_deg_ * M_PI / 180.0);
+    data_->qpos[qpos_adr_wall_ + 3] = static_cast<mjtNum>(q_wall[0]);
+    data_->qpos[qpos_adr_wall_ + 4] = static_cast<mjtNum>(q_wall[1]);
+    data_->qpos[qpos_adr_wall_ + 5] = static_cast<mjtNum>(q_wall[2]);
+    data_->qpos[qpos_adr_wall_ + 6] = static_cast<mjtNum>(q_wall[3]);
+
+    if (qvel_adr_wall_ >= 0) {
+      data_->qvel[qvel_adr_wall_ + 3] = 0.0;
+      data_->qvel[qvel_adr_wall_ + 4] = 0.0;
+      data_->qvel[qvel_adr_wall_ + 5] = 0.0;
+    }
   }
 
   void setup_ros_interfaces()
@@ -1584,6 +1613,7 @@ private:
     if (act == GLFW_PRESS && key == GLFW_KEY_BACKSPACE) {
       std::lock_guard<std::mutex> lock(self->scene_mtx_);
       mj_resetData(self->model_, self->data_);
+      self->apply_initial_wall_pose_locked();
       mj_forward(self->model_, self->data_);
     }
   }
@@ -1889,8 +1919,9 @@ private:
   std::array<double, 3> att_var_{{0.0, 0.0, 0.0}};
   std::array<double, 3> ang_vel_var_{{0.0, 0.0, 0.0}};
   std::array<double, 3> ang_acc_var_{{0.0, 0.0, 0.0}};
-  std::array<double, 3> end_effector_offset_{{0.09, 0.0, 0.085}};
+  std::array<double, 3> end_effector_offset_{{0.1, 0.0, 0.04}};
   std::array<double, 3> wall_com_body_{{0.0, 0.0, 0.2}};
+  double wall_initial_yaw_deg_{0.0};
 
   std::mt19937 noise_rng_{1u};
   rclcpp::Time noise_last_update_{0, 0, RCL_ROS_TIME};

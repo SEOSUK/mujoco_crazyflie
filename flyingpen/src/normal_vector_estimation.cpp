@@ -64,10 +64,44 @@ public:
     velocity_pe_based_force_threshold_ = this->declare_parameter<double>(
       "normal_velocity_PE_based.force_threshold", 0.005);
 
-    force_pe_based_beta_n_ = this->declare_parameter<double>(
+    const double force_pe_based_beta_n = this->declare_parameter<double>(
       "force_PE_based.beta_n", 10.0);
-    force_pe_based_force_threshold_ = this->declare_parameter<double>(
+    const double force_pe_based_force_threshold = this->declare_parameter<double>(
       "force_PE_based.force_threshold", 0.005);
+    const double force_pe_online_contact_beta_n = this->declare_parameter<double>(
+      "force_PE_Online_Contact.beta_n", force_pe_based_beta_n);
+    const double force_pe_online_contact_gamma_n = this->declare_parameter<double>(
+      "force_PE_Online_Contact.gamma_n", 1.0);
+    const double force_pe_online_contact_force_threshold = this->declare_parameter<double>(
+      "force_PE_Online_Contact.force_threshold", force_pe_based_force_threshold);
+    const bool force_pe_online_contact_force_only = this->declare_parameter<bool>(
+      "force_PE_Online_Contact.force_only", false);
+    const double force_pe_online_contact_force_only_lpf_hz = this->declare_parameter<double>(
+      "force_PE_Online_Contact.force_only_lpf_hz", 0.0);
+    const double force_pe_online_contact_force_only_yaw_scale_about_180_deg =
+      this->declare_parameter<double>(
+      "force_PE_Online_Contact.force_only_yaw_scale_about_180_deg", 1.0);
+
+    if (
+      normal_estimator_method_ == "force_PE_Online_Contact" ||
+      normal_estimator_method_ == "force_pe_online_contact")
+    {
+      force_pe_based_beta_n_ = force_pe_online_contact_beta_n;
+      force_pe_based_gamma_n_ = force_pe_online_contact_gamma_n;
+      force_pe_based_force_threshold_ = force_pe_online_contact_force_threshold;
+      force_pe_online_contact_force_only_ = force_pe_online_contact_force_only;
+      force_pe_online_contact_force_only_lpf_hz_ =
+        std::max(0.0, force_pe_online_contact_force_only_lpf_hz);
+      force_pe_online_contact_force_only_yaw_scale_about_180_deg_ =
+        force_pe_online_contact_force_only_yaw_scale_about_180_deg;
+    } else {
+      force_pe_based_beta_n_ = force_pe_based_beta_n;
+      force_pe_based_gamma_n_ = 1.0;
+      force_pe_based_force_threshold_ = force_pe_based_force_threshold;
+      force_pe_online_contact_force_only_ = false;
+      force_pe_online_contact_force_only_lpf_hz_ = 0.0;
+      force_pe_online_contact_force_only_yaw_scale_about_180_deg_ = 1.0;
+    }
 
     publish_hz_ = this->declare_parameter<double>(
       "publish_hz", 100.0);
@@ -219,6 +253,14 @@ private:
     bool initialized = false;
   };
 
+  struct OnlineContactNormalState
+  {
+    Eigen::Vector3d n_hat = Eigen::Vector3d(-1.0, 0.0, 0.0);
+    Eigen::Vector3d n_hat_dot = Eigen::Vector3d::Zero();
+    bool gate_active = false;
+    bool initialized = false;
+  };
+
   struct EigenSpectrum
   {
     Eigen::Vector3d values = Eigen::Vector3d::Zero();
@@ -242,6 +284,55 @@ private:
   static Eigen::Vector3d fixedNormalWorld()
   {
     return Eigen::Vector3d(-1.0, 0.0, 0.0);
+  }
+
+  static Eigen::Vector3d constrainNormalToWorldYawRotation(
+    const Eigen::Vector3d & vec,
+    const Eigen::Vector3d & fallback = fixedNormalWorld())
+  {
+    Eigen::Vector3d out = vec;
+    out.z() = 0.0;
+    const double out_norm = out.norm();
+    if (std::isfinite(out_norm) && out_norm > 1e-9) {
+      return out / out_norm;
+    }
+
+    Eigen::Vector3d fb = fallback;
+    fb.z() = 0.0;
+    const double fb_norm = fb.norm();
+    if (std::isfinite(fb_norm) && fb_norm > 1e-9) {
+      return fb / fb_norm;
+    }
+    return fixedNormalWorld();
+  }
+
+  static Eigen::Vector3d scaleNormalYawAbout180Deg(
+    const Eigen::Vector3d & normal,
+    double scale,
+    const Eigen::Vector3d & fallback = fixedNormalWorld())
+  {
+    const Eigen::Vector3d constrained = constrainNormalToWorldYawRotation(normal, fallback);
+    const double yaw = std::atan2(constrained.y(), constrained.x());
+    const double delta_from_pi = std::remainder(yaw - M_PI, 2.0 * M_PI);
+    const double scaled_yaw = M_PI + scale * delta_from_pi;
+    return Eigen::Vector3d(std::cos(scaled_yaw), std::sin(scaled_yaw), 0.0);
+  }
+
+  bool isForcePEBasedMethod() const
+  {
+    return
+      normal_estimator_method_ == "force_PE_based" ||
+      normal_estimator_method_ == "normal_force_PE_based" ||
+      normal_estimator_method_ == "force_pe_based" ||
+      normal_estimator_method_ == "force_PE_Online_Contact" ||
+      normal_estimator_method_ == "force_pe_online_contact";
+  }
+
+  bool isForcePEOnlineContactMode() const
+  {
+    return
+      normal_estimator_method_ == "force_PE_Online_Contact" ||
+      normal_estimator_method_ == "force_pe_online_contact";
   }
 
   static Eigen::Matrix3d orthogonalProjector(const Eigen::Vector3d & unit_vec)
@@ -283,7 +374,7 @@ private:
     if (n_geo.norm() < 1e-9) {
       return Eigen::Vector3d::Zero();
     }
-    n_geo.normalize();
+    n_geo = constrainNormalToWorldYawRotation(n_geo, candidate);
 
     if (candidate.squaredNorm() > 1e-12 && n_geo.dot(candidate) < 0.0) {
       n_geo = -n_geo;
@@ -597,7 +688,7 @@ private:
     if (n_hat.norm() < 1e-9) {
       n_hat = fixedNormalWorld();
     }
-    n_hat.normalize();
+    n_hat = constrainNormalToWorldYawRotation(n_hat);
 
     if (!(std::isfinite(force_norm) && force_norm > velocity_pe_based_force_threshold_)) {
       Eigen::Vector3d velocity_dir = Eigen::Vector3d::Zero();
@@ -629,12 +720,7 @@ private:
       orthogonalProjector(n_hat) *
       velocity_pe_based_state_.l_n * n_hat;
     n_hat += dt * n_hat_dot;
-
-    if (n_hat.norm() < 1e-9) {
-      n_hat = fixedNormalWorld();
-    } else {
-      n_hat.normalize();
-    }
+    n_hat = constrainNormalToWorldYawRotation(n_hat, velocity_pe_based_state_.n_hat);
 
     if (cf_out.valid && n_hat.dot(cf_out.n_w) < 0.0) {
       n_hat = -n_hat;
@@ -675,18 +761,28 @@ private:
     if (n_geo.norm() < 1e-9) {
       n_geo = fixedNormalWorld();
     }
-    n_geo.normalize();
+    n_geo = constrainNormalToWorldYawRotation(n_geo);
 
     if (!(std::isfinite(force_norm) && force_norm > force_pe_based_force_threshold_)) {
       force_pe_based_state_.n_raw = Eigen::Vector3d::Zero();
       force_pe_based_state_.n_geo = n_geo;
       force_pe_based_state_.gate_active = false;
       force_pe_based_state_.initialized = true;
+      if (isForcePEOnlineContactMode()) {
+        online_contact_state_.n_hat = online_contact_state_.initialized ?
+          online_contact_state_.n_hat : n_geo;
+        online_contact_state_.n_hat_dot = Eigen::Vector3d::Zero();
+        online_contact_state_.gate_active = false;
+        online_contact_state_.initialized = true;
+        cf_out.n_w = online_contact_state_.n_hat;
+        return true;
+      }
       cf_out.n_w = n_geo;
       return true;
     }
 
-    Eigen::Vector3d n_raw = force_world / (force_norm + 1e-12);
+    Eigen::Vector3d n_raw = constrainNormalToWorldYawRotation(
+      force_world / (force_norm + 1e-12), n_geo);
     if (n_geo.dot(n_raw) < 0.0) {
       n_raw = -n_raw;
     }
@@ -702,7 +798,7 @@ private:
 
     const EigenSpectrum spec_n = eigenDecomposeDescending(force_pe_based_state_.l_n);
     if (spec_n.vectors.col(0).norm() > 1e-9) {
-      n_geo = spec_n.vectors.col(0).normalized();
+      n_geo = constrainNormalToWorldYawRotation(spec_n.vectors.col(0), n_raw);
     } else {
       n_geo = n_raw;
     }
@@ -718,6 +814,93 @@ private:
     force_pe_based_state_.eigenvalues = spec_n.values;
     force_pe_based_state_.gate_active = true;
     force_pe_based_state_.initialized = true;
+
+    if (isForcePEOnlineContactMode()) {
+      if (force_pe_online_contact_force_only_) {
+        const Eigen::Vector3d n_force_only_input = scaleNormalYawAbout180Deg(
+          n_raw,
+          force_pe_online_contact_force_only_yaw_scale_about_180_deg_,
+          online_contact_state_.initialized ? online_contact_state_.n_hat : n_raw);
+        Eigen::Vector3d n_force_only = n_force_only_input;
+        n_force_only = lowPassNormalizedDirection(
+          online_contact_state_.initialized ? online_contact_state_.n_hat : n_force_only_input,
+          n_force_only,
+          lpfAlphaFromCutoff(dt, force_pe_online_contact_force_only_lpf_hz_));
+        if (n_force_only.norm() < 1e-9) {
+          n_force_only = online_contact_state_.initialized ? online_contact_state_.n_hat : n_geo;
+        }
+        if (n_force_only.norm() < 1e-9) {
+          n_force_only = fixedNormalWorld();
+        }
+        n_force_only = constrainNormalToWorldYawRotation(
+          n_force_only,
+          online_contact_state_.initialized ? online_contact_state_.n_hat : n_raw);
+        if (n_force_only.dot(n_raw) < 0.0) {
+          n_force_only = -n_force_only;
+        }
+        if (cf_out.valid && n_force_only.dot(cf_out.n_w) < 0.0) {
+          n_force_only = -n_force_only;
+        }
+
+        online_contact_state_.n_hat = n_force_only;
+        online_contact_state_.n_hat_dot = Eigen::Vector3d::Zero();
+        online_contact_state_.gate_active = true;
+        online_contact_state_.initialized = true;
+        cf_out.n_w = n_force_only;
+        return true;
+      }
+
+      Eigen::Vector3d n_hat = online_contact_state_.initialized ?
+        online_contact_state_.n_hat : n_raw;
+      if (n_hat.norm() < 1e-9) {
+        n_hat = n_raw;
+      }
+      if (n_hat.norm() < 1e-9) {
+        n_hat = n_geo;
+      }
+      if (n_hat.norm() < 1e-9) {
+        n_hat = fixedNormalWorld();
+      }
+      n_hat = constrainNormalToWorldYawRotation(n_hat, n_raw);
+
+      if (n_hat.dot(n_raw) < 0.0) {
+        n_hat = -n_hat;
+      }
+
+      const Eigen::Vector3d n_hat_dot =
+        std::max(0.0, force_pe_based_gamma_n_) *
+        orthogonalProjector(n_hat) *
+        force_pe_based_state_.l_n * n_hat;
+      n_hat += dt * n_hat_dot;
+
+      if (n_hat.norm() < 1e-9) {
+        n_hat = online_contact_state_.initialized ? online_contact_state_.n_hat : n_raw;
+      }
+      if (n_hat.norm() < 1e-9) {
+        n_hat = n_geo;
+      }
+      if (n_hat.norm() < 1e-9) {
+        n_hat = fixedNormalWorld();
+      }
+      n_hat = constrainNormalToWorldYawRotation(
+        n_hat,
+        online_contact_state_.initialized ? online_contact_state_.n_hat : n_raw);
+
+      if (n_hat.dot(n_raw) < 0.0) {
+        n_hat = -n_hat;
+      }
+      if (cf_out.valid && n_hat.dot(cf_out.n_w) < 0.0) {
+        n_hat = -n_hat;
+      }
+
+      online_contact_state_.n_hat = n_hat;
+      online_contact_state_.n_hat_dot = n_hat_dot;
+      online_contact_state_.gate_active = true;
+      online_contact_state_.initialized = true;
+
+      cf_out.n_w = n_hat;
+      return true;
+    }
 
     cf_out.n_w = n_geo;
     return true;
@@ -741,7 +924,7 @@ private:
       return true;
     }
 
-    normal_world /= (normal_norm + 1e-12);
+    normal_world = constrainNormalToWorldYawRotation(normal_world);
     if (shouldFlipMeasuredForce()) {
       normal_world = -normal_world;
     }
@@ -833,10 +1016,7 @@ private:
       normal_estimator_method_ == "velocity_pe_based")
     {
       ok = estimateNormalVectorVelocityPEBased(cf_out, ref, force_world, dt);
-    } else if (
-      normal_estimator_method_ == "force_PE_based" ||
-      normal_estimator_method_ == "normal_force_PE_based" ||
-      normal_estimator_method_ == "force_pe_based")
+    } else if (isForcePEBasedMethod())
     {
       ok = estimateNormalVectorForcePEBased(cf_out, force_world, dt);
     } else if (
@@ -853,7 +1033,7 @@ private:
       RCLCPP_WARN_THROTTLE(
         this->get_logger(), *this->get_clock(), 5000,
         "Unsupported normal_estimator_method '%s'. "
-        "Supported methods are: direction, normal_force_based, normal_velocity_PE_based, force_PE_based, normal_mujoco_measured, None. "
+        "Supported methods are: direction, normal_force_based, normal_velocity_PE_based, force_PE_based, force_PE_Online_Contact, normal_mujoco_measured, None. "
         "Falling back to direction.",
         normal_estimator_method_.c_str());
       ok = estimateNormalVectorForceDirectly(cf_out, ref, force_world);
@@ -864,6 +1044,7 @@ private:
       return false;
     }
 
+    cf_out.n_w = constrainNormalToWorldYawRotation(cf_out.n_w);
     return buildContactFrameFromNormal(cf_out);
   }
 
@@ -887,7 +1068,7 @@ private:
     std_msgs::msg::Float64MultiArray msg;
     const auto nan = std::numeric_limits<double>::quiet_NaN();
 
-    msg.data.resize(55, nan);
+    msg.data.resize(64, nan);
     if (
       (normal_estimator_method_ == "normal_velocity_PE_based" ||
       normal_estimator_method_ == "velocity_pe_based") &&
@@ -913,11 +1094,7 @@ private:
       pub_normal_debug_metrics_->publish(msg);
       return;
     }
-    if (
-      (normal_estimator_method_ == "force_PE_based" ||
-      normal_estimator_method_ == "normal_force_PE_based" ||
-      normal_estimator_method_ == "force_pe_based") &&
-      force_pe_based_state_.initialized)
+    if (isForcePEBasedMethod() && force_pe_based_state_.initialized)
     {
       msg.data[0] = force_pe_based_state_.force_norm;
       msg.data[2] = force_pe_based_state_.gate_active ? 1.0 : 0.0;
@@ -935,6 +1112,15 @@ private:
       msg.data[34] = force_pe_based_state_.n_raw.x();
       msg.data[35] = force_pe_based_state_.n_raw.y();
       msg.data[36] = force_pe_based_state_.n_raw.z();
+      if (online_contact_state_.initialized) {
+        msg.data[55] = online_contact_state_.n_hat.x();
+        msg.data[56] = online_contact_state_.n_hat.y();
+        msg.data[57] = online_contact_state_.n_hat.z();
+        msg.data[58] = online_contact_state_.n_hat_dot.x();
+        msg.data[59] = online_contact_state_.n_hat_dot.y();
+        msg.data[60] = online_contact_state_.n_hat_dot.z();
+        msg.data[61] = online_contact_state_.gate_active ? 1.0 : 0.0;
+      }
       pub_normal_debug_metrics_->publish(msg);
       return;
     }
@@ -1016,6 +1202,11 @@ private:
     force_pe_based_state_.force_norm = 0.0;
     force_pe_based_state_.gate_active = false;
     force_pe_based_state_.initialized = false;
+
+    online_contact_state_.n_hat = fixedNormalWorld();
+    online_contact_state_.n_hat_dot = Eigen::Vector3d::Zero();
+    online_contact_state_.gate_active = false;
+    online_contact_state_.initialized = false;
   }
 
   void contactForceCb(const geometry_msgs::msg::WrenchStamped::SharedPtr msg)
@@ -1233,7 +1424,11 @@ private:
   double velocity_pe_based_gamma_n_{1.0};
   double velocity_pe_based_force_threshold_{5.0e-3};
   double force_pe_based_beta_n_{10.0};
+  double force_pe_based_gamma_n_{1.0};
   double force_pe_based_force_threshold_{5.0e-3};
+  bool force_pe_online_contact_force_only_{false};
+  double force_pe_online_contact_force_only_lpf_hz_{0.0};
+  double force_pe_online_contact_force_only_yaw_scale_about_180_deg_{1.0};
 
   std::string pose_topic_;
   std::string vel_topic_;
@@ -1262,6 +1457,7 @@ private:
   ForceBasedNormalState force_based_state_;
   VelocityPEBasedNormalState velocity_pe_based_state_;
   ForcePEBasedNormalState force_pe_based_state_;
+  OnlineContactNormalState online_contact_state_;
   Eigen::Matrix3d ke_raw_memory_l_n_ = Eigen::Matrix3d::Zero();
   Eigen::Matrix3d no_ke_raw_memory_l_n_ = Eigen::Matrix3d::Zero();
 

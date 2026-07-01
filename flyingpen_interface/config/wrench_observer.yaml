@@ -9,10 +9,10 @@ wrench_observer:
     end_effector_offset: [0.1, 0.0, 0.04]
     k_tau: 0.00569278844371417
 
-    mob.Kf_2nd_order: 30.0
+    mob.Kf_2nd_order: 60.0
     mob.Ktau_2nd_order: 30.0
     mob.mob_alpha_2nd_order: 1.0
-    mob.Kp: 10.9544511501
+    mob.Kp: 15.4919333848
     mob.KpTau: 10.9544511501
     mob.Ke: 50.0
     mob.epsilon_tau: 1.0e-6

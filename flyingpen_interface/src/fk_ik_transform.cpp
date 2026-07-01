@@ -34,7 +34,7 @@ public:
     ee_acc_topic_  = this->declare_parameter<std::string>("ee_acc_topic",  "/crazyflie/out/EE_acceleration");
 
     auto ee_off = this->declare_parameter<std::vector<double>>(
-      "end_effector_offset", {0.09, 0.0, 0.085});
+      "end_effector_offset", {0.1, 0.0, 0.04});
 
     if (ee_off.size() != 3) {
       RCLCPP_WARN(this->get_logger(),

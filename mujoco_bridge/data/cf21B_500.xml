@@ -90,7 +90,7 @@
         <geom mesh="propR" material="green" class="cf_visual"/>
       </body>
 
-      <body name="ee_tip" pos="0.09 0 0.085">
+      <body name="ee_tip" pos="0.1 0 0.04">
         <inertial pos="0 0 0" mass="1e-6" diaginertia="1e-12 1e-12 1e-12"/>
         <site name="ee_tip_site" pos="0 0 0" />
         <geom name="ee_tip_sphere"

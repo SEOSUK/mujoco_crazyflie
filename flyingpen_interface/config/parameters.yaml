@@ -10,6 +10,9 @@ command_publisher:
     force_tick: 0.01
     wall_angular_velocity_tick: 0.01  # [rad/s], target omega_des increment for g/h
     wall_angular_velocity_ramp_time_sec: 1.0  # [s], time for g/h omega_des command to reach the new target
+    wall_yaw_limit_deg: 29.5  # [deg], m/n auto-rotate push_box yaw target magnitude
+    wall_yaw_auto_accel_rad_s2: 0.05  # [rad/s^2], slew-rate limit for smooth start/end of m/n auto rotation
+    wall_yaw_auto_decel_band_deg: 8.0  # [deg], start tapering angular velocity when remaining yaw error enters this band
     gravity: 9.81
     calibration_window_sec: 1.0
 
@@ -99,6 +102,9 @@ plant:
       indicator_flutter_gain: 0.15
       indicator_flutter_hz: 6.0
 
+    wall:
+      initial_yaw_deg: 0.0  # [deg], initial push_box yaw about world z; reapplied on startup and Backspace reset
+
     # ---- contact numerical diff + LPF params ----
     contact_filter:
       enable: true
@@ -130,15 +136,15 @@ low_level_controller:
     # 반응성 높이면 좋음. 좋은게 좋은거.
     # Position loop: pos error -> v_des
     pos:
-      x: { kp: 2.0, ki: 0.0, kd: 0.15, i_limit: 0.5 }
-      y: { kp: 2.0, ki: 0.00, kd: 0.15, i_limit: 0.5 }
+      x: { kp: 1.0, ki: 0.0, kd: 0.25, i_limit: 0.5 }
+      y: { kp: 1.0, ki: 0.00, kd: 0.25, i_limit: 0.5 }
       z: { kp: 3.0, ki: 0.00, kd: 0.21, i_limit: 0.5 }
 
     # Velocity loop: vel error -> a_des
     vel:
-      x: { kp: 4.0, ki: 0.0, kd: 0.1, i_limit: 0.5 }
-      y: { kp: 4.0, ki: 0.0, kd: 0.1, i_limit: 0.5 }
-      z: { kp: 4.0, ki: 0.0, kd: 0.1, i_limit: 0.5 }
+      x: { kp: 7.0, ki: 0.0, kd: 0.7, i_limit: 0.5 }
+      y: { kp: 7.0, ki: 0.0, kd: 0.7, i_limit: 0.5 }
+      z: { kp: 7.0, ki: 0.0, kd: 0.7, i_limit: 0.5 }
 
     # Attitude loop: (roll_d, pitch_d, yaw_d) error -> w_des
     att:
@@ -161,14 +167,14 @@ trajectory_generation:
       enabled: true  # true: add A*sin(2*pi*f*t) lateral PE along the estimated contact surface tangent
       force_topic: "/crazyflie/out/mob_2nd_tau"  # MOB estimated contact force used for contact gating
       contact_force_threshold: 0.01  # [N], enable PE when ||estimated contact force|| exceeds this
-      amplitude: 0.06  # [m/s], A in A*sin(2*pi*f*t)
+      amplitude: 0.0  # [m/s], A in A*sin(2*pi*f*t)
       frequency_hz: 0.5  # [Hz], f in A*sin(2*pi*f*t)
     normal_debug_metrics_topic: "/normal_vector/debug_metrics"
       
 data_logger:
   ros__parameters:
-    csv_dir: "~/sitl_ws/src/mujoco_crazyflie/flyingpen_interface/bag" # MJ
-#    csv_dir: "~/mujoco_crazyflie/src/flyingpen_interface/bag" # SU
+#    csv_dir: "~/sitl_ws/src/mujoco_crazyflie/flyingpen_interface/bag" # MJ
+    csv_dir: "~/mujoco_crazyflie/src/flyingpen_interface/bag" # SU
     compare_velocity_epsilon: 0.01
     compare_gamma_epsilon: 3.0e-3
 

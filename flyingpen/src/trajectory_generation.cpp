@@ -88,7 +88,7 @@ public:
       "single_sided_line.length_2", su_traj1_size_y);
 
     auto ee_off = declare_parameter<std::vector<double>>(
-      "end_effector_offset", {0.09, 0.0, 0.085});
+      "end_effector_offset", {0.1, 0.0, 0.04});
     if (ee_off.size() != 3) {
       RCLCPP_WARN(get_logger(),
         "end_effector_offset must have size 3. Falling back to [0, 0, 0].");

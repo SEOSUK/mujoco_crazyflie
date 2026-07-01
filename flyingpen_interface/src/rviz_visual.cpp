@@ -348,6 +348,8 @@ public:
       "/rviz/ke_force_normal_projected", 10);
     pub_ke_gamma_normal_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
       "/rviz/ke_gamma_normal", 10);
+    pub_online_contact_normal_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
+      "/rviz/online_contact_normal", 10);
     pub_force_based_normal_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
       "/rviz/force_based_normal", 10);
     pub_lf_only_normal_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
@@ -599,6 +601,20 @@ private:
       have_n_geo_no_ke_raw = isFiniteVector(n_geo_no_ke_raw) && vectorNorm(n_geo_no_ke_raw) > 1e-9f;
     }
 
+    std::array<float, 3> n_online_contact{0.0f, 0.0f, 0.0f};
+    bool have_n_online_contact = false;
+    if (msg->data.size() >= 58) {
+      n_online_contact = std::array<float, 3>{
+        static_cast<float>(msg->data[55]),
+        static_cast<float>(msg->data[56]),
+        static_cast<float>(msg->data[57])};
+      have_n_online_contact =
+        isFiniteVector(n_online_contact) && vectorNorm(n_online_contact) > 1e-9f;
+      if (have_n_online_contact && have_n_geo && dot(n_online_contact, n_geo) < 0.0f) {
+        n_online_contact = scaleVector(n_online_contact, -1.0f);
+      }
+    }
+
     std::array<float, 3> n_v{0.0f, 0.0f, 0.0f};
     bool have_n_v = false;
     if (msg->data.size() >= 19) {
@@ -629,6 +645,8 @@ private:
     std::lock_guard<std::mutex> lk(mtx_);
     estimated_normal_k1_ = n_geo;
     have_estimated_normal_k1_ = have_n_geo;
+    online_contact_normal_ = n_online_contact;
+    have_online_contact_normal_ = have_n_online_contact;
     force_based_normal_ = n_geo_no_ke_raw;
     have_force_based_normal_ = have_n_geo_no_ke_raw;
     ke_force_normal_raw_ = n_geo_ke_raw;
@@ -2003,6 +2021,7 @@ private:
     std::array<float, 3> Fcontact;
     std::array<float, 3> estimated_normal_pure;
     std::array<float, 3> estimated_normal_k1;
+    std::array<float, 3> online_contact_normal;
     std::array<float, 3> force_based_normal;
     std::array<float, 3> ke_gamma_normal;
     std::array<float, 3> lf_only_normal;
@@ -2020,6 +2039,7 @@ private:
     bool have_contact, have_contact_q;
     bool have_contact_q_pure;
     bool have_estimated_normal_pure, have_estimated_normal_k1;
+    bool have_online_contact_normal;
     bool have_force_based_normal;
     bool have_ke_gamma_normal;
     bool have_lf_only_normal, have_lv_only_normal;
@@ -2048,6 +2068,7 @@ private:
       Fcontact = contact_F_;
       estimated_normal_pure = estimated_normal_pure_;
       estimated_normal_k1 = estimated_normal_k1_;
+      online_contact_normal = online_contact_normal_;
       force_based_normal = force_based_normal_;
       ke_gamma_normal = ke_gamma_normal_;
       ke_force_normal_raw = ke_force_normal_raw_;
@@ -2078,6 +2099,7 @@ private:
       have_contact_q = have_contact_q_;
       have_estimated_normal_pure = have_estimated_normal_pure_;
       have_estimated_normal_k1 = have_estimated_normal_k1_;
+      have_online_contact_normal = have_online_contact_normal_;
       have_force_based_normal = have_force_based_normal_;
       have_ke_gamma_normal = have_ke_gamma_normal_;
       have_ke_force_normal_raw = have_ke_force_normal_raw_;
@@ -2229,9 +2251,9 @@ private:
         static_cast<double>(mob_force_consistency[0]),
         static_cast<double>(mob_force_consistency[1]),
         static_cast<double>(mob_force_consistency[2]),
-        1.725 * force_scale_,
-        source_shaft,
-        source_head_diam,
+        0.25 * 2 * force_scale_,
+        2.0 * source_shaft,
+        2.0 * source_head_diam,
         source_head_len,
         0.75, 0.20, 1.00);
       pub_mob_consistency_arrow_->publish(mk);
@@ -2311,6 +2333,24 @@ private:
     } else {
       pub_ke_gamma_normal_arrow_->publish(
         make_delete_marker("ke_gamma_normal", 0, parent_frame_, stamp));
+    }
+
+    if (have_normal_anchor && have_online_contact_normal) {
+      auto mk = make_arrow_marker_with_dims(
+        "online_contact_normal", 0, parent_frame_, stamp,
+        normal_anchor_x, normal_anchor_y, normal_anchor_z,
+        static_cast<double>(online_contact_normal[0]),
+        static_cast<double>(online_contact_normal[1]),
+        static_cast<double>(online_contact_normal[2]),
+        1.14 * normal_scale_,
+        normal_shaft,
+        normal_head_diam,
+        normal_head_len,
+        0.25, 0.90, 0.85);
+      pub_online_contact_normal_arrow_->publish(mk);
+    } else {
+      pub_online_contact_normal_arrow_->publish(
+        make_delete_marker("online_contact_normal", 0, parent_frame_, stamp));
     }
 
     if (have_ee_pose && have_force_based_normal) {
@@ -2455,13 +2495,8 @@ private:
       make_delete_marker("environment", 2, parent_frame_, stamp));
     pub_environment_marker_->publish(
       make_delete_marker("environment_outline", 3, parent_frame_, stamp));
-    if (environment_type_ == "wall") {
-      pub_environment_marker_->publish(
-        make_wall_com_marker("environment_com", 1, parent_frame_, stamp));
-    } else {
-      pub_environment_marker_->publish(
-        make_delete_marker("environment_com", 1, parent_frame_, stamp));
-    }
+    pub_environment_marker_->publish(
+      make_delete_marker("environment_com", 1, parent_frame_, stamp));
     pub_wind_indicator_markers_->publish(
       makeWindIndicatorMarkerArray(stamp, wind_indicator_force, have_wind_indicator_force));
 
@@ -2626,6 +2661,7 @@ private:
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_ke_force_normal_raw_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_ke_force_normal_projected_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_ke_gamma_normal_arrow_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_online_contact_normal_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_force_based_normal_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_lf_only_normal_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_lv_only_normal_arrow_;
@@ -2690,12 +2726,14 @@ private:
 
   std::array<float, 3> force_based_normal_{0.0f, 0.0f, 0.0f};
   std::array<float, 3> ke_gamma_normal_{0.0f, 0.0f, 0.0f};
+  std::array<float, 3> online_contact_normal_{0.0f, 0.0f, 0.0f};
   std::array<float, 3> ke_force_normal_raw_{0.0f, 0.0f, 0.0f};
   std::array<float, 3> ke_force_normal_projected_{0.0f, 0.0f, 0.0f};
   std::array<float, 3> estimated_normal_pure_{0.0f, 0.0f, 0.0f};
   std::array<float, 3> estimated_normal_k1_{0.0f, 0.0f, 0.0f};
   bool have_estimated_normal_pure_{false};
   bool have_estimated_normal_k1_{false};
+  bool have_online_contact_normal_{false};
   bool have_force_based_normal_{false};
   bool have_ke_gamma_normal_{false};
   bool have_ke_force_normal_raw_{false};

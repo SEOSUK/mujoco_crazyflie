@@ -13,3 +13,7 @@ ipch/
 # Python cache
 __pycache__/
 *.pyc
+
+# Large experiment logs
+flyingpen_interface/bag/ICROS/*.csv
+flyingpen_interface/ICROS_bag.zip

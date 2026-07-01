@@ -87,7 +87,7 @@ class ROSDataBuffer(Node):
         self.declare_parameter("mob_consistency_topic", "/crazyflie/out/mob_2nd_tau")
         self.declare_parameter("mob_consistency_terms_topic", "/crazyflie/out/mob_2nd_tau_terms")
         self.declare_parameter("mob_consistency_match_topic", "/crazyflie/out/mob_2nd_tau_consistency")
-        self.declare_parameter("end_effector_offset", [0.09, 0.0, 0.085])
+        self.declare_parameter("end_effector_offset", [0.1, 0.0, 0.04])
         self.declare_parameter("contact_force_threshold", 0.005)
         self.declare_parameter("epsilon_tau_abs", 0.001)
         self.declare_parameter("mass", 0.04338)
@@ -102,7 +102,7 @@ class ROSDataBuffer(Node):
 
         ee_offset = list(self.get_parameter("end_effector_offset").value)
         if len(ee_offset) != 3:
-            ee_offset = [0.09, 0.0, 0.085]
+            ee_offset = [0.1, 0.0, 0.04]
         self.ee_offset_body = np.array(ee_offset, dtype=float)
 
         self.lock = threading.Lock()

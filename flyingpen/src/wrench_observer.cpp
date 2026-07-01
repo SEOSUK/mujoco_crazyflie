@@ -117,8 +117,8 @@ public:
     auto ee_offset_param = declare_parameter<std::vector<double>>(
       "end_effector_offset", std::vector<double>{su_r_off_x, su_r_off_y, su_r_off_z});
     if (ee_offset_param.size() != 3) {
-      RCLCPP_WARN(get_logger(), "end_effector_offset must have size 3. Falling back to [0.09, 0.0, 0.085].");
-      ee_offset_param = {0.09, 0.0, 0.085};
+      RCLCPP_WARN(get_logger(), "end_effector_offset must have size 3. Falling back to [0.1, 0.0, 0.04].");
+      ee_offset_param = {0.1, 0.0, 0.04};
     }
     ee_offset_body_ = Eigen::Vector3d(ee_offset_param[0], ee_offset_param[1], ee_offset_param[2]);
     com_offset_body_ = Eigen::Vector3d(su_com_off_x, su_com_off_y, su_com_off_z);
@@ -681,7 +681,7 @@ private:
   double thrust_min_{0.0};
   double thrust_max_{0.20};
   std::array<double, 4> motor_dir_{{1.0, -1.0, 1.0, -1.0}};
-  Eigen::Vector3d ee_offset_body_{0.09, 0.0, 0.085};
+  Eigen::Vector3d ee_offset_body_{0.1, 0.0, 0.04};
   Eigen::Vector3d com_offset_body_{0.0, 0.0, 0.0};
 
   Eigen::Matrix4d b_{Eigen::Matrix4d::Identity()};
