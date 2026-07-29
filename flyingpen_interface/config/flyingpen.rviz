@@ -7,7 +7,7 @@ Panels:
         - /Global Options1
         - /TF1
         - /TF1/Frames1
-        - /MOB 2nd Force1
+        - /pure1
       Splitter Ratio: 0.36297640204429626
     Tree Height: 363
   - Class: rviz_common/Selection
@@ -259,7 +259,7 @@ Visualization Manager:
       Value: false
     - Class: rviz_default_plugins/Marker
       Enabled: false
-      Name: MOB 2nd Force
+      Name: pure
       Namespaces:
         {}
       Topic:
@@ -268,11 +268,11 @@ Visualization Manager:
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /rviz/drone_external_force_mob_2nd_order
+        Value: /rviz/pure
       Value: false
     - Class: rviz_default_plugins/Marker
       Enabled: false
-      Name: MOB Tau Force
+      Name: k_ep
       Namespaces:
         {}
       Topic:
@@ -281,8 +281,47 @@ Visualization Manager:
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /rviz/drone_external_force_mob_2nd_tau
+        Value: /rviz/k_ep
       Value: false
+    - Class: rviz_default_plugins/Marker
+      Enabled: false
+      Name: k_epi
+      Namespaces:
+        {}
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /rviz/k_epi
+      Value: false
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: kalman
+      Namespaces:
+        {}
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /rviz/kalman
+      Value: true
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: adaptive
+      Namespaces:
+        {}
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /rviz/adaptive
+      Value: true
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Name: MarkerArray

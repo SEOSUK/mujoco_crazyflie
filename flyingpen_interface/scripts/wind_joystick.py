@@ -10,6 +10,26 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 
 
 class WindJoystick(QtWidgets.QWidget):
+    PLANE_CONFIGS = {
+        "x-y": {
+            "vertical_axis": "x",
+            "horizontal_axis": "y",
+        },
+        "y-z": {
+            "vertical_axis": "y",
+            "horizontal_axis": "z",
+        },
+        "x-z": {
+            "vertical_axis": "x",
+            "horizontal_axis": "z",
+        },
+    }
+    AXIS_COLORS = {
+        "x": QtGui.QColor(220, 45, 45),
+        "y": QtGui.QColor(40, 95, 220),
+        "z": QtGui.QColor(40, 165, 95),
+    }
+
     def __init__(self, node):
         super().__init__()
         self.node = node
@@ -21,8 +41,12 @@ class WindJoystick(QtWidgets.QWidget):
         self.half_snap_width = 0.06
         self.edge_snap_ratio = 0.92
         self.axis_snap_ratio = 0.18
+        self.diagonal_snap_radius = 1.0 / math.sqrt(2.0)
+        self.diagonal_snap_width = 0.12
+        self.diagonal_snap_tolerance = 0.18
         self.handle = QtCore.QPointF(0.0, 0.0)
         self.dragging = False
+        self.plane_name = "x-y"
 
         self.setWindowTitle("MuJoCo Wind Joystick")
         self.setMinimumSize(420, 520)
@@ -35,12 +59,20 @@ class WindJoystick(QtWidgets.QWidget):
         self.max_force_spin.setSuffix(" N")
         self.max_force_spin.valueChanged.connect(self.on_max_force_changed)
 
+        self.plane_combo = QtWidgets.QComboBox()
+        self.plane_combo.addItems(["x-y", "y-z", "x-z"])
+        self.plane_combo.setCurrentText(self.plane_name)
+        self.plane_combo.currentTextChanged.connect(self.on_plane_changed)
+
         self.force_label = QtWidgets.QLabel()
         self.force_label.setAlignment(QtCore.Qt.AlignCenter)
 
         controls = QtWidgets.QHBoxLayout()
         controls.addWidget(QtWidgets.QLabel("Max wind"))
         controls.addWidget(self.max_force_spin)
+        controls.addSpacing(12)
+        controls.addWidget(QtWidgets.QLabel("Plane"))
+        controls.addWidget(self.plane_combo)
 
         layout = QtWidgets.QVBoxLayout()
         layout.addLayout(controls)
@@ -57,6 +89,15 @@ class WindJoystick(QtWidgets.QWidget):
     def on_max_force_changed(self, value):
         self.max_force = float(value)
         self.update_force_label()
+
+    def on_plane_changed(self, value):
+        if value in self.PLANE_CONFIGS:
+            self.plane_name = value
+            self.update_force_label()
+            self.update()
+
+    def current_plane_config(self):
+        return self.PLANE_CONFIGS[self.plane_name]
 
     def joystick_rect(self):
         size = min(self.width() - 56, self.height() - 160)
@@ -87,6 +128,8 @@ class WindJoystick(QtWidgets.QWidget):
         y = h.y()
         half_lo = self.half_snap_ratio - self.half_snap_width
         half_hi = self.half_snap_ratio + self.half_snap_width
+        diag_lo = self.diagonal_snap_radius - self.diagonal_snap_width
+        diag_hi = self.diagonal_snap_radius + self.diagonal_snap_width
         if half_lo <= abs(y) <= half_hi and abs(x) <= self.axis_snap_ratio:
             return QtCore.QPointF(0.0, math.copysign(self.half_snap_ratio, y))
         if half_lo <= abs(x) <= half_hi and abs(y) <= self.axis_snap_ratio:
@@ -95,6 +138,12 @@ class WindJoystick(QtWidgets.QWidget):
             return QtCore.QPointF(0.0, math.copysign(1.0, y))
         if abs(x) >= self.edge_snap_ratio and abs(y) <= self.axis_snap_ratio:
             return QtCore.QPointF(math.copysign(1.0, x), 0.0)
+        if diag_lo <= abs(x) <= diag_hi and diag_lo <= abs(y) <= diag_hi:
+            if abs(abs(x) - abs(y)) <= self.diagonal_snap_tolerance:
+                return QtCore.QPointF(
+                    math.copysign(self.diagonal_snap_radius, x),
+                    math.copysign(self.diagonal_snap_radius, y),
+                )
         return h
 
     def set_handle_from_pos(self, pos):
@@ -108,18 +157,23 @@ class WindJoystick(QtWidgets.QWidget):
         self.update()
 
     def wind_force(self):
-        # Screen y is down. Up maps to +world-x, left maps to +world-y.
+        # Screen y is down. Up maps to the first selected axis, left to the second.
+        cfg = self.current_plane_config()
+        force_by_axis = {"x": 0.0, "y": 0.0, "z": 0.0}
+        force_by_axis[cfg["vertical_axis"]] = -self.max_force * self.handle.y()
+        force_by_axis[cfg["horizontal_axis"]] = -self.max_force * self.handle.x()
         return (
-            -self.max_force * self.handle.y(),
-            -self.max_force * self.handle.x(),
-            0.0,
+            force_by_axis["x"],
+            force_by_axis["y"],
+            force_by_axis["z"],
         )
 
     def update_force_label(self):
         fx, fy, fz = self.wind_force()
         mag = math.sqrt(fx * fx + fy * fy + fz * fz)
         self.force_label.setText(
-            f"wind force: x={fx:+.3f} N, y={fy:+.3f} N, |F|={mag:.3f} N"
+            f"plane {self.plane_name}  "
+            f"wind force: x={fx:+.3f} N, y={fy:+.3f} N, z={fz:+.3f} N, |F|={mag:.3f} N"
         )
 
     def publish_wind(self):
@@ -196,7 +250,7 @@ class WindJoystick(QtWidgets.QWidget):
         painter.drawText(
             rect.adjusted(0, -32, 0, 0),
             QtCore.Qt.AlignHCenter | QtCore.Qt.AlignTop,
-            "drag and release to hold wind; double-click to center",
+            f"drag to set {self.plane_name} wind; double-click to center",
         )
 
         self.draw_axis_hint(painter)
@@ -204,6 +258,7 @@ class WindJoystick(QtWidgets.QWidget):
     def draw_axis_snap_zones(self, painter, center, radius):
         self.draw_half_snap_zones(painter, center, radius)
         self.draw_edge_snap_zones(painter, center, radius)
+        self.draw_diagonal_snap_zones(painter, center, radius)
 
     def draw_half_snap_zones(self, painter, center, radius):
         zone_len = radius * self.axis_snap_ratio
@@ -240,25 +295,50 @@ class WindJoystick(QtWidgets.QWidget):
         for zone in zones:
             painter.drawRoundedRect(zone, 3.0, 3.0)
 
+    def draw_diagonal_snap_zones(self, painter, center, radius):
+        offset = radius * self.diagonal_snap_radius
+        box_size = radius * (2.0 * self.diagonal_snap_width)
+        half_box = 0.5 * box_size
+        painter.setPen(QtGui.QPen(QtGui.QColor(235, 150, 50), 2))
+        painter.setBrush(QtGui.QColor(255, 235, 200, 180))
+
+        centers = [
+            QtCore.QPointF(center.x() - offset, center.y() - offset),
+            QtCore.QPointF(center.x() - offset, center.y() + offset),
+            QtCore.QPointF(center.x() + offset, center.y() - offset),
+            QtCore.QPointF(center.x() + offset, center.y() + offset),
+        ]
+        for zone_center in centers:
+            zone = QtCore.QRectF(
+                zone_center.x() - half_box,
+                zone_center.y() - half_box,
+                box_size,
+                box_size,
+            )
+            painter.drawRoundedRect(zone, 4.0, 4.0)
+
     def draw_axis_hint(self, painter):
         base = QtCore.QPointF(36.0, self.height() - 36.0)
         x_tip = QtCore.QPointF(base.x(), base.y() - 56.0)
         y_tip = QtCore.QPointF(base.x() - 56.0, base.y())
+        cfg = self.current_plane_config()
+        vertical_axis = cfg["vertical_axis"]
+        horizontal_axis = cfg["horizontal_axis"]
 
         self.draw_arrow(
             painter,
             base,
             x_tip,
-            QtGui.QColor(220, 45, 45),
-            "+x",
+            self.AXIS_COLORS[vertical_axis],
+            f"+{vertical_axis}",
             QtCore.QPointF(8.0, -8.0),
         )
         self.draw_arrow(
             painter,
             base,
             y_tip,
-            QtGui.QColor(40, 95, 220),
-            "+y",
+            self.AXIS_COLORS[horizontal_axis],
+            f"+{horizontal_axis}",
             QtCore.QPointF(-28.0, -8.0),
         )
 

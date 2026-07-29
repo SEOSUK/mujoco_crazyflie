@@ -4,7 +4,13 @@
 *.csv
 *.zip
 
+# flyingpen bag logs:
+# keep ad-hoc bag CSVs ignored, but allow curated archive CSVs.
+flyingpen_interface/bag/*.csv
+!flyingpen_interface/bag/archive/
+!flyingpen_interface/bag/archive/*.csv
+!flyingpen_interface/bag/archive/**/*.csv
+
 # editor temp files
 *~
 *.swp
-

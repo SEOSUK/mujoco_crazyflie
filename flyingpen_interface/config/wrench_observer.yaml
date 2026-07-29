@@ -1,12 +1,6 @@
 wrench_observer:
   ros__parameters:
-    mass: 0.043380
     g: 9.81
-    mob.Jxx: 2.3951e-5
-    mob.Jyy: 2.3951e-5
-    mob.Jzz: 3.2347e-5
-
-    end_effector_offset: [0.1, 0.0, 0.04]
     k_tau: 0.00569278844371417
 
     mob.Kf_2nd_order: 30.0

@@ -34,6 +34,7 @@ setup(
             'normal_vector_force = flyingpen_plotter.Normal_vector_force:main',
             'normal_vector_mob = flyingpen_plotter.Normal_vector_mob:main',
             'mob_consistency = flyingpen_plotter.MOB_consistency:main',
+            'mob_wrench_compare = flyingpen_plotter.mob_wrench_compare:main',
 
         ],
     },

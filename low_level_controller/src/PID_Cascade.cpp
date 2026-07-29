@@ -136,6 +136,7 @@ public:
     max_rate_ = declare_parameter("max_rate", 8.0);
     max_tau_  = declare_parameter("max_tau", 0.02);
     max_Fz_   = declare_parameter("max_thrust", 1.0);
+    vel_cmd_timeout_sec_ = declare_parameter("vel_cmd_timeout_sec", 0.15);
 
     // ---------- params (loop dt) ----------
     dt_pos_  = declare_parameter("dt.pos", 0.01);     // 100 Hz
@@ -167,10 +168,6 @@ public:
     sub_vel_cmd_ = create_subscription<std_msgs::msg::Float64MultiArray>(
       "/crazyflie/in/vel_cmd", 10,
       std::bind(&PIDCascade::cb_vel_cmd, this, std::placeholders::_1));
-    sub_use_vel_mode_ = create_subscription<std_msgs::msg::Float32>(
-      "su/use_vel_mode", 10,
-      std::bind(&PIDCascade::cb_use_vel_mode, this, std::placeholders::_1));
-
     sub_pose_ = create_subscription<geometry_msgs::msg::PoseStamped>(
       "/crazyflie/out/pose", 10,
       std::bind(&PIDCascade::cb_pose, this, std::placeholders::_1));
@@ -257,12 +254,7 @@ private:
     cmd_yaw_ = m->data[3];
     have_cmd_ = true;
     have_vel_cmd_ = true;
-  }
-
-  void cb_use_vel_mode(const std_msgs::msg::Float32::SharedPtr m)
-  {
-    std::lock_guard<std::mutex> lk(mtx_);
-    use_vel_mode_ = (m->data > 0.5f);
+    last_vel_cmd_time_ = this->get_clock()->now();
   }
 
   void cb_angvel(const geometry_msgs::msg::Vector3Stamped::SharedPtr m)
@@ -280,6 +272,7 @@ private:
     max_rate_ = get_parameter("max_rate").as_double();
     max_tau_  = get_parameter("max_tau").as_double();
     max_Fz_   = get_parameter("max_thrust").as_double();
+    vel_cmd_timeout_sec_ = get_parameter("vel_cmd_timeout_sec").as_double();
 
     dt_pos_  = get_parameter("dt.pos").as_double();
     dt_vel_  = get_parameter("dt.vel").as_double();
@@ -309,7 +302,12 @@ private:
     if (!have_cmd_ && !have_vel_cmd_) return;
     std::lock_guard<std::mutex> lk(mtx_);
 
-    if (use_vel_mode_ && have_vel_cmd_) {
+    const bool use_direct_velocity_cmd =
+      have_vel_cmd_ &&
+      last_vel_cmd_time_.nanoseconds() > 0 &&
+      (this->get_clock()->now() - last_vel_cmd_time_).seconds() <= vel_cmd_timeout_sec_;
+
+    if (use_direct_velocity_cmd) {
       v_des_ = cmd_vel_;
       pos_x_.reset();
       pos_y_.reset();
@@ -428,7 +426,6 @@ private:
   std::mutex mtx_;
   bool have_cmd_{false};
   bool have_vel_cmd_{false};
-  bool use_vel_mode_{true};
 
   Eigen::Vector3d cmd_pos_{0,0,0}, cmd_vel_{0,0,0}, pos_{0,0,0}, vel_{0,0,0};
   Eigen::Vector3d v_des_{0,0,0}, a_des_{0,0,0};
@@ -445,6 +442,7 @@ private:
   // params
   double mass_{0.04338}, g_{9.81};
   double max_tilt_{35.0*M_PI/180.0}, max_rate_{8.0}, max_tau_{0.02}, max_Fz_{1.0};
+  double vel_cmd_timeout_sec_{0.15};
   double dt_pos_{0.01}, dt_vel_{0.01}, dt_att_{0.004}, dt_rate_{0.0025};
 
   // desired rpy (computed in loop_att, published in loop_rate)
@@ -458,11 +456,11 @@ private:
   // ROS
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_cmd_;
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_vel_cmd_;
-  rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_use_vel_mode_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_pose_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_vel_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_w_;
   rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr pub_out_;
+  rclcpp::Time last_vel_cmd_time_{0, 0, RCL_ROS_TIME};
 
   rclcpp::TimerBase::SharedPtr t_pos_, t_vel_, t_att_, t_rate_;
 };

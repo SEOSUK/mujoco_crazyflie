@@ -323,15 +323,28 @@ private:
     }
     if (
       source == "momentum_observer_2nd_order" ||
-      source == "mob_2nd" || source == "mob2")
+      source == "mob_2nd" || source == "mob2" || source == "pure")
     {
       return "/crazyflie/out/mob_2nd";
     }
     if (
       source == "momentum_observer_2nd_order_consistency" ||
-      source == "mob_2nd_tau" || source == "mob_tau" || source == "consistency")
+      source == "mob_2nd_tau" || source == "mob_tau" ||
+      source == "consistency" || source == "k_ep")
     {
       return "/crazyflie/out/mob_2nd_tau";
+    }
+    if (
+      source == "momentum_observer_2nd_order_consistency_integral" ||
+      source == "mob_2nd_tau_i" || source == "mob_tau_i" || source == "k_epi")
+    {
+      return "/crazyflie/out/mob_2nd_tau_i";
+    }
+    if (source == "kalman" || source == "mob_kalman") {
+      return "/crazyflie/out/mob_kalman";
+    }
+    if (source == "adaptive" || source == "mob_adaptive") {
+      return "/crazyflie/out/mob_adaptive";
     }
 
     RCLCPP_WARN(

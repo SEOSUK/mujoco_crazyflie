@@ -4,7 +4,3 @@
     publish_hz: 100.0  # normal estimator publish/update rate [Hz]
 
     flip_measured_force: false  # follow firmware sign by default; enable only for an explicit experimental frame flip
-
-    # "force_sensor", "momentum_observer_2nd_order",
-    # "momentum_observer_2nd_order_consistency"
-    force_observation_source: "momentum_observer_2nd_order_consistency"

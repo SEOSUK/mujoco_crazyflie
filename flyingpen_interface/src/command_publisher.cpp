@@ -125,7 +125,7 @@ private:
 
   static std::filesystem::path wrenchObserverYamlPath()
   {
-    return std::filesystem::path(__FILE__).parent_path().parent_path() / "config" / "wrench_observer.yaml";
+    return std::filesystem::path(__FILE__).parent_path().parent_path() / "config" / "su_params.yaml";
   }
 
   void timerCallback()
@@ -435,9 +435,7 @@ private:
     auto future = observer_param_client_->set_parameters(
       {
         rclcpp::Parameter("mass", mass),
-        rclcpp::Parameter("su_wrench.mass", mass),
-        rclcpp::Parameter("su_wrench.comOffX", com_x),
-        rclcpp::Parameter("su_wrench.comOffY", com_y)
+        rclcpp::Parameter("com_bias", std::vector<double>{com_x, com_y, 0.0})
       });
 
     if (future.wait_for(300ms) != std::future_status::ready) {
@@ -472,11 +470,8 @@ private:
     in.close();
 
     bool in_ros_parameters = false;
-    bool in_su_wrench = false;
     bool mass_updated = false;
-    bool su_mass_updated = false;
-    bool com_x_updated = false;
-    bool com_y_updated = false;
+    bool com_bias_updated = false;
 
     for (auto & current_line : lines) {
       const std::string trimmed = trimLeft(current_line);
@@ -484,41 +479,25 @@ private:
 
       if (indent == 2 && trimmed == "ros__parameters:") {
         in_ros_parameters = true;
-        in_su_wrench = false;
         continue;
       }
 
       if (in_ros_parameters && indent <= 2 && !trimmed.empty() && trimmed.back() == ':') {
         in_ros_parameters = false;
-        in_su_wrench = false;
       }
 
-      if (in_ros_parameters && indent == 4 && trimmed == "su_wrench:") {
-        in_su_wrench = true;
-        continue;
-      }
-
-      if (in_su_wrench && indent <= 4 && !(indent == 4 && trimmed == "su_wrench:")) {
-        in_su_wrench = false;
-      }
-
-      if (in_su_wrench && indent == 6 && startsWithKey(trimmed, "mass")) {
-        current_line = "      mass: " + formatDouble(mass);
-        su_mass_updated = true;
-      } else if (in_su_wrench && indent == 6 && startsWithKey(trimmed, "comOffX")) {
-        current_line = "      comOffX: " + formatDouble(com_x);
-        com_x_updated = true;
-      } else if (in_su_wrench && indent == 6 && startsWithKey(trimmed, "comOffY")) {
-        current_line = "      comOffY: " + formatDouble(com_y);
-        com_y_updated = true;
-      } else if (in_ros_parameters && !in_su_wrench && indent == 4 && startsWithKey(trimmed, "mass")) {
+      if (in_ros_parameters && indent == 4 && startsWithKey(trimmed, "mass")) {
         current_line = "    mass: " + formatDouble(mass);
         mass_updated = true;
+      } else if (in_ros_parameters && indent == 4 && startsWithKey(trimmed, "com_bias")) {
+        current_line =
+          "    com_bias: [" + formatDouble(com_x) + ", " + formatDouble(com_y) + ", 0.000000]";
+        com_bias_updated = true;
       }
     }
 
-    if (!(mass_updated && su_mass_updated && com_x_updated && com_y_updated)) {
-      RCLCPP_WARN(this->get_logger(), "Failed to find calibration keys in wrench_observer.yaml");
+    if (!(mass_updated && com_bias_updated)) {
+      RCLCPP_WARN(this->get_logger(), "Failed to find calibration keys in su_params.yaml");
       return false;
     }
 

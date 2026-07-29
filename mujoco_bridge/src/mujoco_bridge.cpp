@@ -288,12 +288,16 @@ private:
     declare_parameter("physics_hz", PHYSICS_HZ);
     declare_parameter("pub_hz", PUB_HZ);
     declare_parameter("viewer_hz", VIEWER_HZ);
+    declare_parameter("mass", 0.04338);
+    declare_parameter("com_bias", std::vector<double>{0.0, 0.0, 0.0});
+    declare_parameter("inertia_diag", std::vector<double>{2.3951e-5, 2.3951e-5, 3.2347e-5});
 
     declare_parameter("arm_xy", 0.035355);
     declare_parameter("k_tau", 0.00594);
     declare_parameter("motor_dir", std::vector<double>{1.0, -1.0, 1.0, -1.0});
     declare_parameter("thrust_min", 0.0);
     declare_parameter("thrust_max", 0.20);
+    declare_parameter("thrust_effectiveness_mismatch_term", 1.0);
 
     declare_parameter("noise.enable", false);
     declare_parameter("noise.seed", 0);
@@ -358,11 +362,16 @@ private:
     physics_hz_ = get_parameter("physics_hz").as_double();
     pub_hz_ = get_parameter("pub_hz").as_double();
     viewer_hz_ = get_parameter("viewer_hz").as_double();
+    mass_ = get_parameter("mass").as_double();
+    com_bias_ = vec3_from_parameter("com_bias");
+    inertia_diag_ = vec3_from_parameter("inertia_diag");
 
     a_ = get_parameter("arm_xy").as_double();
     k_tau_ = get_parameter("k_tau").as_double();
     thrust_min_ = get_parameter("thrust_min").as_double();
     thrust_max_ = get_parameter("thrust_max").as_double();
+    thrust_effectiveness_mismatch_term_ =
+      get_parameter("thrust_effectiveness_mismatch_term").as_double();
 
     {
       const auto v = get_parameter("motor_dir").as_double_array();
@@ -441,6 +450,25 @@ private:
       throw std::runtime_error(std::string("mj_loadXML failed: ") + error);
     }
 
+    const int bid_drone = mj_name2id(model_, mjOBJ_BODY, "drone");
+    if (bid_drone < 0) {
+      throw std::runtime_error("Body 'drone' not found while applying plant inertial parameters");
+    }
+    model_->body_mass[bid_drone] = mass_;
+    const int drone_adr = 3 * bid_drone;
+    model_->body_ipos[drone_adr + 0] = com_bias_[0];
+    model_->body_ipos[drone_adr + 1] = com_bias_[1];
+    model_->body_ipos[drone_adr + 2] = com_bias_[2];
+    model_->body_inertia[drone_adr + 0] = inertia_diag_[0];
+    model_->body_inertia[drone_adr + 1] = inertia_diag_[1];
+    model_->body_inertia[drone_adr + 2] = inertia_diag_[2];
+    RCLCPP_INFO(
+      get_logger(),
+      "Applied MuJoCo drone inertial params: mass=%.6f com_bias=[%.6f %.6f %.6f] inertia=[%.6e %.6e %.6e]",
+      mass_,
+      com_bias_[0], com_bias_[1], com_bias_[2],
+      inertia_diag_[0], inertia_diag_[1], inertia_diag_[2]);
+
     const int bid_ee_tip = mj_name2id(model_, mjOBJ_BODY, "ee_tip");
     if (bid_ee_tip < 0) {
       RCLCPP_WARN(
@@ -491,6 +519,12 @@ private:
     if (bid_wind_indicator_tip_ < 0) {
       RCLCPP_WARN(
         get_logger(), "Body 'wind_indicator_tip' not found. Wind indicator physics disabled.");
+    }
+
+    bid_ee_tip_ = mj_name2id(model_, mjOBJ_BODY, "ee_tip");
+    if (bid_ee_tip_ < 0) {
+      RCLCPP_WARN(
+        get_logger(), "Body 'ee_tip' not found. Falling back to drone body for wind disturbance.");
     }
 
     imu_acc_sid_ = sensor_id("imu_acc");
@@ -655,7 +689,9 @@ private:
     const auto f_applied = apply_actuator_dynamics(f_cmd);
 
     for (int i = 0; i < 4; ++i) {
-      const double u = std::clamp(f_applied[i], thrust_min_, thrust_max_);
+      const double effective_thrust =
+        thrust_effectiveness_mismatch_term_ * f_applied[i];
+      const double u = std::clamp(effective_thrust, thrust_min_, thrust_max_);
       last_motor_thrust_[i] = u;
       data_->ctrl[actuator_ids_[i]] = static_cast<mjtNum>(u);
     }
@@ -674,8 +710,14 @@ private:
     }
 
     const int drone_adr = 6 * bid_drone_;
+    const int ee_tip_adr = bid_ee_tip_ >= 0 ? 6 * bid_ee_tip_ : -1;
     for (int i = 0; i < 6; ++i) {
       data_->xfrc_applied[drone_adr + i] = 0.0;
+    }
+    if (ee_tip_adr >= 0) {
+      for (int i = 0; i < 6; ++i) {
+        data_->xfrc_applied[ee_tip_adr + i] = 0.0;
+      }
     }
     if (bid_wind_indicator_tip_ >= 0) {
       const int indicator_adr = 6 * bid_wind_indicator_tip_;
@@ -688,9 +730,10 @@ private:
       return;
     }
 
+    const int wind_target_adr = ee_tip_adr >= 0 ? ee_tip_adr : drone_adr;
     for (int i = 0; i < 3; ++i) {
-      data_->xfrc_applied[drone_adr + i] = static_cast<mjtNum>(wind_force[i]);
-      data_->xfrc_applied[drone_adr + 3 + i] = static_cast<mjtNum>(wind_torque[i]);
+      data_->xfrc_applied[wind_target_adr + i] = static_cast<mjtNum>(wind_force[i]);
+      data_->xfrc_applied[wind_target_adr + 3 + i] = static_cast<mjtNum>(wind_torque[i]);
     }
 
     if (bid_wind_indicator_tip_ < 0) {
@@ -1269,6 +1312,7 @@ private:
   mjData* data_{nullptr};
 
   int bid_drone_{-1};
+  int bid_ee_tip_{-1};
   int bid_wind_indicator_tip_{-1};
   int jid_drone_{-1};
   int qpos_adr_drone_{-1};
@@ -1282,12 +1326,16 @@ private:
   double pub_hz_{PUB_HZ};
   double viewer_hz_{VIEWER_HZ};
   double dt_{1.0 / PHYSICS_HZ};
+  double mass_{0.04338};
+  std::array<double, 3> com_bias_{{0.0, 0.0, 0.0}};
+  std::array<double, 3> inertia_diag_{{2.3951e-5, 2.3951e-5, 3.2347e-5}};
 
   double a_{0.035355};
   double k_tau_{0.00594};
   std::array<double, 4> motor_dir_{{1.0, -1.0, 1.0, -1.0}};
   double thrust_min_{0.0};
   double thrust_max_{0.20};
+  double thrust_effectiveness_mismatch_term_{1.0};
 
   double B_[4][4]{};
   double B_inv_[4][4]{};

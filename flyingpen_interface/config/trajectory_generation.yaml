@@ -1,7 +1,5 @@
 trajectory_generation:
   ros__parameters:
-    end_effector_offset: [0.1, 0.0, 0.04]  # body-origin to end-effector offset [m]
-
     # "position_loop_embedding" or "velocity_loop_direct"
     command_embedding_mode: "position_loop_embedding"
 

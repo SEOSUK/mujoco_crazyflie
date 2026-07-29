@@ -104,6 +104,12 @@ public:
       "mob_topic_2nd_order", "/crazyflie/out/ee_applied_mob_2nd");
     mob_topic_consistency_ = this->declare_parameter<std::string>(
       "mob_topic_consistency", "/crazyflie/out/ee_applied_mob_2nd_tau");
+    mob_topic_k_epi_ = this->declare_parameter<std::string>(
+      "mob_topic_k_epi", "/crazyflie/out/ee_applied_mob_2nd_tau_i");
+    mob_topic_kalman_ = this->declare_parameter<std::string>(
+      "mob_topic_kalman", "/crazyflie/out/ee_applied_mob_kalman");
+    mob_topic_adaptive_ = this->declare_parameter<std::string>(
+      "mob_topic_adaptive", "/crazyflie/out/ee_applied_mob_adaptive");
 
     contact_force_topic_ = this->declare_parameter<std::string>(
       "contact_force_topic", "/crazyflie/out/EE_contact_force_filt");
@@ -268,6 +274,15 @@ public:
     sub_mob_consistency_ = this->create_subscription<geometry_msgs::msg::WrenchStamped>(
       mob_topic_consistency_, 10,
       std::bind(&RvizVisual::cb_mob_consistency, this, std::placeholders::_1));
+    sub_mob_k_epi_ = this->create_subscription<geometry_msgs::msg::WrenchStamped>(
+      mob_topic_k_epi_, 10,
+      std::bind(&RvizVisual::cb_mob_k_epi, this, std::placeholders::_1));
+    sub_mob_kalman_ = this->create_subscription<geometry_msgs::msg::WrenchStamped>(
+      mob_topic_kalman_, 10,
+      std::bind(&RvizVisual::cb_mob_kalman, this, std::placeholders::_1));
+    sub_mob_adaptive_ = this->create_subscription<geometry_msgs::msg::WrenchStamped>(
+      mob_topic_adaptive_, 10,
+      std::bind(&RvizVisual::cb_mob_adaptive, this, std::placeholders::_1));
 
     sub_contact_force_ = this->create_subscription<geometry_msgs::msg::WrenchStamped>(
       contact_force_topic_, 10,
@@ -296,9 +311,15 @@ public:
     // Publishers (Markers)
     // -------------------------
     pub_mob_2nd_order_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
-      "/rviz/drone_external_force_mob_2nd_order", 10);
+      "/rviz/pure", 10);
     pub_mob_consistency_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
-      "/rviz/drone_external_force_mob_2nd_tau", 10);
+      "/rviz/k_ep", 10);
+    pub_mob_k_epi_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
+      "/rviz/k_epi", 10);
+    pub_mob_kalman_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
+      "/rviz/kalman", 10);
+    pub_mob_adaptive_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
+      "/rviz/adaptive", 10);
 
     pub_contact_arrow_ = this->create_publisher<visualization_msgs::msg::Marker>(
       "/rviz/EE_contact_force", 10);
@@ -443,6 +464,33 @@ private:
     mob_force_consistency_[1] = static_cast<float>(msg->wrench.force.y);
     mob_force_consistency_[2] = static_cast<float>(msg->wrench.force.z);
     have_mob_force_consistency_ = true;
+  }
+
+  void cb_mob_k_epi(const geometry_msgs::msg::WrenchStamped::SharedPtr msg)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    mob_force_k_epi_[0] = static_cast<float>(msg->wrench.force.x);
+    mob_force_k_epi_[1] = static_cast<float>(msg->wrench.force.y);
+    mob_force_k_epi_[2] = static_cast<float>(msg->wrench.force.z);
+    have_mob_force_k_epi_ = true;
+  }
+
+  void cb_mob_kalman(const geometry_msgs::msg::WrenchStamped::SharedPtr msg)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    mob_force_kalman_[0] = static_cast<float>(msg->wrench.force.x);
+    mob_force_kalman_[1] = static_cast<float>(msg->wrench.force.y);
+    mob_force_kalman_[2] = static_cast<float>(msg->wrench.force.z);
+    have_mob_force_kalman_ = true;
+  }
+
+  void cb_mob_adaptive(const geometry_msgs::msg::WrenchStamped::SharedPtr msg)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    mob_force_adaptive_[0] = static_cast<float>(msg->wrench.force.x);
+    mob_force_adaptive_[1] = static_cast<float>(msg->wrench.force.y);
+    mob_force_adaptive_[2] = static_cast<float>(msg->wrench.force.z);
+    have_mob_force_adaptive_ = true;
   }
 
   void cb_contact_force(const geometry_msgs::msg::WrenchStamped::SharedPtr msg)
@@ -1651,6 +1699,9 @@ private:
     geometry_msgs::msg::PoseStamped cmd_drone_pose, cmd_ee_pose, cmd_active_pose;
     std::array<float, 3> mob_force_2nd_order;
     std::array<float, 3> mob_force_consistency;
+    std::array<float, 3> mob_force_k_epi;
+    std::array<float, 3> mob_force_kalman;
+    std::array<float, 3> mob_force_adaptive;
     std::array<float, 3> Fcontact;
     std::array<float, 3> estimated_normal_pure;
     std::array<float, 3> estimated_normal_k1;
@@ -1667,7 +1718,8 @@ private:
     bool have_pose, have_vel, have_acc;
     bool have_ee_pose, have_ee_vel, have_ee_acc;
     bool have_cmd_drone_pose, have_cmd_ee_pose, have_cmd_active_pose;
-    bool have_mob_force_2nd_order, have_mob_force_consistency;
+    bool have_mob_force_2nd_order, have_mob_force_consistency, have_mob_force_k_epi;
+    bool have_mob_force_kalman, have_mob_force_adaptive;
     bool have_contact, have_contact_q;
     bool have_contact_q_pure;
     bool have_estimated_normal_pure, have_estimated_normal_k1;
@@ -1694,6 +1746,9 @@ private:
 
       mob_force_2nd_order = mob_force_2nd_order_;
       mob_force_consistency = mob_force_consistency_;
+      mob_force_k_epi = mob_force_k_epi_;
+      mob_force_kalman = mob_force_kalman_;
+      mob_force_adaptive = mob_force_adaptive_;
       Fcontact = contact_F_;
       estimated_normal_pure = estimated_normal_pure_;
       estimated_normal_k1 = estimated_normal_k1_;
@@ -1720,6 +1775,9 @@ private:
 
       have_mob_force_2nd_order = have_mob_force_2nd_order_;
       have_mob_force_consistency = have_mob_force_consistency_;
+      have_mob_force_k_epi = have_mob_force_k_epi_;
+      have_mob_force_kalman = have_mob_force_kalman_;
+      have_mob_force_adaptive = have_mob_force_adaptive_;
       have_contact = have_contact_;
       have_contact_q_pure = have_contact_q_pure_;
       have_contact_q = have_contact_q_;
@@ -1838,7 +1896,7 @@ private:
 
     if (have_ee_pose && have_mob_force_2nd_order) {
       auto mk = make_arrow_marker_with_dims(
-        "drone_external_force_mob_2nd_order", 0, parent_frame_, stamp,
+        "pure", 0, parent_frame_, stamp,
         ee_pose.pose.position.x, ee_pose.pose.position.y, ee_pose.pose.position.z,
         static_cast<double>(mob_force_2nd_order[0]),
         static_cast<double>(mob_force_2nd_order[1]),
@@ -1853,7 +1911,7 @@ private:
 
     if (have_ee_pose && have_mob_force_consistency) {
       auto mk = make_arrow_marker_with_dims(
-        "drone_external_force_mob_2nd_tau", 0, parent_frame_, stamp,
+        "k_ep", 0, parent_frame_, stamp,
         ee_pose.pose.position.x, ee_pose.pose.position.y, ee_pose.pose.position.z,
         static_cast<double>(mob_force_consistency[0]),
         static_cast<double>(mob_force_consistency[1]),
@@ -1864,6 +1922,51 @@ private:
         source_head_len,
         0.75, 0.20, 1.00);
       pub_mob_consistency_arrow_->publish(mk);
+    }
+
+    if (have_ee_pose && have_mob_force_k_epi) {
+      auto mk = make_arrow_marker_with_dims(
+        "k_epi", 0, parent_frame_, stamp,
+        ee_pose.pose.position.x, ee_pose.pose.position.y, ee_pose.pose.position.z,
+        static_cast<double>(mob_force_k_epi[0]),
+        static_cast<double>(mob_force_k_epi[1]),
+        static_cast<double>(mob_force_k_epi[2]),
+        1.45 * force_scale_,
+        source_shaft,
+        source_head_diam,
+        source_head_len,
+        0.30, 0.65, 1.00);
+      pub_mob_k_epi_arrow_->publish(mk);
+    }
+
+    if (have_ee_pose && have_mob_force_kalman) {
+      auto mk = make_arrow_marker_with_dims(
+        "kalman", 0, parent_frame_, stamp,
+        ee_pose.pose.position.x, ee_pose.pose.position.y, ee_pose.pose.position.z,
+        static_cast<double>(mob_force_kalman[0]),
+        static_cast<double>(mob_force_kalman[1]),
+        static_cast<double>(mob_force_kalman[2]),
+        1.30 * force_scale_,
+        source_shaft,
+        source_head_diam,
+        source_head_len,
+        0.12, 0.60, 0.18);
+      pub_mob_kalman_arrow_->publish(mk);
+    }
+
+    if (have_ee_pose && have_mob_force_adaptive) {
+      auto mk = make_arrow_marker_with_dims(
+        "adaptive", 0, parent_frame_, stamp,
+        ee_pose.pose.position.x, ee_pose.pose.position.y, ee_pose.pose.position.z,
+        static_cast<double>(mob_force_adaptive[0]),
+        static_cast<double>(mob_force_adaptive[1]),
+        static_cast<double>(mob_force_adaptive[2]),
+        1.15 * force_scale_,
+        source_shaft,
+        source_head_diam,
+        source_head_len,
+        0.00, 0.62, 0.72);
+      pub_mob_adaptive_arrow_->publish(mk);
     }
 
     // 8) Marker: contact force
@@ -2152,6 +2255,9 @@ private:
 
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_2nd_order_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_consistency_;
+  rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_k_epi_;
+  rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_kalman_;
+  rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_adaptive_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_contact_force_;
   rclcpp::Subscription<geometry_msgs::msg::QuaternionStamped>::SharedPtr sub_contact_frame_quat_pure_;
   rclcpp::Subscription<geometry_msgs::msg::QuaternionStamped>::SharedPtr sub_contact_frame_quat_;
@@ -2162,6 +2268,9 @@ private:
 
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_mob_2nd_order_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_mob_consistency_arrow_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_mob_k_epi_arrow_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_mob_kalman_arrow_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_mob_adaptive_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_contact_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_estimated_normal_pure_arrow_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_estimated_normal_arrow_;
@@ -2210,9 +2319,15 @@ private:
 
   std::array<float, 3> mob_force_2nd_order_{0.0f, 0.0f, 0.0f};
   std::array<float, 3> mob_force_consistency_{0.0f, 0.0f, 0.0f};
+  std::array<float, 3> mob_force_k_epi_{0.0f, 0.0f, 0.0f};
+  std::array<float, 3> mob_force_kalman_{0.0f, 0.0f, 0.0f};
+  std::array<float, 3> mob_force_adaptive_{0.0f, 0.0f, 0.0f};
   std::array<float, 3> wind_indicator_force_{0.0f, 0.0f, 0.0f};
   bool have_mob_force_2nd_order_{false};
   bool have_mob_force_consistency_{false};
+  bool have_mob_force_k_epi_{false};
+  bool have_mob_force_kalman_{false};
+  bool have_mob_force_adaptive_{false};
   bool have_wind_indicator_force_{false};
 
   std::array<float, 3> contact_F_{0.0f, 0.0f, 0.0f};
@@ -2278,6 +2393,9 @@ private:
 
   std::string mob_topic_2nd_order_;
   std::string mob_topic_consistency_;
+  std::string mob_topic_k_epi_;
+  std::string mob_topic_kalman_;
+  std::string mob_topic_adaptive_;
   std::string contact_force_topic_;
   std::string contact_frame_quat_topic_pure_;
   std::string contact_frame_quat_topic_;
