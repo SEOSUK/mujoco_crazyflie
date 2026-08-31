@@ -99,6 +99,9 @@ public:
       "cmd_ee_topic", "/crazyflie/debug/cmd_ee");
     cmd_active_topic_ = this->declare_parameter<std::string>(
       "cmd_active_topic", "/crazyflie/debug/cmd_active");
+    wall_pose_topic_ = this->declare_parameter<std::string>(
+      "wall.pose_topic", "/environment/wall_pose");
+    wall_frame_ = this->declare_parameter<std::string>("wall.frame", "wall");
 
     mob_topic_2nd_order_ = this->declare_parameter<std::string>(
       "mob_topic_2nd_order", "/crazyflie/out/ee_applied_mob_2nd");
@@ -129,7 +132,7 @@ public:
       "est_contact_frame", "estimated_contact_frame");
 
     environment_type_ = normalizeEnvironmentType(
-      this->declare_parameter<std::string>("environment.type", "cylinder"));
+      this->declare_parameter<std::string>("environment.type", "wall"));
     environment_marker_topic_ = this->declare_parameter<std::string>(
       "environment.marker_topic", "/rviz/environment");
     wind_indicator_enable_ = this->declare_parameter<bool>("wind_indicator.enable", true);
@@ -160,12 +163,12 @@ public:
         "cylinder.rgba must have size 4. Falling back to [0.75, 0.93, 0.75, 0.25].");
       cylinder_rgba_ = {0.75, 0.93, 0.75, 0.25};
     }
-    wall_pos_x_ = this->declare_parameter<double>("wall.pos.x", 0.2);
+    wall_pos_x_ = this->declare_parameter<double>("wall.pos.x", 0.5);
     wall_pos_y_ = this->declare_parameter<double>("wall.pos.y", 0.0);
-    wall_pos_z_ = this->declare_parameter<double>("wall.pos.z", 0.0);
-    wall_size_x_ = this->declare_parameter<double>("wall.size.x", 0.1);
-    wall_size_y_ = this->declare_parameter<double>("wall.size.y", 2.5);
-    wall_size_z_ = this->declare_parameter<double>("wall.size.z", 2.5);
+    wall_pos_z_ = this->declare_parameter<double>("wall.pos.z", 1.0);
+    wall_size_x_ = this->declare_parameter<double>("wall.size.x", 0.005);
+    wall_size_y_ = this->declare_parameter<double>("wall.size.y", 0.5);
+    wall_size_z_ = this->declare_parameter<double>("wall.size.z", 0.5);
     wall_rgba_ = this->declare_parameter<std::vector<double>>(
       "wall.rgba", std::vector<double>{0.75, 0.93, 0.75, 0.25});
     if (wall_rgba_.size() != 4) {
@@ -267,6 +270,9 @@ public:
     sub_cmd_active_pose_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
       cmd_active_topic_, 10,
       std::bind(&RvizVisual::cb_cmd_active_pose, this, std::placeholders::_1));
+    sub_wall_pose_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
+      wall_pose_topic_, 10,
+      std::bind(&RvizVisual::cb_wall_pose, this, std::placeholders::_1));
 
     sub_mob_2nd_order_ = this->create_subscription<geometry_msgs::msg::WrenchStamped>(
       mob_topic_2nd_order_, 10,
@@ -446,6 +452,13 @@ private:
     std::lock_guard<std::mutex> lk(mtx_);
     cmd_active_pose_ = *msg;
     have_cmd_active_pose_ = true;
+  }
+
+  void cb_wall_pose(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    wall_pose_ = *msg;
+    have_wall_pose_ = true;
   }
 
   void cb_mob_2nd_order(const geometry_msgs::msg::WrenchStamped::SharedPtr msg)
@@ -1073,11 +1086,70 @@ private:
     return mk;
   }
 
+  geometry_msgs::msg::Pose makeDefaultWallBasePose() const
+  {
+    geometry_msgs::msg::Pose pose;
+    pose.position.x = wall_pos_x_;
+    pose.position.y = wall_pos_y_;
+    pose.position.z = wall_pos_z_;
+    pose.orientation.w = 1.0;
+    return pose;
+  }
+
+  geometry_msgs::msg::Quaternion normalizedQuaternion(
+    const geometry_msgs::msg::Quaternion & q_in) const
+  {
+    tf2::Quaternion q(q_in.x, q_in.y, q_in.z, q_in.w);
+    if (q.length2() < 1.0e-12) {
+      q.setValue(0.0, 0.0, 0.0, 1.0);
+    } else {
+      q.normalize();
+    }
+
+    geometry_msgs::msg::Quaternion out;
+    out.x = q.x();
+    out.y = q.y();
+    out.z = q.z();
+    out.w = q.w();
+    return out;
+  }
+
+  geometry_msgs::msg::Point rotateVectorByQuaternion(
+    const geometry_msgs::msg::Quaternion & q_in,
+    double x,
+    double y,
+    double z) const
+  {
+    const auto q_norm = normalizedQuaternion(q_in);
+    tf2::Quaternion q(q_norm.x, q_norm.y, q_norm.z, q_norm.w);
+    tf2::Matrix3x3 rot(q);
+    tf2::Vector3 rotated = rot * tf2::Vector3(x, y, z);
+
+    geometry_msgs::msg::Point out;
+    out.x = rotated.x();
+    out.y = rotated.y();
+    out.z = rotated.z();
+    return out;
+  }
+
+  geometry_msgs::msg::Pose wallMarkerPoseFromBasePose(
+    const geometry_msgs::msg::Pose & wall_base_pose) const
+  {
+    geometry_msgs::msg::Pose pose = wall_base_pose;
+    pose.orientation = normalizedQuaternion(wall_base_pose.orientation);
+    const auto center_offset = rotateVectorByQuaternion(pose.orientation, 0.0, 0.0, wall_size_z_);
+    pose.position.x += center_offset.x;
+    pose.position.y += center_offset.y;
+    pose.position.z += center_offset.z;
+    return pose;
+  }
+
   visualization_msgs::msg::Marker make_wall_marker(
     const std::string & ns,
     int id,
     const std::string & frame_id,
-    const rclcpp::Time & stamp) const
+    const rclcpp::Time & stamp,
+    const geometry_msgs::msg::Pose & wall_base_pose) const
   {
     visualization_msgs::msg::Marker mk;
     mk.header.stamp = stamp;
@@ -1087,10 +1159,7 @@ private:
     mk.type = visualization_msgs::msg::Marker::CUBE;
     mk.action = visualization_msgs::msg::Marker::ADD;
 
-    mk.pose.position.x = wall_pos_x_;
-    mk.pose.position.y = wall_pos_y_;
-    mk.pose.position.z = wall_pos_z_ + wall_size_z_;
-    mk.pose.orientation.w = 1.0;
+    mk.pose = wallMarkerPoseFromBasePose(wall_base_pose);
 
     mk.scale.x = 2.0 * wall_size_x_;
     mk.scale.y = 2.0 * wall_size_y_;
@@ -1194,10 +1263,11 @@ private:
     const std::string & ns,
     int id,
     const std::string & frame_id,
-    const rclcpp::Time & stamp) const
+    const rclcpp::Time & stamp,
+    const geometry_msgs::msg::Pose & wall_base_pose) const
   {
     if (environment_type_ == "wall") {
-      return make_wall_marker(ns, id, frame_id, stamp);
+      return make_wall_marker(ns, id, frame_id, stamp, wall_base_pose);
     }
     if (environment_type_ == "surface_chain") {
       return make_surface_chain_marker(ns, id, frame_id, stamp);
@@ -1346,15 +1416,18 @@ private:
 
   bool computeTrueNormalAtEE(
     const geometry_msgs::msg::PoseStamped & ee_pose,
+    const geometry_msgs::msg::Pose & wall_base_pose,
     double & nx,
     double & ny,
     double & nz) const
   {
     (void)ee_pose;
     if (environment_type_ == "wall") {
-      nx = 1.0;
-      ny = 0.0;
-      nz = 0.0;
+      const auto rotated_normal =
+        rotateVectorByQuaternion(wall_base_pose.orientation, 1.0, 0.0, 0.0);
+      nx = rotated_normal.x;
+      ny = rotated_normal.y;
+      nz = rotated_normal.z;
       return true;
     }
 
@@ -1695,6 +1768,7 @@ private:
   void loop_publish()
   {
     geometry_msgs::msg::PoseStamped pose, ee_pose;
+    geometry_msgs::msg::PoseStamped wall_pose;
     geometry_msgs::msg::Vector3Stamped vel, acc, ee_vel, ee_acc;
     geometry_msgs::msg::PoseStamped cmd_drone_pose, cmd_ee_pose, cmd_active_pose;
     std::array<float, 3> mob_force_2nd_order;
@@ -1718,6 +1792,7 @@ private:
     bool have_pose, have_vel, have_acc;
     bool have_ee_pose, have_ee_vel, have_ee_acc;
     bool have_cmd_drone_pose, have_cmd_ee_pose, have_cmd_active_pose;
+    bool have_wall_pose;
     bool have_mob_force_2nd_order, have_mob_force_consistency, have_mob_force_k_epi;
     bool have_mob_force_kalman, have_mob_force_adaptive;
     bool have_contact, have_contact_q;
@@ -1743,6 +1818,7 @@ private:
       cmd_drone_pose = cmd_drone_pose_;
       cmd_ee_pose = cmd_ee_pose_;
       cmd_active_pose = cmd_active_pose_;
+      wall_pose = wall_pose_;
 
       mob_force_2nd_order = mob_force_2nd_order_;
       mob_force_consistency = mob_force_consistency_;
@@ -1772,6 +1848,7 @@ private:
       have_cmd_drone_pose = have_cmd_drone_pose_;
       have_cmd_ee_pose = have_cmd_ee_pose_;
       have_cmd_active_pose = have_cmd_active_pose_;
+      have_wall_pose = have_wall_pose_;
 
       have_mob_force_2nd_order = have_mob_force_2nd_order_;
       have_mob_force_consistency = have_mob_force_consistency_;
@@ -1794,6 +1871,8 @@ private:
     }
 
     const auto stamp = this->now();
+    const geometry_msgs::msg::Pose wall_base_pose =
+      have_wall_pose ? wall_pose.pose : makeDefaultWallBasePose();
 
     if (have_ee_pose) {
       pushTrajectorySample(ee_pose, stamp);
@@ -1884,6 +1963,19 @@ private:
       tf.transform.rotation.y = q_wc.y();
       tf.transform.rotation.z = q_wc.z();
       tf.transform.rotation.w = q_wc.w();
+      tf_broadcaster_->sendTransform(tf);
+    }
+
+    // 6.5) TF: world -> wall
+    if (environment_type_ == "wall") {
+      geometry_msgs::msg::TransformStamped tf;
+      tf.header.stamp = stamp;
+      tf.header.frame_id = parent_frame_;
+      tf.child_frame_id = wall_frame_;
+      tf.transform.translation.x = wall_base_pose.position.x;
+      tf.transform.translation.y = wall_base_pose.position.y;
+      tf.transform.translation.z = wall_base_pose.position.z;
+      tf.transform.rotation = normalizedQuaternion(wall_base_pose.orientation);
       tf_broadcaster_->sendTransform(tf);
     }
 
@@ -2154,7 +2246,7 @@ private:
       double nx = 0.0;
       double ny = 0.0;
       double nz = 0.0;
-      if (computeTrueNormalAtEE(ee_pose, nx, ny, nz)) {
+      if (computeTrueNormalAtEE(ee_pose, wall_base_pose, nx, ny, nz)) {
         auto mk = make_arrow_marker_with_dims(
           "true_contact_normal", 0, parent_frame_, stamp,
           ee_pose.pose.position.x, ee_pose.pose.position.y, ee_pose.pose.position.z,
@@ -2174,7 +2266,7 @@ private:
     pub_contact_history_markers_->publish(makeContactHistoryMarkerArray(stamp));
 
     pub_environment_marker_->publish(
-      make_environment_marker("environment", 0, parent_frame_, stamp));
+      make_environment_marker("environment", 0, parent_frame_, stamp, wall_base_pose));
     pub_wind_indicator_markers_->publish(
       makeWindIndicatorMarkerArray(stamp, wind_indicator_force, have_wind_indicator_force));
 
@@ -2252,6 +2344,7 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_cmd_drone_pose_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_cmd_ee_pose_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_cmd_active_pose_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_wall_pose_;
 
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_2nd_order_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_consistency_;
@@ -2313,9 +2406,11 @@ private:
   geometry_msgs::msg::PoseStamped cmd_drone_pose_;
   geometry_msgs::msg::PoseStamped cmd_ee_pose_;
   geometry_msgs::msg::PoseStamped cmd_active_pose_;
+  geometry_msgs::msg::PoseStamped wall_pose_;
   bool have_cmd_drone_pose_{false};
   bool have_cmd_ee_pose_{false};
   bool have_cmd_active_pose_{false};
+  bool have_wall_pose_{false};
 
   std::array<float, 3> mob_force_2nd_order_{0.0f, 0.0f, 0.0f};
   std::array<float, 3> mob_force_consistency_{0.0f, 0.0f, 0.0f};
@@ -2390,6 +2485,8 @@ private:
   std::string cmd_drone_topic_;
   std::string cmd_ee_topic_;
   std::string cmd_active_topic_;
+  std::string wall_pose_topic_;
+  std::string wall_frame_;
 
   std::string mob_topic_2nd_order_;
   std::string mob_topic_consistency_;
@@ -2403,7 +2500,7 @@ private:
   std::string normal_debug_metrics_topic_;
   std::string control_metrics_topic_;
   std::string est_contact_frame_;
-  std::string environment_type_{"surface_chain"};
+  std::string environment_type_{"wall"};
   std::string environment_marker_topic_;
   std::string wind_indicator_topic_;
   std::string wind_indicator_marker_topic_;
@@ -2432,12 +2529,12 @@ private:
   double cylinder_radius_{1.0};
   double cylinder_half_height_{10.0};
   std::vector<double> cylinder_rgba_{0.75, 0.93, 0.75, 0.85};
-  double wall_pos_x_{0.2};
+  double wall_pos_x_{0.5};
   double wall_pos_y_{0.0};
-  double wall_pos_z_{0.0};
-  double wall_size_x_{0.1};
-  double wall_size_y_{2.5};
-  double wall_size_z_{2.5};
+  double wall_pos_z_{1.0};
+  double wall_size_x_{0.005};
+  double wall_size_y_{0.5};
+  double wall_size_z_{0.5};
   std::vector<double> wall_rgba_{0.75, 0.93, 0.75, 0.85};
   double surface_chain_pos_x_{1.0};
   double surface_chain_pos_y_{0.0};

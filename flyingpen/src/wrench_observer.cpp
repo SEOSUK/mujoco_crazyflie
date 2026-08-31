@@ -57,6 +57,13 @@ public:
     std::array<double, 3> body_torque_hat_ext{{0.0, 0.0, 0.0}};
   };
 
+  struct ObserverMatchedSignalState
+  {
+    Vec3 signal{Vec3::Zero()};
+    Vec3 signal_dot{Vec3::Zero()};
+    std::array<double, 3> output{{0.0, 0.0, 0.0}};
+  };
+
   WrenchObserver()
   : Node("wrench_observer")
   {
@@ -87,6 +94,8 @@ public:
       "drone_wrench_topic_consistency_match", "/crazyflie/out/mob_2nd_tau_consistency");
     drone_wrench_topic_consistency_residual_ = declare_parameter<std::string>(
       "drone_wrench_topic_consistency_residual", "/crazyflie/out/mob_2nd_tau_residual");
+    drone_wrench_topic_eta_t_ = declare_parameter<std::string>(
+      "drone_wrench_topic_eta_t", "/crazyflie/out/mob_eta_t");
     drone_wrench_topic_kalman_ = declare_parameter<std::string>(
       "drone_wrench_topic_kalman", "/crazyflie/out/mob_kalman");
     drone_wrench_topic_adaptive_ = declare_parameter<std::string>(
@@ -99,6 +108,10 @@ public:
       "ee_applied_wrench_topic_consistency_integral", "/crazyflie/out/ee_applied_mob_2nd_tau_i");
     ee_applied_wrench_topic_consistency_base_ = declare_parameter<std::string>(
       "ee_applied_wrench_topic_consistency_base", "/crazyflie/out/ee_applied_mob_2nd_tau_base");
+    ee_applied_wrench_topic_eta_t_ = declare_parameter<std::string>(
+      "ee_applied_wrench_topic_eta_t", "/crazyflie/out/ee_applied_mob_eta_t");
+    eta_t_hat_topic_ = declare_parameter<std::string>(
+      "eta_t_hat_topic", "/crazyflie/out/eta_t_hat");
     ee_applied_wrench_topic_kalman_ = declare_parameter<std::string>(
       "ee_applied_wrench_topic_kalman", "/crazyflie/out/ee_applied_mob_kalman");
     ee_applied_wrench_topic_adaptive_ = declare_parameter<std::string>(
@@ -134,6 +147,8 @@ public:
     k_ep_sweep_gains_ = declare_parameter<std::vector<double>>(
       "mob.k_ep_sweep_gains", std::vector<double>{100.0, 300.0, 500.0, 700.0, 900.0});
     epsilon_tau_ = declare_parameter<double>("mob.epsilon_tau", 1.0e-6);
+    eta_t_gamma_ = declare_parameter<double>("mob.eta_t.gamma", 0.2);
+    eta_t_rho_eta_ = declare_parameter<double>("mob.eta_t.rho_eta", 0.01);
     kalman_sigma_force_perp_ = declare_parameter<double>("mob.kalman.sigma_force_perp", 0.10);
     kalman_sigma_force_thrust_ = declare_parameter<double>("mob.kalman.sigma_force_thrust", 0.50);
     kalman_sigma_torque_ = declare_parameter<double>("mob.kalman.sigma_torque", 0.01);
@@ -201,6 +216,8 @@ public:
       drone_wrench_topic_consistency_match_, 10);
     pub_drone_wrench_consistency_residual_ = create_publisher<geometry_msgs::msg::WrenchStamped>(
       drone_wrench_topic_consistency_residual_, 10);
+    pub_drone_wrench_eta_t_ = create_publisher<geometry_msgs::msg::WrenchStamped>(
+      drone_wrench_topic_eta_t_, 10);
     pub_drone_wrench_kalman_ = create_publisher<geometry_msgs::msg::WrenchStamped>(
       drone_wrench_topic_kalman_, 10);
     pub_drone_wrench_adaptive_ = create_publisher<geometry_msgs::msg::WrenchStamped>(
@@ -213,6 +230,10 @@ public:
       ee_applied_wrench_topic_consistency_integral_, 10);
     pub_ee_applied_wrench_consistency_base_ = create_publisher<geometry_msgs::msg::WrenchStamped>(
       ee_applied_wrench_topic_consistency_base_, 10);
+    pub_ee_applied_wrench_eta_t_ = create_publisher<geometry_msgs::msg::WrenchStamped>(
+      ee_applied_wrench_topic_eta_t_, 10);
+    pub_eta_t_hat_ = create_publisher<std_msgs::msg::Float32>(
+      eta_t_hat_topic_, 10);
     pub_ee_applied_wrench_kalman_ = create_publisher<geometry_msgs::msg::WrenchStamped>(
       ee_applied_wrench_topic_kalman_, 10);
     pub_ee_applied_wrench_adaptive_ = create_publisher<geometry_msgs::msg::WrenchStamped>(
@@ -418,6 +439,57 @@ private:
     std::string tag = oss.str();
     std::replace(tag.begin(), tag.end(), '.', 'p');
     return tag;
+  }
+
+  Vec3 runObserverMatchedSignal(
+    ObserverMatchedSignalState & state,
+    const Vec3 & input_signal,
+    double dt,
+    double stiffness_gain,
+    double damping_gain,
+    double mob_alpha)
+  {
+    const double stiffness = std::max(0.0, stiffness_gain);
+    const double damping = std::max(0.0, damping_gain);
+    const Vec3 signal_ddot =
+      stiffness * (input_signal - state.signal) - damping * state.signal_dot;
+    state.signal_dot += dt * signal_ddot;
+    state.signal += dt * state.signal_dot;
+
+    for (int i = 0; i < 3; ++i) {
+      state.output[i] = lpf1(state.output[i], state.signal[i], mob_alpha);
+    }
+
+    return Vec3(state.output[0], state.output[1], state.output[2]);
+  }
+
+  void runEtaTCorrection(
+    const Vec3 & force_world_raw,
+    const Vec3 & torque_world_raw,
+    const Vec3 & observer_matched_force_input_world,
+    const Vec3 & observer_matched_torque_input_world,
+    const Vec3 & ee_offset_world,
+    double dt,
+    Vec3 & corrected_force_world,
+    Vec3 & corrected_torque_world)
+  {
+    // Match the actuation-side terms to the same observer-domain dynamics used by
+    // the residual estimates before forming Y_eta and the corrected wrench.
+    const Vec3 y_eta =
+      ee_offset_world.cross(observer_matched_force_input_world) -
+      observer_matched_torque_input_world;
+    const Vec3 eps_tau_world = ee_offset_world.cross(force_world_raw) - torque_world_raw;
+    const Vec3 eps_eta_world = eps_tau_world - y_eta * (eta_t_hat_ - 1.0);
+    const double denominator = sanitizePositive(eta_t_rho_eta_, 0.01) + y_eta.squaredNorm();
+    const double gamma = std::max(0.0, eta_t_gamma_);
+
+    eta_t_hat_ += dt * gamma * y_eta.dot(eps_eta_world) / denominator;
+    eta_t_hat_ = std::max(1.0e-6, eta_t_hat_);
+
+    const double thrust_mismatch = eta_t_hat_ - 1.0;
+    corrected_force_world = force_world_raw - thrust_mismatch * observer_matched_force_input_world;
+    corrected_torque_world =
+      torque_world_raw - thrust_mismatch * observer_matched_torque_input_world;
   }
 
   void runObserverVariant(
@@ -718,6 +790,21 @@ private:
     const Vec3 world_force_input = r_bw * body_force_input;
     Vec3 body_torque_input(tx, ty, tz);
     body_torque_input += com_offset_body_.cross(body_force_input);
+    const Vec3 observer_matched_force_input_world = runObserverMatchedSignal(
+      observer_matched_force_input_world_,
+      world_force_input,
+      dt,
+      kf_2nd_order_,
+      kp_,
+      mob_alpha_2nd_order_);
+    const Vec3 observer_matched_torque_input_body = runObserverMatchedSignal(
+      observer_matched_torque_input_body_,
+      body_torque_input,
+      dt,
+      ktau_2nd_order_,
+      kptau_,
+      mob_alpha_2nd_order_);
+    const Vec3 observer_matched_torque_input_world = r_bw * observer_matched_torque_input_body;
     const double mass_obs = mass_;
     const double jxx_obs = jxx_;
     const double jyy_obs = jyy_;
@@ -736,8 +823,6 @@ private:
       (wx * iw_y - wy * iw_x));
 
     const Vec3 grav_world(0.0, 0.0, mass_obs * gravity_);
-    const Vec3 thrust_axis_world = r_bw * Vec3(0.0, 0.0, 1.0);
-
     runObserverVariant(
       observer_v4_, p_lin_world, p_ang_body, world_force_input, body_torque_input,
       grav_world, cori_body, dt, true, true,
@@ -747,11 +832,6 @@ private:
       observer_consistency_, p_lin_world, p_ang_body, world_force_input, body_torque_input,
       grav_world, cori_body, ee_offset_world, r_bw, dt,
       kf_2nd_order_, ktau_2nd_order_, mob_alpha_2nd_order_, ke_ep_, 0.0);
-    runConsistencyResidualObserver(
-      observer_consistency_integral_, p_lin_world, p_ang_body, world_force_input, body_torque_input,
-      grav_world, cori_body, ee_offset_world, r_bw, dt,
-      kf_2nd_order_, ktau_2nd_order_, mob_alpha_2nd_order_, ke_epi_,
-      std::abs(cmd_force_desired_) > 1.0e-6 ? kei_epi_ : 0.0);
     for (size_t i = 0; i < observer_consistency_sweep_.size(); ++i) {
       runConsistencyResidualObserver(
         observer_consistency_sweep_[i], p_lin_world, p_ang_body, world_force_input, body_torque_input,
@@ -776,62 +856,37 @@ private:
       observer_consistency_.body_torque_hat_ext[1],
       observer_consistency_.body_torque_hat_ext[2]);
     const Vec3 drone_torque_world_consistency = r_bw * drone_torque_body_consistency;
-    const Vec3 drone_force_world_consistency_integral(
-      observer_consistency_integral_.world_force_hat_ext[0],
-      observer_consistency_integral_.world_force_hat_ext[1],
-      observer_consistency_integral_.world_force_hat_ext[2]);
-    const Vec3 drone_torque_body_consistency_integral(
-      observer_consistency_integral_.body_torque_hat_ext[0],
-      observer_consistency_integral_.body_torque_hat_ext[1],
-      observer_consistency_integral_.body_torque_hat_ext[2]);
-    const Vec3 drone_torque_world_consistency_integral =
-      r_bw * drone_torque_body_consistency_integral;
     const Vec3 drone_force_world_consistency_base = observer_consistency_.force_hat_base_world;
-    const Vec3 drone_force_world_kalman = runKalmanLikeFusion(
+    Vec3 drone_force_world_eta_t = drone_force_world_2nd_order;
+    Vec3 drone_torque_world_eta_t = drone_torque_world_2nd_order;
+    runEtaTCorrection(
       drone_force_world_2nd_order,
       drone_torque_world_2nd_order,
+      observer_matched_force_input_world,
+      observer_matched_torque_input_world,
       ee_offset_world,
-      thrust_axis_world,
-      kalman_sigma_force_perp_,
-      kalman_sigma_force_thrust_,
-      kalman_sigma_torque_);
-    const Vec3 drone_torque_world_kalman = ee_offset_world.cross(drone_force_world_kalman);
-    const Vec3 drone_force_world_adaptive = runAdaptiveBiasFusion(
-      drone_force_world_2nd_order,
-      drone_torque_world_2nd_order,
-      ee_offset_world,
-      thrust_axis_world);
-    const Vec3 drone_torque_world_adaptive = ee_offset_world.cross(drone_force_world_adaptive);
+      dt,
+      drone_force_world_eta_t,
+      drone_torque_world_eta_t);
     pub_drone_wrench_2nd_order_->publish(
       makeWrenchMsg(t_now, drone_force_world_2nd_order, drone_torque_world_2nd_order));
     pub_drone_wrench_consistency_->publish(
       makeWrenchMsg(t_now, drone_force_world_consistency, drone_torque_world_consistency));
-    pub_drone_wrench_consistency_integral_->publish(
-      makeWrenchMsg(
-        t_now,
-        drone_force_world_consistency_integral,
-        drone_torque_world_consistency_integral));
     pub_drone_wrench_consistency_base_->publish(
       makeWrenchMsg(t_now, drone_force_world_consistency_base, drone_torque_world_consistency));
-    pub_drone_wrench_kalman_->publish(
-      makeWrenchMsg(t_now, drone_force_world_kalman, drone_torque_world_kalman));
-    pub_drone_wrench_adaptive_->publish(
-      makeWrenchMsg(t_now, drone_force_world_adaptive, drone_torque_world_adaptive));
+    pub_drone_wrench_eta_t_->publish(
+      makeWrenchMsg(t_now, drone_force_world_eta_t, drone_torque_world_eta_t));
     pub_ee_applied_wrench_2nd_order_->publish(
       makeWrenchMsg(t_now, -drone_force_world_2nd_order, -drone_torque_world_2nd_order));
     pub_ee_applied_wrench_consistency_->publish(
       makeWrenchMsg(t_now, -drone_force_world_consistency, -drone_torque_world_consistency));
-    pub_ee_applied_wrench_consistency_integral_->publish(
-      makeWrenchMsg(
-        t_now,
-        -drone_force_world_consistency_integral,
-        -drone_torque_world_consistency_integral));
     pub_ee_applied_wrench_consistency_base_->publish(
       makeWrenchMsg(t_now, -drone_force_world_consistency_base, -drone_torque_world_consistency));
-    pub_ee_applied_wrench_kalman_->publish(
-      makeWrenchMsg(t_now, -drone_force_world_kalman, -drone_torque_world_kalman));
-    pub_ee_applied_wrench_adaptive_->publish(
-      makeWrenchMsg(t_now, -drone_force_world_adaptive, -drone_torque_world_adaptive));
+    pub_ee_applied_wrench_eta_t_->publish(
+      makeWrenchMsg(t_now, -drone_force_world_eta_t, -drone_torque_world_eta_t));
+    std_msgs::msg::Float32 eta_t_hat_msg;
+    eta_t_hat_msg.data = static_cast<float>(eta_t_hat_);
+    pub_eta_t_hat_->publish(eta_t_hat_msg);
     for (size_t i = 0; i < observer_consistency_sweep_.size(); ++i) {
       const auto & state = observer_consistency_sweep_[i];
       const Vec3 drone_force_world_sweep(
@@ -914,6 +969,10 @@ private:
         kei_ = param.as_double();
       } else if (name == "mob.Ke_ep") {
         ke_ep_ = param.as_double();
+      } else if (name == "mob.eta_t.gamma") {
+        eta_t_gamma_ = param.as_double();
+      } else if (name == "mob.eta_t.rho_eta") {
+        eta_t_rho_eta_ = param.as_double();
       } else if (name == "mob.Ke_epi") {
         ke_epi_ = param.as_double();
       } else if (name == "mob.KeI_epi") {
@@ -957,12 +1016,15 @@ private:
   rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_drone_wrench_consistency_base_;
   rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_drone_wrench_consistency_match_;
   rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_drone_wrench_consistency_residual_;
+  rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_drone_wrench_eta_t_;
   rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_drone_wrench_kalman_;
   rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_drone_wrench_adaptive_;
   rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_ee_applied_wrench_2nd_order_;
   rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_ee_applied_wrench_consistency_;
   rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_ee_applied_wrench_consistency_integral_;
   rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_ee_applied_wrench_consistency_base_;
+  rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_ee_applied_wrench_eta_t_;
+  rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr pub_eta_t_hat_;
   rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_ee_applied_wrench_kalman_;
   rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_ee_applied_wrench_adaptive_;
   std::vector<rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr>
@@ -984,12 +1046,15 @@ private:
   std::string drone_wrench_topic_consistency_base_;
   std::string drone_wrench_topic_consistency_match_;
   std::string drone_wrench_topic_consistency_residual_;
+  std::string drone_wrench_topic_eta_t_;
   std::string drone_wrench_topic_kalman_;
   std::string drone_wrench_topic_adaptive_;
   std::string ee_applied_wrench_topic_2nd_order_;
   std::string ee_applied_wrench_topic_consistency_;
   std::string ee_applied_wrench_topic_consistency_integral_;
   std::string ee_applied_wrench_topic_consistency_base_;
+  std::string ee_applied_wrench_topic_eta_t_;
+  std::string eta_t_hat_topic_;
   std::string ee_applied_wrench_topic_kalman_;
   std::string ee_applied_wrench_topic_adaptive_;
 
@@ -1020,6 +1085,8 @@ private:
   std::vector<double> k_ep_sweep_gains_;
   std::vector<double> sweep_ke_gains_;
   double epsilon_tau_{1.0e-6};
+  double eta_t_gamma_{0.2};
+  double eta_t_rho_eta_{0.01};
   double kalman_sigma_force_perp_{0.10};
   double kalman_sigma_force_thrust_{0.50};
   double kalman_sigma_torque_{0.01};
@@ -1061,6 +1128,9 @@ private:
   ConsistencyObserverState observer_consistency_;
   ConsistencyObserverState observer_consistency_integral_;
   std::vector<ConsistencyObserverState> observer_consistency_sweep_;
+  ObserverMatchedSignalState observer_matched_force_input_world_;
+  ObserverMatchedSignalState observer_matched_torque_input_body_;
+  double eta_t_hat_{1.0};
   double adaptive_bias_hat_{0.0};
 };
 

@@ -1,24 +1,12 @@
 control_pipeline:
   ros__parameters:
-    wrench_observation_mode: "k_ep"  # "pure", "k_ep", "k_epi", "kalman", "adaptive"
+    wrench_observation_mode: "eta_T"  # "k_ep", "eta_T"
     wrench_observation_gains:
-      pure: {}
       k_ep:
         ke: 500.0  # point-contact consistency gain
-      k_epi:
-        ke: 30000.0  # point-contact consistency gain
-        kei: 100.0  # cumulative consistency gain
-      kalman:
-        sigma_force_perp: 0.10  # [N], trust along directions orthogonal to thrust axis
-        sigma_force_thrust: 0.50  # [N], lower trust along thrust axis
-        sigma_torque: 0.01  # [N*m], torque observation uncertainty
-      adaptive:
-        gamma: 0.2  # normalized adaptation gain, choose within (0, 2)
-        lambda_b: 0.01  # adaptive-law normalization floor
-        bias_limit: 2.0  # [N], saturation for thrust-axis bias estimate
-        sigma_force_perp: 0.10  # [N], residual weighting for non-thrust directions
-        sigma_force_thrust: 0.50  # [N], residual weighting for thrust direction
-        sigma_torque: 0.01  # [N*m], residual torque uncertainty
+      eta_T:
+        gamma: 50.0  # normalized eta_T adaptation gain
+        rho_eta: 0.1  # denominator floor in the normalized eta_T update law
 
 wrench_observer:
   ros__parameters:
@@ -26,7 +14,7 @@ wrench_observer:
     com_bias: [0.00000, 0.000000, 0.0]
     inertia_diag: [2.3951e-5, 2.3951e-5, 3.2347e-5]
     end_effector_offset: [0.1, 0.0, 0.037]
-    thrust_effectiveness_mismatch_term: 0.9
+    thrust_effectiveness_eta_time_coeffs: [0.0, 0.9]  # eta_T(t) = a*t + b, t in simulation seconds
     consistencyMode: 2  # 0=None, 1=Residual, 2=Both
 
 trajectory_generation:

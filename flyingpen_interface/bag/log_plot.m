@@ -208,6 +208,8 @@ k_ep_torque_fallback = nan(size(time, 1), 3);
 k_epi_force_fallback = nan(size(time, 1), 3);
 kalman_force_fallback = nan(size(time, 1), 3);
 adaptive_force_fallback = nan(size(time, 1), 3);
+eta_t_force_fallback = nan(size(time, 1), 3);
+eta_t_torque_fallback = nan(size(time, 1), 3);
 if mob_compare_valid
     pure_force_fallback = -mob1_force;
     pure_torque_fallback = -mob1_torque;
@@ -245,9 +247,27 @@ force_panel_adaptive = [
     -get_first_matching_column(T, {'mob_adaptive_Fx', 'adaptive_Fx'}, -adaptive_force_fallback(:,1)), ...
     -get_first_matching_column(T, {'mob_adaptive_Fy', 'adaptive_Fy'}, -adaptive_force_fallback(:,2)), ...
     -get_first_matching_column(T, {'mob_adaptive_Fz', 'adaptive_Fz'}, -adaptive_force_fallback(:,3))];
+force_panel_eta_t = [
+    -get_first_matching_column(T, {'mob_eta_t_Fx', 'eta_t_Fx', 'eta_T_Fx'}, -eta_t_force_fallback(:,1)), ...
+    -get_first_matching_column(T, {'mob_eta_t_Fy', 'eta_t_Fy', 'eta_T_Fy'}, -eta_t_force_fallback(:,2)), ...
+    -get_first_matching_column(T, {'mob_eta_t_Fz', 'eta_t_Fz', 'eta_T_Fz'}, -eta_t_force_fallback(:,3))];
+force_panel_eta_t_torque = [
+    -get_first_matching_column(T, {'mob_eta_t_Tx', 'eta_t_Tx', 'eta_T_Tx'}, -eta_t_torque_fallback(:,1)), ...
+    -get_first_matching_column(T, {'mob_eta_t_Ty', 'eta_t_Ty', 'eta_T_Ty'}, -eta_t_torque_fallback(:,2)), ...
+    -get_first_matching_column(T, {'mob_eta_t_Tz', 'eta_t_Tz', 'eta_T_Tz'}, -eta_t_torque_fallback(:,3))];
 force_panel_has_k_epi = any(isfinite(force_panel_k_epi(:)));
 force_panel_has_kalman = any(isfinite(force_panel_kalman(:)));
 force_panel_has_adaptive = any(isfinite(force_panel_adaptive(:)));
+force_panel_has_eta_t = any(isfinite(force_panel_eta_t(:)));
+force_panel_eta_t_hat = get_first_matching_column(T, ...
+    {'eta_t_hat', 'eta_T_hat', 'mob_eta_t_hat', 'estimated_thrust_effectiveness', 'thrust_effectiveness_estimate'}, ...
+    nan(size(time)));
+force_panel_eta_t_true = get_first_matching_column(T, ...
+    {'eta_t_true', 'eta_T_true', 'true_thrust_effectiveness', 'thrust_effectiveness_true', 'thrust_effectiveness_mismatch_term'}, ...
+    nan(size(time)));
+if ~any(isfinite(force_panel_eta_t_true))
+    force_panel_eta_t_true = infer_true_thrust_effectiveness(csvPath, time, nan);
+end
 force_panel_true_wind = [
     -get_column_by_name(T, "wind_x", nan(size(time))), ...
     -get_column_by_name(T, "wind_y", nan(size(time))), ...
@@ -278,6 +298,7 @@ end
 force_panel_ee_offset_body = [0.09, 0.0, 0.085];
 force_panel_r_world = rotate_body_vectors(att_pose(:,1), att_pose(:,2), att_pose(:,3), force_panel_ee_offset_body);
 force_panel_residual_pure = subtract_rows(force_panel_pure_torque, cross_rows(force_panel_r_world, force_panel_pure));
+force_panel_residual_eta_t = subtract_rows(force_panel_eta_t_torque, cross_rows(force_panel_r_world, force_panel_eta_t));
 force_panel_residual_k_ep_sweep = nan(size(force_panel_k_ep_sweep));
 for gain_idx = 1:numel(k_ep_sweep_gains)
     force_panel_residual_k_ep_sweep(:, :, gain_idx) = subtract_rows( ...
@@ -285,12 +306,13 @@ for gain_idx = 1:numel(k_ep_sweep_gains)
         cross_rows(force_panel_r_world, force_panel_k_ep_sweep(:, :, gain_idx)));
 end
 force_panel_angle_error_pure = vector_direction_error_deg(force_panel_true_wind, force_panel_pure);
+force_panel_angle_error_eta_t = vector_direction_error_deg(force_panel_true_wind, force_panel_eta_t);
 force_panel_angle_error_k_ep_sweep = nan(size(time, 1), numel(k_ep_sweep_gains));
 for gain_idx = 1:numel(k_ep_sweep_gains)
     force_panel_angle_error_k_ep_sweep(:, gain_idx) = ...
         vector_direction_error_deg(force_panel_true_wind, force_panel_k_ep_sweep(:, :, gain_idx));
 end
-force_panel_angle_signals = [force_panel_angle_error_pure, force_panel_angle_error_k_ep_sweep];
+force_panel_angle_signals = [force_panel_angle_error_pure, force_panel_angle_error_eta_t, force_panel_angle_error_k_ep_sweep];
 force_panel_angle_nan_start_idx = find_nan_onset_after_valid(force_panel_angle_signals);
 if isempty(force_panel_angle_nan_start_idx)
     force_panel_angle_auto_xlim = [time(1) time(end)];
@@ -408,31 +430,32 @@ end
 
 %% Force XYZ figure
 if show_force_xyz_panel
-force_panel_xlim = [15.91 25.91];
-force_panel_angle_xlim = force_panel_xlim;
-% force_panel_angle_xlim = force_panel_angle_auto_xlim;
+force_panel_xlim = [9.3 33];
 force_panel_force_ylims = [
     -0.02 0.05;
     -0.02 0.05;
     -0.02 0.05];
 force_panel_residual_ylims = [
-    -0.001 0.005;
-    -0.001 0.005;
-    -0.001 0.005];
-force_panel_angle_error_ylims = [nan nan];
-force_panel_window_size = [520 860];
+    -0.001 0.006;
+    -0.001 0.006;
+    -0.001 0.006];
+force_panel_eta_ylims = [nan nan];
+force_panel_window_size = [760 860];
 force_panel_line_width = 1.4;
 force_panel_axis_names = {'x', 'y', 'z'};
 force_panel_force_labels = {'ʷf̂ₗ,ₓ [N]', 'ʷf̂ₗ,ᵧ [N]', 'ʷf̂ₗ,z [N]'};
 force_panel_torque_labels = {'ʷτ̂ₗ,ₓ [N m]', 'ʷτ̂ₗ,ᵧ [N m]', 'ʷτ̂ₗ,z [N m]'};
 force_panel_true_color = [0.05 0.05 0.05];
 force_panel_pure_color = [0.16 0.35 0.86];
+force_panel_eta_t_color = [0.58 0.73 0.92];
 force_panel_k_ep_colors = [
     0.82 0.18 0.18;
     0.00 0.52 0.62;
     0.88 0.62 0.08];
 force_panel_pure_style = '--';
 force_panel_pure_width = 1.6;
+force_panel_eta_t_style = '-';
+force_panel_eta_t_width = 2.4;
 force_panel_k_ep_styles = {'-.', ':', '--'};
 force_panel_k_ep_widths = [1.6 1.9 1.6];
 force_panel_consistency_color = [0.20 0.20 0.20];
@@ -441,21 +464,33 @@ force_panel_time = time - force_panel_xlim(1);
 force_panel_display_xlim = [0, force_panel_xlim(2) - force_panel_xlim(1)];
 
 f_force = figure('Name', 'Force XYZ Panel', 'NumberTitle', 'off', ...
-    'Color', 'w', 'Units', 'pixels', 'Position', [680 80 900 force_panel_window_size(2)]);
-tlf = tiledlayout(f_force, 3, 2, 'TileSpacing', 'compact', 'Padding', 'compact');
+    'Color', 'w', 'Units', 'pixels', 'Position', [680 80 1280 force_panel_window_size(2)]);
+tlf = tiledlayout(f_force, 3, 3, 'TileSpacing', 'compact', 'Padding', 'compact');
 tlf.Units = 'normalized';
-tlf.Position = [0.075 0.065 0.85 0.685];
+tlf.Position = [0.055 0.065 0.88 0.685];
 
 ax_force_left = gobjects(0);
 ax_force_right = gobjects(0);
 force_panel_left_handles = gobjects(0);
 force_panel_right_handles = gobjects(0);
+ax_force_eta = nexttile(tlf, 3, [3 1]);
+hold(ax_force_eta, 'on');
+plot(ax_force_eta, force_panel_time, force_panel_eta_t_true, '--', ...
+    'LineWidth', 1.8, 'Color', force_panel_true_color);
+plot(ax_force_eta, force_panel_time, force_panel_eta_t_hat, force_panel_eta_t_style, ...
+    'LineWidth', force_panel_eta_t_width, 'Color', force_panel_eta_t_color);
+grid(ax_force_eta, 'on');
+ylabel(ax_force_eta, '\eta_T [-]');
+title(ax_force_eta, 'Thrust Effectiveness');
+apply_user_ylim(ax_force_eta, force_panel_eta_ylims, 1, [force_panel_eta_t_true; force_panel_eta_t_hat]);
 for i = 1:3
-    ax = nexttile(tlf, 2 * i - 1); ax_force_left(end+1) = ax; %#ok<SAGROW>
+    ax = nexttile(tlf, 3 * (i - 1) + 1); ax_force_left(end+1) = ax; %#ok<SAGROW>
     hold(ax, 'on');
     h_actual = plot(ax, force_panel_time, force_panel_true_wind(:, i), '-', 'LineWidth', 2.1, 'Color', force_panel_true_color);
     h_pure = plot(ax, force_panel_time, force_panel_pure(:, i), force_panel_pure_style, ...
         'LineWidth', force_panel_pure_width, 'Color', force_panel_pure_color);
+    h_eta = plot(ax, force_panel_time, force_panel_eta_t(:, i), force_panel_eta_t_style, ...
+        'LineWidth', force_panel_eta_t_width, 'Color', force_panel_eta_t_color);
     h_kep = gobjects(1, numel(k_ep_sweep_gains));
     for gain_idx = 1:numel(k_ep_sweep_gains)
         h_kep(gain_idx) = plot(ax, force_panel_time, force_panel_k_ep_sweep(:, i, gain_idx), force_panel_k_ep_styles{gain_idx}, ...
@@ -463,7 +498,7 @@ for i = 1:3
             'Color', force_panel_k_ep_colors(gain_idx, :));
     end
     if i == 1
-        force_panel_left_handles = [h_actual, h_pure, h_kep];
+        force_panel_left_handles = [h_actual, h_pure, h_kep, h_eta];
     end
     grid(ax, 'on');
     ylabel(ax, force_panel_force_labels{i}, 'Interpreter', 'none');
@@ -471,13 +506,13 @@ for i = 1:3
     if i < 3
         ax.XTickLabel = [];
     end
-    force_panel_stack = [force_panel_true_wind(:, i); force_panel_pure(:, i)];
+    force_panel_stack = [force_panel_true_wind(:, i); force_panel_pure(:, i); force_panel_eta_t(:, i)];
     for gain_idx = 1:numel(k_ep_sweep_gains)
         force_panel_stack = [force_panel_stack; force_panel_k_ep_sweep(:, i, gain_idx)]; %#ok<AGROW>
     end
     apply_user_ylim(ax, force_panel_force_ylims, i, force_panel_stack);
 
-    ax = nexttile(tlf, 2 * i); ax_force_right(end+1) = ax; %#ok<SAGROW>
+    ax = nexttile(tlf, 3 * (i - 1) + 2); ax_force_right(end+1) = ax; %#ok<SAGROW>
     hold(ax, 'on');
     yline(ax, 0.0, ':', 'Color', [0.65 0.65 0.65], 'LineWidth', 0.8, 'HandleVisibility', 'off');
     h_residual_kep = gobjects(1, numel(k_ep_sweep_gains));
@@ -489,8 +524,10 @@ for i = 1:3
     end
     h_residual_pure = plot(ax, force_panel_time, force_panel_residual_pure(:, i), force_panel_pure_style, ...
         'LineWidth', force_panel_pure_width, 'Color', force_panel_pure_color);
+    h_residual_eta = plot(ax, force_panel_time, force_panel_residual_eta_t(:, i), force_panel_eta_t_style, ...
+        'LineWidth', force_panel_eta_t_width, 'Color', force_panel_eta_t_color);
     if i == 1
-        force_panel_right_handles = [h_residual_pure, h_residual_kep];
+        force_panel_right_handles = [h_residual_pure, h_residual_kep, h_residual_eta];
     end
     grid(ax, 'on');
     ylabel(ax, force_panel_torque_labels{i}, 'Interpreter', 'none');
@@ -498,64 +535,33 @@ for i = 1:3
     if i < 3
         ax.XTickLabel = [];
     end
-    force_panel_residual_stack = force_panel_residual_pure(:, i);
+    force_panel_residual_stack = [force_panel_residual_pure(:, i); force_panel_residual_eta_t(:, i)];
     for gain_idx = 1:numel(k_ep_sweep_gains)
         force_panel_residual_stack = [force_panel_residual_stack; force_panel_residual_k_ep_sweep(:, i, gain_idx)]; %#ok<AGROW>
     end
     apply_user_ylim(ax, force_panel_residual_ylims, i, force_panel_residual_stack);
 end
-apply_panel_xlim([ax_force_left ax_force_right], force_panel_display_xlim, 'force_xyz_panel');
+apply_panel_xlim([ax_force_left ax_force_right ax_force_eta], force_panel_display_xlim, 'force_xyz_panel');
 xlabel(tlf, 'time [s]');
 legend_labels = {'actual', 'pure'};
 for gain_idx = 1:numel(k_ep_sweep_gains)
     legend_labels{end+1} = sprintf('k\\_ep %d', k_ep_sweep_gains(gain_idx)); %#ok<SAGROW>
 end
+legend_labels{end+1} = 'eta\_T';
 lgd_force_left = legend(ax_force_left(1), force_panel_left_handles, legend_labels, 'Location', 'northeastoutside');
 lgd_force_right = legend(ax_force_right(1), force_panel_right_handles, legend_labels(2:end), 'Location', 'northeastoutside');
+lgd_force_eta = legend(ax_force_eta, {'true', 'estimated'}, 'Location', 'northeastoutside');
 drawnow;
 lgd_force_left.Units = 'normalized';
 lgd_force_right.Units = 'normalized';
-lgd_force_left.Position(1) = 0.30;
+lgd_force_eta.Units = 'normalized';
+lgd_force_left.Position(1) = 0.20;
 lgd_force_left.Position(2) = 0.945;
-lgd_force_right.Position(1) = 0.79;
+lgd_force_right.Position(1) = 0.52;
 lgd_force_right.Position(2) = 0.945;
+lgd_force_eta.Position(1) = 0.84;
+lgd_force_eta.Position(2) = 0.945;
 set(findall(f_force, '-property', 'FontName'), 'FontName', 'Times New Roman');
-
-force_panel_angle_mask = isfinite(time) & ...
-    (time >= force_panel_angle_xlim(1)) & (time <= force_panel_angle_xlim(2));
-force_panel_angle_time = time(force_panel_angle_mask) - force_panel_angle_xlim(1);
-force_panel_angle_error_pure_window = force_panel_angle_error_pure(force_panel_angle_mask);
-force_panel_angle_error_k_ep_window = force_panel_angle_error_k_ep_sweep(force_panel_angle_mask, :);
-
-force_panel_angle_figure = figure('Name', 'Force Direction Angle Error', 'NumberTitle', 'off', ...
-    'Color', 'w', 'Units', 'pixels', 'Position', [1610 80 520 400]);
-ax_force_angle = axes(force_panel_angle_figure);
-ax_force_angle.Units = 'normalized';
-ax_force_angle.Position = [0.12 0.12 0.78 0.56];
-hold(ax_force_angle, 'on');
-plot(ax_force_angle, force_panel_angle_time, zeros(size(force_panel_angle_time)), '-', ...
-    'LineWidth', 2.1, 'Color', force_panel_true_color);
-plot(ax_force_angle, force_panel_angle_time, force_panel_angle_error_pure_window, force_panel_pure_style, ...
-    'LineWidth', force_panel_pure_width, 'Color', force_panel_pure_color);
-for gain_idx = 1:numel(k_ep_sweep_gains)
-    plot(ax_force_angle, force_panel_angle_time, force_panel_angle_error_k_ep_window(:, gain_idx), ...
-        force_panel_k_ep_styles{gain_idx}, ...
-        'LineWidth', force_panel_k_ep_widths(gain_idx), ...
-        'Color', force_panel_k_ep_colors(gain_idx, :));
-end
-grid(ax_force_angle, 'on');
-ylabel(ax_force_angle, 'angle error [deg]');
-xlabel(ax_force_angle, 'time [s]');
-title(ax_force_angle, 'Force Direction Angle Error vs Actual');
-apply_user_ylim(ax_force_angle, force_panel_angle_error_ylims, 1, ...
-    [zeros(size(force_panel_angle_time)); force_panel_angle_error_pure_window; reshape(force_panel_angle_error_k_ep_window, [], 1)]);
-apply_panel_xlim(ax_force_angle, [0, force_panel_angle_xlim(2) - force_panel_angle_xlim(1)], 'force_direction_angle_error');
-lgd_force_angle = legend(ax_force_angle, legend_labels, 'Location', 'northeastoutside');
-drawnow;
-lgd_force_angle.Units = 'normalized';
-lgd_force_angle.Position(1) = 0.61;
-lgd_force_angle.Position(2) = 0.93;
-set(findall(force_panel_angle_figure, '-property', 'FontName'), 'FontName', 'Times New Roman');
 end
 
 
@@ -882,6 +888,38 @@ function out = get_first_matching_column(T, names, fallback)
                 out = candidate;
                 return;
             end
+        end
+    end
+end
+
+function eta_true = infer_true_thrust_effectiveness(csv_path, time, fallback_scalar)
+    eta_true = nan(size(time));
+    if isfinite(fallback_scalar)
+        eta_true(:) = fallback_scalar;
+    end
+
+    script_dir = fileparts(mfilename('fullpath'));
+    candidate_paths = { ...
+        fullfile(script_dir, '..', 'config', 'su_params.yaml'), ...
+        fullfile(fileparts(csv_path), '..', 'config', 'su_params.yaml')};
+
+    for i = 1:numel(candidate_paths)
+        yaml_path = candidate_paths{i};
+        if ~isfile(yaml_path)
+            continue;
+        end
+        yaml_text = fileread(yaml_path);
+        token = regexp( ...
+            yaml_text, ...
+            'thrust_effectiveness_mismatch_term:\s*([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)', ...
+            'tokens', 'once');
+        if isempty(token)
+            continue;
+        end
+        parsed_value = str2double(token{1});
+        if isfinite(parsed_value)
+            eta_true(:) = parsed_value;
+            return;
         end
     end
 end

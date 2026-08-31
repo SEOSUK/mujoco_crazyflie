@@ -243,6 +243,9 @@ public:
     sub_mob_wrench_2nd_tau_ = create_subscription<geometry_msgs::msg::WrenchStamped>(
       "/crazyflie/out/mob_2nd_tau", 10,
       std::bind(&DataLogger::cb_mob_wrench_2nd_tau, this, std::placeholders::_1));
+    sub_mob_wrench_eta_t_ = create_subscription<geometry_msgs::msg::WrenchStamped>(
+      "/crazyflie/out/mob_eta_t", 10,
+      std::bind(&DataLogger::cb_mob_wrench_eta_t, this, std::placeholders::_1));
     sub_mob_wrench_2nd_tau_i_ = create_subscription<geometry_msgs::msg::WrenchStamped>(
       "/crazyflie/out/mob_2nd_tau_i", 10,
       std::bind(&DataLogger::cb_mob_wrench_2nd_tau_i, this, std::placeholders::_1));
@@ -258,6 +261,12 @@ public:
     sub_mob_2nd_tau_consistency_ = create_subscription<geometry_msgs::msg::WrenchStamped>(
       "/crazyflie/out/mob_2nd_tau_consistency", 10,
       std::bind(&DataLogger::cb_mob_2nd_tau_consistency, this, std::placeholders::_1));
+    sub_eta_t_hat_ = create_subscription<std_msgs::msg::Float32>(
+      "/crazyflie/out/eta_t_hat", 10,
+      std::bind(&DataLogger::cb_eta_t_hat, this, std::placeholders::_1));
+    sub_thrust_effectiveness_true_ = create_subscription<std_msgs::msg::Float32>(
+      "/crazyflie/out/thrust_effectiveness_true", 10,
+      std::bind(&DataLogger::cb_thrust_effectiveness_true, this, std::placeholders::_1));
     for (size_t i = 0; i < k_ep_sweep_gains_.size(); ++i) {
       const std::string topic =
         "/crazyflie/out/mob_2nd_tau_ke_" + std::to_string(k_ep_sweep_gains_[i]);
@@ -349,7 +358,9 @@ private:
       "offline_normal_vel_eps0_nx,offline_normal_vel_eps0_ny,offline_normal_vel_eps0_nz,"
       "offline_normal_vel_eps_nx,offline_normal_vel_eps_ny,offline_normal_vel_eps_nz,"
       "offline_normal_vel_eps0_gamma_nx,offline_normal_vel_eps0_gamma_ny,offline_normal_vel_eps0_gamma_nz,"
-      "offline_contact_force_x\n";
+      "offline_contact_force_x,"
+      "mob_eta_t_Fx,mob_eta_t_Fy,mob_eta_t_Fz,mob_eta_t_Tx,mob_eta_t_Ty,mob_eta_t_Tz,"
+      "eta_t_hat,thrust_effectiveness_true\n";
     csv_.flush();
   }
 
@@ -594,6 +605,14 @@ private:
     have_mob_wrench_2nd_tau_ = true;
   }
 
+  void cb_mob_wrench_eta_t(const geometry_msgs::msg::WrenchStamped::SharedPtr m)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    mob_force_eta_t_ << m->wrench.force.x, m->wrench.force.y, m->wrench.force.z;
+    mob_torque_eta_t_ << m->wrench.torque.x, m->wrench.torque.y, m->wrench.torque.z;
+    have_mob_wrench_eta_t_ = true;
+  }
+
   void cb_mob_wrench_2nd_tau_i(const geometry_msgs::msg::WrenchStamped::SharedPtr m)
   {
     std::lock_guard<std::mutex> lk(mtx_);
@@ -654,6 +673,20 @@ private:
     have_wind_ = true;
   }
 
+  void cb_eta_t_hat(const std_msgs::msg::Float32::SharedPtr m)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    eta_t_hat_ = static_cast<double>(m->data);
+    have_eta_t_hat_ = true;
+  }
+
+  void cb_thrust_effectiveness_true(const std_msgs::msg::Float32::SharedPtr m)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    thrust_effectiveness_true_ = static_cast<double>(m->data);
+    have_thrust_effectiveness_true_ = true;
+  }
+
 
 
 
@@ -664,6 +697,7 @@ private:
     Eigen::Vector3d cmd_pos, pos, vel, w, acc, angacc, vdes, wdes, tau, contact_F_raw, contact_F_filt;
     Eigen::Vector3d mob_force_2nd_order, mob_torque_2nd_order;
     Eigen::Vector3d mob_force_2nd_tau, mob_torque_2nd_tau;
+    Eigen::Vector3d mob_force_eta_t, mob_torque_eta_t;
     Eigen::Vector3d mob_force_2nd_tau_i, mob_torque_2nd_tau_i;
     Eigen::Vector3d mob_force_kalman, mob_torque_kalman;
     Eigen::Vector3d mob_force_adaptive, mob_torque_adaptive;
@@ -684,6 +718,7 @@ private:
     double cmd_yaw, roll, pitch, yaw;
     double rolld, pitchd, yawd;
     double Fz, cmd_force, F_error_dot_raw, F_error_dot_filt, c_hat_fx_act;
+    double eta_t_hat, thrust_effectiveness_true;
     double alpha_frame, omega_n, normal_leakage, alpha_u1, alpha_u2, preload_feedback, c_tau, pattern_progress, pattern_speed_cmd;
 
 
@@ -717,6 +752,8 @@ private:
       mob_torque_2nd_order = mob_torque_2nd_order_;
       mob_force_2nd_tau = mob_force_2nd_tau_;
       mob_torque_2nd_tau = mob_torque_2nd_tau_;
+      mob_force_eta_t = mob_force_eta_t_;
+      mob_torque_eta_t = mob_torque_eta_t_;
       mob_force_2nd_tau_i = mob_force_2nd_tau_i_;
       mob_torque_2nd_tau_i = mob_torque_2nd_tau_i_;
       mob_force_kalman = mob_force_kalman_;
@@ -742,6 +779,8 @@ private:
       n_ke_gamma_proj = n_ke_gamma_proj_;
       normal_pure = normal_pure_;
       normal_ke = normal_ke_;
+      eta_t_hat = eta_t_hat_;
+      thrust_effectiveness_true = thrust_effectiveness_true_;
       alpha_frame = alpha_frame_;
       omega_n = omega_n_;
       normal_leakage = normal_leakage_;
@@ -785,6 +824,7 @@ private:
       mask |= (have_control_metrics_ ? (1u<<25) : 0u);
       mask |= (have_normal_quat_pure_ ? (1u<<26) : 0u);
       mask |= (have_normal_quat_ke_ ? (1u<<27) : 0u);
+      mask |= (have_mob_wrench_eta_t_ ? (1u<<31) : 0u);
 
     }
 
@@ -847,7 +887,7 @@ private:
     }
 
     std_msgs::msg::Float64MultiArray msg;
-    msg.data.resize(120);
+    msg.data.resize(128);
 
     msg.data[0]  = t;
 
@@ -986,6 +1026,14 @@ private:
     msg.data[117] = mob_force_adaptive.x();
     msg.data[118] = mob_force_adaptive.y();
     msg.data[119] = mob_force_adaptive.z();
+    msg.data[120] = mob_force_eta_t.x();
+    msg.data[121] = mob_force_eta_t.y();
+    msg.data[122] = mob_force_eta_t.z();
+    msg.data[123] = mob_torque_eta_t.x();
+    msg.data[124] = mob_torque_eta_t.y();
+    msg.data[125] = mob_torque_eta_t.z();
+    msg.data[126] = eta_t_hat;
+    msg.data[127] = thrust_effectiveness_true;
 
 
 
@@ -1062,7 +1110,10 @@ private:
            << n_vel_eps0_direct.x() << "," << n_vel_eps0_direct.y() << "," << n_vel_eps0_direct.z() << ","
            << n_vel_eps_direct.x() << "," << n_vel_eps_direct.y() << "," << n_vel_eps_direct.z() << ","
            << n_vel_eps0_gamma_direct.x() << "," << n_vel_eps0_gamma_direct.y() << "," << n_vel_eps0_gamma_direct.z() << ","
-           << c_hat_fx_act
+           << c_hat_fx_act << ","
+           << mob_force_eta_t.x() << "," << mob_force_eta_t.y() << "," << mob_force_eta_t.z() << ","
+           << mob_torque_eta_t.x() << "," << mob_torque_eta_t.y() << "," << mob_torque_eta_t.z() << ","
+           << eta_t_hat << "," << thrust_effectiveness_true
            << "\n";
 
       if (++csv_line_count_ % 200 == 0) {
@@ -1124,12 +1175,16 @@ private:
   Eigen::Vector3d mob_torque_2nd_order_{0,0,0};
   Eigen::Vector3d mob_force_2nd_tau_{0,0,0};
   Eigen::Vector3d mob_torque_2nd_tau_{0,0,0};
+  Eigen::Vector3d mob_force_eta_t_{0,0,0};
+  Eigen::Vector3d mob_torque_eta_t_{0,0,0};
   Eigen::Vector3d mob_force_2nd_tau_i_{0,0,0};
   Eigen::Vector3d mob_torque_2nd_tau_i_{0,0,0};
   Eigen::Vector3d mob_force_kalman_{0,0,0};
   Eigen::Vector3d mob_torque_kalman_{0,0,0};
   Eigen::Vector3d mob_force_adaptive_{0,0,0};
   Eigen::Vector3d mob_torque_adaptive_{0,0,0};
+  double eta_t_hat_{quiet_nan()};
+  double thrust_effectiveness_true_{quiet_nan()};
   const std::array<int, 5> k_ep_sweep_gains_{{100, 300, 500, 700, 900}};
   std::array<Eigen::Vector3d, 5> mob_force_k_ep_sweep_{{
     Eigen::Vector3d{0,0,0}, Eigen::Vector3d{0,0,0}, Eigen::Vector3d{0,0,0},
@@ -1167,6 +1222,7 @@ private:
   bool have_contact_filt_{false};
   bool have_mob_wrench_2nd_order_{false};
   bool have_mob_wrench_2nd_tau_{false};
+  bool have_mob_wrench_eta_t_{false};
   bool have_mob_wrench_2nd_tau_i_{false};
   bool have_mob_wrench_kalman_{false};
   bool have_mob_wrench_adaptive_{false};
@@ -1176,6 +1232,8 @@ private:
   bool have_wind_{false};
   bool have_normal_quat_pure_{false};
   bool have_normal_quat_ke_{false};
+  bool have_eta_t_hat_{false};
+  bool have_thrust_effectiveness_true_{false};
 
   double publish_hz_{400.0};
   double compare_velocity_epsilon_{0.01};
@@ -1208,6 +1266,7 @@ private:
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_control_metrics_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_wrench_2nd_order_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_wrench_2nd_tau_;
+  rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_wrench_eta_t_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_wrench_2nd_tau_i_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_wrench_kalman_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_wrench_adaptive_;
@@ -1216,6 +1275,8 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_2nd_tau_terms_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_2nd_tau_consistency_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_wind_;
+  rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_eta_t_hat_;
+  rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_thrust_effectiveness_true_;
 
 
   std::string csv_dir_;

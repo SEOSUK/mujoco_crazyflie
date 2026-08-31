@@ -34,6 +34,8 @@ public:
       "su/use_vel_mode", 10);
     force_pub_ = this->create_publisher<std_msgs::msg::Float32>(
       "su/cmd_force", 10);
+    wall_pitch_step_pub_ = this->create_publisher<std_msgs::msg::Float32>(
+      "/environment/wall_pitch_step", 10);
 
     pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
       "/crazyflie/out/pose", 10,
@@ -48,6 +50,7 @@ public:
     position_tick_ = declareVector3Parameter("position_tick", {0.1, 0.1, 0.1});
     velocity_tick_ = declareVector3Parameter("velocity_tick", {0.055, 0.055, 0.055});
     yaw_tick_deg_ = this->declare_parameter<double>("yaw_tick_deg", 2.0);
+    wall_pitch_tick_deg_ = this->declare_parameter<double>("wall_pitch_tick_deg", 2.0);
     force_delta_ = this->declare_parameter<double>("force_tick", 0.02);
     gravity_ = this->declare_parameter<double>("gravity", 9.81);
     calibration_window_sec_ = this->declare_parameter<double>("calibration_window_sec", 1.0);
@@ -176,13 +179,13 @@ private:
     } else if (key == 'u') {
       setPositionMode();
     } else if (key == 'm') {
-      trajectory_enabled_ = true;
-      status_msg_ = "trajectory running";
-      pushInputHistory("m : trajectory run");
+      publishWallPitchStepDeg(-wall_pitch_tick_deg_);
+      status_msg_ = "wall pitch -2 deg";
+      pushInputHistory("m : wall pitch -tick");
     } else if (key == 'n') {
-      trajectory_enabled_ = false;
-      status_msg_ = "trajectory stopped";
-      pushInputHistory("n : trajectory stop");
+      publishWallPitchStepDeg(+wall_pitch_tick_deg_);
+      status_msg_ = "wall pitch +2 deg";
+      pushInputHistory("n : wall pitch +tick");
     } else if (key == 'j') {
       force_des_ += force_delta_;
       publishForce();
@@ -303,6 +306,13 @@ private:
   double yawTickRad() const
   {
     return yaw_tick_deg_ * M_PI / 180.0;
+  }
+
+  void publishWallPitchStepDeg(double step_deg)
+  {
+    std_msgs::msg::Float32 msg;
+    msg.data = static_cast<float>(step_deg * M_PI / 180.0);
+    wall_pitch_step_pub_->publish(msg);
   }
 
   void beginHoverCalibration()
@@ -598,7 +608,7 @@ private:
     mvprintw(0, 0, "========================usage========================");
     mvprintw(2, 0, "position: w/s(x), a/d(y), e/q(z), z/c(yaw offset), x(hold), i->velocity");
     mvprintw(3, 0, "velocity: w/s/a/d/e/q(v), z/c(yaw rate), x(zero vel), u->position");
-    mvprintw(4, 0, "force/cal: j/k/l(cmd_fx), f(hover mass/com + yaml sync), t quit");
+    mvprintw(4, 0, "wall/force: n/m(wall pitch +/-2deg), j/k/l(cmd_fx), f(cal), t quit");
     mvprintw(6, 0, "========================status========================");
     mvprintw(16, 0, "========================command========================");
     refresh();
@@ -609,11 +619,11 @@ private:
     move(8, 0);
     clrtoeol();
     printw(
-      "mode: %s | traj: %s | pos_tick=(%.3f %.3f %.3f) | vel_tick=(%.3f %.3f %.3f)",
+      "mode: %s | pos_tick=(%.3f %.3f %.3f) | vel_tick=(%.3f %.3f %.3f) | wall_tick=%.1f deg",
       use_vel_mode_ ? "VELOCITY" : "POSITION",
-      trajectory_enabled_ ? "ON" : "OFF",
       position_tick_[0], position_tick_[1], position_tick_[2],
-      velocity_tick_[0], velocity_tick_[1], velocity_tick_[2]);
+      velocity_tick_[0], velocity_tick_[1], velocity_tick_[2],
+      wall_pitch_tick_deg_);
 
     move(9, 0);
     clrtoeol();
@@ -682,6 +692,7 @@ private:
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr pos_cmd_pub_;
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr use_vel_mode_pub_;
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr force_pub_;
+  rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr wall_pitch_step_pub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
   rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr input_sub_;
   rclcpp::TimerBase::SharedPtr timer_;
@@ -695,6 +706,7 @@ private:
   std::deque<std::string> input_history_;
 
   double yaw_tick_deg_{2.0};
+  double wall_pitch_tick_deg_{2.0};
   double force_delta_{0.035};
   double force_des_{0.0};
   double gravity_{9.81};

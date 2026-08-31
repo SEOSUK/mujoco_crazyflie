@@ -334,17 +334,8 @@ private:
     {
       return "/crazyflie/out/mob_2nd_tau";
     }
-    if (
-      source == "momentum_observer_2nd_order_consistency_integral" ||
-      source == "mob_2nd_tau_i" || source == "mob_tau_i" || source == "k_epi")
-    {
-      return "/crazyflie/out/mob_2nd_tau_i";
-    }
-    if (source == "kalman" || source == "mob_kalman") {
-      return "/crazyflie/out/mob_kalman";
-    }
-    if (source == "adaptive" || source == "mob_adaptive") {
-      return "/crazyflie/out/mob_adaptive";
+    if (source == "eta_t" || source == "eta_T" || source == "mob_eta_t") {
+      return "/crazyflie/out/mob_eta_t";
     }
 
     RCLCPP_WARN(

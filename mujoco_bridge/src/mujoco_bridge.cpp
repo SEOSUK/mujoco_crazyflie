@@ -10,6 +10,7 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/vector3_stamped.hpp>
 #include <geometry_msgs/msg/wrench_stamped.hpp>
+#include <std_msgs/msg/float32.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
 
 #include <array>
@@ -36,6 +37,7 @@ namespace
 constexpr double PHYSICS_HZ = 1000.0;
 constexpr double PUB_HZ = 400.0;
 constexpr double VIEWER_HZ = 60.0;
+constexpr double WALL_PITCH_STEP_RAD = 2.0 * M_PI / 180.0;
 
 inline std::array<double, 4> quat_normalize_wxyz(const std::array<double, 4>& q)
 {
@@ -298,6 +300,7 @@ private:
     declare_parameter("thrust_min", 0.0);
     declare_parameter("thrust_max", 0.20);
     declare_parameter("thrust_effectiveness_mismatch_term", 1.0);
+    declare_parameter("thrust_effectiveness_eta_time_coeffs", std::vector<double>{});
 
     declare_parameter("noise.enable", false);
     declare_parameter("noise.seed", 0);
@@ -372,6 +375,20 @@ private:
     thrust_max_ = get_parameter("thrust_max").as_double();
     thrust_effectiveness_mismatch_term_ =
       get_parameter("thrust_effectiveness_mismatch_term").as_double();
+    {
+      const auto coeffs = get_parameter("thrust_effectiveness_eta_time_coeffs").as_double_array();
+      if (coeffs.empty()) {
+        use_time_varying_thrust_effectiveness_ = false;
+      } else {
+        if (coeffs.size() != 2) {
+          throw std::runtime_error(
+                  "thrust_effectiveness_eta_time_coeffs must be empty or length 2: [a, b]");
+        }
+        thrust_effectiveness_eta_time_coeffs_[0] = static_cast<double>(coeffs[0]);
+        thrust_effectiveness_eta_time_coeffs_[1] = static_cast<double>(coeffs[1]);
+        use_time_varying_thrust_effectiveness_ = true;
+      }
+    }
 
     {
       const auto v = get_parameter("motor_dir").as_double_array();
@@ -527,6 +544,15 @@ private:
         get_logger(), "Body 'ee_tip' not found. Falling back to drone body for wind disturbance.");
     }
 
+    bid_wall_ = mj_name2id(model_, mjOBJ_BODY, "wall");
+    if (bid_wall_ < 0) {
+      RCLCPP_WARN(
+        get_logger(), "Body 'wall' not found. Wall pose publication and keyboard rotation disabled.");
+    } else {
+      update_wall_pose_locked();
+      mj_forward(model_, data_);
+    }
+
     imu_acc_sid_ = sensor_id("imu_acc");
     imu_gyro_sid_ = sensor_id("imu_gyro");
 
@@ -609,6 +635,9 @@ private:
     sub_wind_ = create_subscription<geometry_msgs::msg::Vector3Stamped>(
       "/crazyflie/in/wind", 10,
       std::bind(&MujocoBridge::wind_callback, this, std::placeholders::_1));
+    sub_wall_pitch_step_ = create_subscription<std_msgs::msg::Float32>(
+      "/environment/wall_pitch_step", 10,
+      std::bind(&MujocoBridge::wall_pitch_step_callback, this, std::placeholders::_1));
 
     pub_pose_ = create_publisher<geometry_msgs::msg::PoseStamped>("/crazyflie/out/pose", 10);
     pub_vel_ = create_publisher<geometry_msgs::msg::Vector3Stamped>("/crazyflie/out/vel", 10);
@@ -617,8 +646,47 @@ private:
     pub_angacc_ = create_publisher<geometry_msgs::msg::Vector3Stamped>("/crazyflie/out/ang_acc", 10);
     pub_angvel_gt_ = create_publisher<geometry_msgs::msg::Vector3Stamped>("/crazyflie/out/ang_vel_gt", 10);
     pub_motor_thrust_ = create_publisher<std_msgs::msg::Float32MultiArray>("/crazyflie/out/motor_thrust", 10);
+    pub_thrust_effectiveness_true_ = create_publisher<std_msgs::msg::Float32>(
+      "/crazyflie/out/thrust_effectiveness_true", 10);
     pub_contact_force_ = create_publisher<geometry_msgs::msg::WrenchStamped>("/crazyflie/out/EE_contact_force", 10);
     pub_contact_force_filt_ = create_publisher<geometry_msgs::msg::WrenchStamped>("/crazyflie/out/EE_contact_force_filt", 10);
+    pub_wall_pose_ = create_publisher<geometry_msgs::msg::PoseStamped>("/environment/wall_pose", 10);
+  }
+
+  void update_wall_pose_locked()
+  {
+    if (bid_wall_ < 0) {
+      return;
+    }
+
+    const std::array<double, 4> wall_quat = rotvec_to_quat_wxyz({0.0, wall_pitch_rad_, 0.0});
+    const int qadr = 4 * bid_wall_;
+    model_->body_quat[qadr + 0] = static_cast<mjtNum>(wall_quat[0]);
+    model_->body_quat[qadr + 1] = static_cast<mjtNum>(wall_quat[1]);
+    model_->body_quat[qadr + 2] = static_cast<mjtNum>(wall_quat[2]);
+    model_->body_quat[qadr + 3] = static_cast<mjtNum>(wall_quat[3]);
+  }
+
+  bool read_wall_pose_locked(
+    std::array<double, 3> & pos_w,
+    std::array<double, 4> & quat_wxyz) const
+  {
+    if (bid_wall_ < 0) {
+      return false;
+    }
+
+    const int padr = 3 * bid_wall_;
+    const int qadr = 4 * bid_wall_;
+    pos_w = {
+      static_cast<double>(data_->xpos[padr + 0]),
+      static_cast<double>(data_->xpos[padr + 1]),
+      static_cast<double>(data_->xpos[padr + 2])};
+    quat_wxyz = quat_normalize_wxyz({
+      static_cast<double>(data_->xquat[qadr + 0]),
+      static_cast<double>(data_->xquat[qadr + 1]),
+      static_cast<double>(data_->xquat[qadr + 2]),
+      static_cast<double>(data_->xquat[qadr + 3])});
+    return true;
   }
 
   void input_callback(const std_msgs::msg::Float32MultiArray::SharedPtr msg)
@@ -643,6 +711,22 @@ private:
     std::lock_guard<std::mutex> lock(wind_mtx_);
     wind_force_ = {msg->vector.x, msg->vector.y, msg->vector.z};
     wind_topic_received_ = true;
+  }
+
+  void wall_pitch_step_callback(const std_msgs::msg::Float32::SharedPtr msg)
+  {
+    if (!msg) {
+      return;
+    }
+
+    std::lock_guard<std::mutex> lock(scene_mtx_);
+    if (bid_wall_ < 0) {
+      return;
+    }
+
+    wall_pitch_rad_ = wrap_to_pi(wall_pitch_rad_ + static_cast<double>(msg->data));
+    update_wall_pose_locked();
+    mj_forward(model_, data_);
   }
 
   std::array<double, 4> apply_actuator_dynamics(const std::array<double, 4>& f_cmd)
@@ -687,14 +771,28 @@ private:
     }
 
     const auto f_applied = apply_actuator_dynamics(f_cmd);
+    const double eta_t_true = current_thrust_effectiveness_locked();
 
     for (int i = 0; i < 4; ++i) {
       const double effective_thrust =
-        thrust_effectiveness_mismatch_term_ * f_applied[i];
+        eta_t_true * f_applied[i];
       const double u = std::clamp(effective_thrust, thrust_min_, thrust_max_);
       last_motor_thrust_[i] = u;
       data_->ctrl[actuator_ids_[i]] = static_cast<mjtNum>(u);
     }
+  }
+
+  double current_thrust_effectiveness_locked() const
+  {
+    if (!use_time_varying_thrust_effectiveness_) {
+      return std::max(1.0e-6, thrust_effectiveness_mismatch_term_);
+    }
+
+    const double sim_time = data_ ? static_cast<double>(data_->time) : 0.0;
+    const double eta_t =
+      thrust_effectiveness_eta_time_coeffs_[0] * sim_time +
+      thrust_effectiveness_eta_time_coeffs_[1];
+    return std::max(1.0e-6, eta_t);
   }
 
   void apply_wind_disturbance_locked()
@@ -902,6 +1000,9 @@ private:
   {
     std::array<double, 3> pos_w{}, linvel_w{}, angvel_b_gt{};
     std::array<double, 4> quat_wxyz{};
+    std::array<double, 3> wall_pos_w{};
+    std::array<double, 4> wall_quat_wxyz{};
+    bool have_wall_pose{false};
 
     std::array<double, 3> linacc_w{}, gyro_b{};
     {
@@ -911,6 +1012,7 @@ private:
       quat_wxyz = quat_normalize_wxyz(quat_wxyz);
       linacc_w = read_imu_acc_world_locked(quat_wxyz);
       gyro_b = read_imu_gyro_body_locked();
+      have_wall_pose = read_wall_pose_locked(wall_pos_w, wall_quat_wxyz);
     }
 
     update_noise();
@@ -1058,6 +1160,30 @@ private:
     }
     pub_motor_thrust_->publish(motor_msg);
 
+    double thrust_effectiveness_true = thrust_effectiveness_mismatch_term_;
+    {
+      std::lock_guard<std::mutex> lock(scene_mtx_);
+      thrust_effectiveness_true = current_thrust_effectiveness_locked();
+    }
+    std_msgs::msg::Float32 thrust_effectiveness_msg;
+    thrust_effectiveness_msg.data = static_cast<float>(thrust_effectiveness_true);
+    pub_thrust_effectiveness_true_->publish(thrust_effectiveness_msg);
+
+    if (have_wall_pose) {
+      geometry_msgs::msg::PoseStamped wall_pose_msg;
+      wall_pose_msg.header.stamp = stamp;
+      wall_pose_msg.header.frame_id = "world";
+      wall_pose_msg.pose.position.x = wall_pos_w[0];
+      wall_pose_msg.pose.position.y = wall_pos_w[1];
+      wall_pose_msg.pose.position.z = wall_pos_w[2];
+      const auto wall_q_xyzw = quat_wxyz_to_xyzw(wall_quat_wxyz);
+      wall_pose_msg.pose.orientation.x = wall_q_xyzw[0];
+      wall_pose_msg.pose.orientation.y = wall_q_xyzw[1];
+      wall_pose_msg.pose.orientation.z = wall_q_xyzw[2];
+      wall_pose_msg.pose.orientation.w = wall_q_xyzw[3];
+      pub_wall_pose_->publish(wall_pose_msg);
+    }
+
     contact_manager_->update_raw_and_publish(get_clock()->now());
   }
 
@@ -1156,6 +1282,21 @@ private:
     if (act == GLFW_PRESS && key == GLFW_KEY_BACKSPACE) {
       std::lock_guard<std::mutex> lock(self->scene_mtx_);
       mj_resetData(self->model_, self->data_);
+      self->update_wall_pose_locked();
+      mj_forward(self->model_, self->data_);
+      return;
+    }
+
+    if ((act == GLFW_PRESS || act == GLFW_REPEAT) &&
+      (key == GLFW_KEY_N || key == GLFW_KEY_M))
+    {
+      std::lock_guard<std::mutex> lock(self->scene_mtx_);
+      if (self->bid_wall_ < 0) {
+        return;
+      }
+      self->wall_pitch_rad_ += (key == GLFW_KEY_N ? WALL_PITCH_STEP_RAD : -WALL_PITCH_STEP_RAD);
+      self->wall_pitch_rad_ = wrap_to_pi(self->wall_pitch_rad_);
+      self->update_wall_pose_locked();
       mj_forward(self->model_, self->data_);
     }
   }
@@ -1314,6 +1455,7 @@ private:
   int bid_drone_{-1};
   int bid_ee_tip_{-1};
   int bid_wind_indicator_tip_{-1};
+  int bid_wall_{-1};
   int jid_drone_{-1};
   int qpos_adr_drone_{-1};
   int qvel_adr_drone_{-1};
@@ -1336,6 +1478,8 @@ private:
   double thrust_min_{0.0};
   double thrust_max_{0.20};
   double thrust_effectiveness_mismatch_term_{1.0};
+  std::array<double, 2> thrust_effectiveness_eta_time_coeffs_{{0.0, 1.0}};
+  bool use_time_varying_thrust_effectiveness_{false};
 
   double B_[4][4]{};
   double B_inv_[4][4]{};
@@ -1394,6 +1538,7 @@ private:
   int viewer_window_y_{40};
   int viewer_window_width_{1000};
   int viewer_window_height_{820};
+  double wall_pitch_rad_{0.0};
 
   std::array<int, 4> prop_body_ids_{{-1, -1, -1, -1}};
   std::array<std::array<double, 4>, 4> prop_base_quat_{{
@@ -1440,6 +1585,7 @@ private:
 
   rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr sub_input_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_wind_;
+  rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_wall_pitch_step_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pub_pose_;
   rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr pub_vel_;
   rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr pub_angvel_;
@@ -1447,8 +1593,10 @@ private:
   rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr pub_angacc_;
   rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr pub_angvel_gt_;
   rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr pub_motor_thrust_;
+  rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr pub_thrust_effectiveness_true_;
   rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_contact_force_;
   rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_contact_force_filt_;
+  rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pub_wall_pose_;
 
   std::unique_ptr<MujocoContact> contact_manager_;
 

@@ -1,7 +1,9 @@
 /**:
   ros__parameters:
-    environment.type: "surface_chain" # "surface_chain", "wall", or "cylinder"
+    environment.type: "wall" # "surface_chain", "wall", or "cylinder"
     environment.marker_topic: "/rviz/environment"
+    wall.pose_topic: "/environment/wall_pose"
+    wall.frame: "wall"
     wind_indicator.enable: true
     wind_indicator.wind_topic: "/crazyflie/in/wind"
     wind_indicator.marker_topic: "/rviz/wind_indicator"
@@ -19,12 +21,12 @@
     cylinder.pos.z: 0.0
     cylinder.radius: 1.0
     cylinder.half_height: 10.0
-    wall.pos.x: 0.2
+    wall.pos.x: 0.5
     wall.pos.y: 0.0
-    wall.pos.z: 0.0
-    wall.size.x: 0.1
-    wall.size.y: 2.5
-    wall.size.z: 2.5
+    wall.pos.z: 1.0
+    wall.size.x: 0.005
+    wall.size.y: 0.5
+    wall.size.z: 0.5
     surface_chain.pos.x: 1.0
     surface_chain.pos.y: 0.0
     surface_chain.base_z: 0.0

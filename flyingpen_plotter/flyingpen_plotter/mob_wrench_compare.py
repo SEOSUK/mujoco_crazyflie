@@ -68,9 +68,7 @@ class ROSDataBuffer(Node):
         self.declare_parameter("cmd_force_topic", "su/cmd_force")
         self.declare_parameter("pure_topic", "/crazyflie/out/mob_2nd")
         self.declare_parameter("k_ep_topic", "/crazyflie/out/mob_2nd_tau")
-        self.declare_parameter("k_epi_topic", "/crazyflie/out/mob_2nd_tau_i")
-        self.declare_parameter("kalman_topic", "/crazyflie/out/mob_kalman")
-        self.declare_parameter("adaptive_topic", "/crazyflie/out/mob_adaptive")
+        self.declare_parameter("eta_t_topic", "/crazyflie/out/mob_eta_t")
         self.declare_parameter("ee_force_topic", "/crazyflie/out/EE_contact_force")
 
         self.history_sec = float(self.get_parameter("history_sec").value)
@@ -83,7 +81,7 @@ class ROSDataBuffer(Node):
         self.maxlen = max(120, int(self.buffer_sec * self.update_hz) + 20)
 
         self.data: Dict[str, deque] = {"t": deque(maxlen=self.maxlen)}
-        for prefix in ("pure", "k_ep", "k_epi", "kalman", "adaptive", "u_neg", "ee"):
+        for prefix in ("pure", "k_ep", "eta_t", "u_neg", "ee"):
             for axis in AXES:
                 self.data[f"{prefix}_{axis}"] = deque(maxlen=self.maxlen)
         self.data["desired_x"] = deque(maxlen=self.maxlen)
@@ -94,9 +92,7 @@ class ROSDataBuffer(Node):
         self.cmd_force_desired = math.nan
         self.pure_force = nan_vec()
         self.k_ep_force = nan_vec()
-        self.k_epi_force = nan_vec()
-        self.kalman_force = nan_vec()
-        self.adaptive_force = nan_vec()
+        self.eta_t_force = nan_vec()
         self.ee_force = nan_vec()
 
         self.create_subscription(
@@ -131,20 +127,8 @@ class ROSDataBuffer(Node):
         )
         self.create_subscription(
             WrenchStamped,
-            str(self.get_parameter("k_epi_topic").value),
-            self.cb_k_epi,
-            10,
-        )
-        self.create_subscription(
-            WrenchStamped,
-            str(self.get_parameter("kalman_topic").value),
-            self.cb_kalman,
-            10,
-        )
-        self.create_subscription(
-            WrenchStamped,
-            str(self.get_parameter("adaptive_topic").value),
-            self.cb_adaptive,
+            str(self.get_parameter("eta_t_topic").value),
+            self.cb_eta_t,
             10,
         )
         self.create_subscription(
@@ -181,17 +165,9 @@ class ROSDataBuffer(Node):
         with self.lock:
             self.k_ep_force = wrench_force(msg)
 
-    def cb_k_epi(self, msg: WrenchStamped) -> None:
+    def cb_eta_t(self, msg: WrenchStamped) -> None:
         with self.lock:
-            self.k_epi_force = wrench_force(msg)
-
-    def cb_kalman(self, msg: WrenchStamped) -> None:
-        with self.lock:
-            self.kalman_force = wrench_force(msg)
-
-    def cb_adaptive(self, msg: WrenchStamped) -> None:
-        with self.lock:
-            self.adaptive_force = wrench_force(msg)
+            self.eta_t_force = wrench_force(msg)
 
     def cb_ee_force(self, msg: WrenchStamped) -> None:
         with self.lock:
@@ -206,9 +182,7 @@ class ROSDataBuffer(Node):
             desired_x = float(self.cmd_force_desired)
             pure_force = -self.pure_force.copy()
             k_ep_force = -self.k_ep_force.copy()
-            k_epi_force = -self.k_epi_force.copy()
-            kalman_force = -self.kalman_force.copy()
-            adaptive_force = -self.adaptive_force.copy()
+            eta_t_force = -self.eta_t_force.copy()
             ee_force = self.ee_force.copy()
 
             if np.all(np.isfinite(input_tau_fz)):
@@ -220,9 +194,7 @@ class ROSDataBuffer(Node):
             snapshot = {
                 "pure": pure_force,
                 "k_ep": k_ep_force,
-                "k_epi": k_epi_force,
-                "kalman": kalman_force,
-                "adaptive": adaptive_force,
+                "eta_t": eta_t_force,
                 "u_neg": u_input,
                 "ee": ee_force,
             }
@@ -270,9 +242,7 @@ class PlotWindow(QMainWindow):
         colors = {
             "pure": pg.mkPen((40, 90, 220, 220), width=1.8),
             "k_ep": pg.mkPen((220, 40, 40, 210), width=2.0, style=Qt.DashLine),
-            "k_epi": pg.mkPen((140, 60, 220, 180), width=1.2),
-            "kalman": pg.mkPen((20, 145, 55, 220), width=1.8),
-            "adaptive": pg.mkPen((0, 150, 180, 220), width=1.6, style=Qt.DotLine),
+            "eta_t": pg.mkPen((120, 175, 220, 235), width=2.4),
             "u_neg": pg.mkPen((30, 30, 30, 180), width=1.5, style=Qt.DashLine),
             "ee": pg.mkPen((230, 140, 20, 220), width=2.0),
             "desired_x": pg.mkPen((20, 150, 90), width=3.0),
@@ -291,16 +261,7 @@ class PlotWindow(QMainWindow):
                 self.curves["desired_x"] = plot.plot(name="desired x force", pen=colors["desired_x"])
             self.curves[f"pure_{axis_name}"] = plot.plot(name="pure", pen=colors["pure"])
             self.curves[f"k_ep_{axis_name}"] = plot.plot(name="k_ep", pen=colors["k_ep"])
-            self.curves[f"k_epi_{axis_name}"] = plot.plot(
-                name="k_epi",
-                pen=colors["k_epi"],
-                symbol="o",
-                symbolSize=3,
-                symbolBrush=(140, 60, 220, 90),
-                symbolPen=pg.mkPen((140, 60, 220, 120), width=0.8),
-            )
-            self.curves[f"kalman_{axis_name}"] = plot.plot(name="kalman", pen=colors["kalman"])
-            self.curves[f"adaptive_{axis_name}"] = plot.plot(name="adaptive", pen=colors["adaptive"])
+            self.curves[f"eta_t_{axis_name}"] = plot.plot(name="eta_T", pen=colors["eta_t"])
             self.curves[f"u_neg_{axis_name}"] = plot.plot(name="control input", pen=colors["u_neg"])
             self.curves[f"ee_{axis_name}"] = plot.plot(name="ee_tip force", pen=colors["ee"])
             if axis_name == "x":
@@ -308,9 +269,7 @@ class PlotWindow(QMainWindow):
             self.curves[f"pure_{axis_name}"].setZValue(2)
             self.curves[f"u_neg_{axis_name}"].setZValue(3)
             self.curves[f"k_ep_{axis_name}"].setZValue(4)
-            self.curves[f"k_epi_{axis_name}"].setZValue(5)
-            self.curves[f"kalman_{axis_name}"].setZValue(6)
-            self.curves[f"adaptive_{axis_name}"].setZValue(7)
+            self.curves[f"eta_t_{axis_name}"].setZValue(5)
             self.curves[f"ee_{axis_name}"].setZValue(8)
             root.addWidget(plot, stretch=1)
 
@@ -379,7 +338,7 @@ class PlotWindow(QMainWindow):
             return
 
         for axis_name in AXES:
-            for prefix in ("pure", "k_ep", "k_epi", "kalman", "adaptive", "u_neg", "ee"):
+            for prefix in ("pure", "k_ep", "eta_t", "u_neg", "ee"):
                 key = f"{prefix}_{axis_name}"
                 self._set_curve_data(self.curves[key], t_win, arrays[key][mask])
         self._set_curve_data(self.curves["desired_x"], t_win, arrays["desired_x"][mask])
@@ -392,16 +351,13 @@ class PlotWindow(QMainWindow):
         self.info_label.setText(
             "Latest  "
             f"Fx: des={self._fmt(summary['desired_x'])}, pure={self._fmt(summary['pure_x'])}, "
-            f"k_ep={self._fmt(summary['k_ep_x'])}, k_epi={self._fmt(summary['k_epi_x'])}, "
-            f"kalman={self._fmt(summary['kalman_x'])}, adaptive={self._fmt(summary['adaptive_x'])}, "
+            f"k_ep={self._fmt(summary['k_ep_x'])}, eta_T={self._fmt(summary['eta_t_x'])}, "
             f"ee={self._fmt(summary['ee_x'])}, u={self._fmt(summary['u_neg_x'])}   "
             f"Fy: pure={self._fmt(summary['pure_y'])}, k_ep={self._fmt(summary['k_ep_y'])}, "
-            f"k_epi={self._fmt(summary['k_epi_y'])}, kalman={self._fmt(summary['kalman_y'])}, "
-            f"adaptive={self._fmt(summary['adaptive_y'])}, ee={self._fmt(summary['ee_y'])}, "
+            f"eta_T={self._fmt(summary['eta_t_y'])}, ee={self._fmt(summary['ee_y'])}, "
             f"u={self._fmt(summary['u_neg_y'])}   "
             f"Fz: pure={self._fmt(summary['pure_z'])}, k_ep={self._fmt(summary['k_ep_z'])}, "
-            f"k_epi={self._fmt(summary['k_epi_z'])}, kalman={self._fmt(summary['kalman_z'])}, "
-            f"adaptive={self._fmt(summary['adaptive_z'])}, ee={self._fmt(summary['ee_z'])}, "
+            f"eta_T={self._fmt(summary['eta_t_z'])}, ee={self._fmt(summary['ee_z'])}, "
             f"u={self._fmt(summary['u_neg_z'])}"
         )
 

@@ -44,7 +44,7 @@ public:
     d_B_ = Eigen::Vector3d(ee_off[0], ee_off[1], ee_off[2]);
 
     const double compute_hz = this->declare_parameter<double>("compute_hz", 200.0);
-    const double print_hz   = this->declare_parameter<double>("debug_print_hz", 10.0);
+    const double print_hz   = this->declare_parameter<double>("debug_print_hz", 0.0);
     ee_vel_lpf_cutoff_hz_ = this->declare_parameter<double>("ee_vel_lpf_cutoff_hz", 2.0);
 
     auto qos = rclcpp::SensorDataQoS();

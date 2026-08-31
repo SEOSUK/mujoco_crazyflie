@@ -20,6 +20,19 @@ def coerce_optional_float(value, field_name):
     raise ValueError(f"{field_name} must be numeric or null, got {type(value).__name__}.")
 
 
+def coerce_optional_vec2(value, field_name):
+    if value is None:
+        return None
+    if not isinstance(value, list) or len(value) != 2:
+        raise ValueError(f"{field_name} must be a length-2 list or null.")
+    result = []
+    for index, element in enumerate(value):
+        if not isinstance(element, (int, float)):
+            raise ValueError(f"{field_name}[{index}] must be numeric.")
+        result.append(float(element))
+    return result
+
+
 def coerce_vec3(value, field_name):
     if not isinstance(value, list) or len(value) != 3:
         raise ValueError(f"{field_name} must be a length-3 list.")
@@ -56,14 +69,24 @@ def build_control_physical_overrides(su_params_config):
         control_physical_params.get("thrust_effectiveness_mismatch_term", 0.0),
         "wrench_observer.ros__parameters.thrust_effectiveness_mismatch_term",
     )
+    thrust_effectiveness_eta_time_coeffs = coerce_optional_vec2(
+        control_physical_params.get("thrust_effectiveness_eta_time_coeffs"),
+        "wrench_observer.ros__parameters.thrust_effectiveness_eta_time_coeffs",
+    )
+
+    mujoco_bridge_overrides = {
+        "thrust_effectiveness_mismatch_term": thrust_effectiveness_mismatch_term,
+    }
+    if thrust_effectiveness_eta_time_coeffs is not None:
+        mujoco_bridge_overrides["thrust_effectiveness_eta_time_coeffs"] = (
+            thrust_effectiveness_eta_time_coeffs
+        )
 
     return {
         "low_level_controller": {
             "mass": mass,
         },
-        "mujoco_bridge": {
-            "thrust_effectiveness_mismatch_term": thrust_effectiveness_mismatch_term,
-        },
+        "mujoco_bridge": mujoco_bridge_overrides,
         "wrench_observer": {
             "mass": mass,
             "com_bias": com_bias,
@@ -87,49 +110,28 @@ def build_control_pipeline_observer_overrides(su_params_config):
         su_params_config.get("control_pipeline", {})
         .get("ros__parameters", {})
     )
-    raw_mode = str(control_params.get("wrench_observation_mode", "consistency")).strip().lower()
+    raw_mode = str(control_params.get("wrench_observation_mode", "eta_t")).strip().lower()
 
     mode_aliases = {
-        "pure": "pure",
-        "momentum_observer_2nd_order": "pure",
-        "mob_2nd": "pure",
         "k_ep": "k_ep",
         "consistency": "k_ep",
         "momentum_observer_2nd_order_consistency": "k_ep",
         "mob_2nd_tau": "k_ep",
-        "k_epi": "k_epi",
-        "momentum_observer_2nd_order_consistency_integral": "k_epi",
-        "mob_2nd_tau_i": "k_epi",
-        "kalman": "kalman",
-        "adaptive": "adaptive",
+        "eta_t": "eta_t",
+        "mob_eta_t": "eta_t",
     }
     canonical_mode = mode_aliases.get(raw_mode, raw_mode)
 
     observer_modes = {
-        "pure": {
-            "implemented": True,
-            "force_observation_source": "pure",
-            "ee_applied_wrench_topic": "/crazyflie/out/ee_applied_mob_2nd",
-        },
         "k_ep": {
             "implemented": True,
             "force_observation_source": "k_ep",
             "ee_applied_wrench_topic": "/crazyflie/out/ee_applied_mob_2nd_tau",
         },
-        "k_epi": {
+        "eta_t": {
             "implemented": True,
-            "force_observation_source": "k_epi",
-            "ee_applied_wrench_topic": "/crazyflie/out/ee_applied_mob_2nd_tau_i",
-        },
-        "kalman": {
-            "implemented": True,
-            "force_observation_source": "kalman",
-            "ee_applied_wrench_topic": "/crazyflie/out/ee_applied_mob_kalman",
-        },
-        "adaptive": {
-            "implemented": True,
-            "force_observation_source": "adaptive",
-            "ee_applied_wrench_topic": "/crazyflie/out/ee_applied_mob_adaptive",
+            "force_observation_source": "eta_t",
+            "ee_applied_wrench_topic": "/crazyflie/out/ee_applied_mob_eta_t",
         },
     }
 
@@ -152,17 +154,11 @@ def build_control_pipeline_observer_overrides(su_params_config):
         raise ValueError(
             "control_pipeline.wrench_observation_gains must be a mapping keyed by mode name."
         )
-    pure_gain_config = gain_config.get("pure", {}) or {}
     k_ep_gain_config = gain_config.get("k_ep", {}) or {}
-    k_epi_gain_config = gain_config.get("k_epi", {}) or {}
-    kalman_gain_config = gain_config.get("kalman", {}) or {}
-    adaptive_gain_config = gain_config.get("adaptive", {}) or {}
+    eta_t_gain_config = gain_config.get("eta_T", gain_config.get("eta_t", {})) or {}
     for mode_name, mode_gain_config in (
-        ("pure", pure_gain_config),
         ("k_ep", k_ep_gain_config),
-        ("k_epi", k_epi_gain_config),
-        ("kalman", kalman_gain_config),
-        ("adaptive", adaptive_gain_config),
+        ("eta_T", eta_t_gain_config),
     ):
         if not isinstance(mode_gain_config, dict):
             raise ValueError(
@@ -179,83 +175,19 @@ def build_control_pipeline_observer_overrides(su_params_config):
         wrench_observer_overrides["mob.Ke"] = k_ep_ke_gain
         wrench_observer_overrides["mob.Ke_ep"] = k_ep_ke_gain
 
-    k_epi_ke_gain = coerce_optional_float(
-        k_epi_gain_config.get("ke"),
-        "control_pipeline.wrench_observation_gains.k_epi.ke",
+    eta_t_gamma = coerce_optional_float(
+        eta_t_gain_config.get("gamma"),
+        "control_pipeline.wrench_observation_gains.eta_T.gamma",
     )
-    if k_epi_ke_gain is not None:
-        wrench_observer_overrides["mob.Ke_epi"] = k_epi_ke_gain
+    if eta_t_gamma is not None:
+        wrench_observer_overrides["mob.eta_t.gamma"] = eta_t_gamma
 
-    k_epi_kei_gain = coerce_optional_float(
-        k_epi_gain_config.get("kei"),
-        "control_pipeline.wrench_observation_gains.k_epi.kei",
+    eta_t_rho_eta = coerce_optional_float(
+        eta_t_gain_config.get("rho_eta"),
+        "control_pipeline.wrench_observation_gains.eta_T.rho_eta",
     )
-    if k_epi_kei_gain is not None:
-        wrench_observer_overrides["mob.KeI"] = k_epi_kei_gain
-        wrench_observer_overrides["mob.KeI_epi"] = k_epi_kei_gain
-
-    kalman_sigma_force_perp = coerce_optional_float(
-        kalman_gain_config.get("sigma_force_perp"),
-        "control_pipeline.wrench_observation_gains.kalman.sigma_force_perp",
-    )
-    if kalman_sigma_force_perp is not None:
-        wrench_observer_overrides["mob.kalman.sigma_force_perp"] = kalman_sigma_force_perp
-
-    kalman_sigma_force_thrust = coerce_optional_float(
-        kalman_gain_config.get("sigma_force_thrust"),
-        "control_pipeline.wrench_observation_gains.kalman.sigma_force_thrust",
-    )
-    if kalman_sigma_force_thrust is not None:
-        wrench_observer_overrides["mob.kalman.sigma_force_thrust"] = kalman_sigma_force_thrust
-
-    kalman_sigma_torque = coerce_optional_float(
-        kalman_gain_config.get("sigma_torque"),
-        "control_pipeline.wrench_observation_gains.kalman.sigma_torque",
-    )
-    if kalman_sigma_torque is not None:
-        wrench_observer_overrides["mob.kalman.sigma_torque"] = kalman_sigma_torque
-
-    adaptive_gamma = coerce_optional_float(
-        adaptive_gain_config.get("gamma"),
-        "control_pipeline.wrench_observation_gains.adaptive.gamma",
-    )
-    if adaptive_gamma is not None:
-        wrench_observer_overrides["mob.adaptive.gamma"] = adaptive_gamma
-
-    adaptive_lambda_b = coerce_optional_float(
-        adaptive_gain_config.get("lambda_b"),
-        "control_pipeline.wrench_observation_gains.adaptive.lambda_b",
-    )
-    if adaptive_lambda_b is not None:
-        wrench_observer_overrides["mob.adaptive.lambda_b"] = adaptive_lambda_b
-
-    adaptive_bias_limit = coerce_optional_float(
-        adaptive_gain_config.get("bias_limit"),
-        "control_pipeline.wrench_observation_gains.adaptive.bias_limit",
-    )
-    if adaptive_bias_limit is not None:
-        wrench_observer_overrides["mob.adaptive.bias_limit"] = adaptive_bias_limit
-
-    adaptive_sigma_force_perp = coerce_optional_float(
-        adaptive_gain_config.get("sigma_force_perp"),
-        "control_pipeline.wrench_observation_gains.adaptive.sigma_force_perp",
-    )
-    if adaptive_sigma_force_perp is not None:
-        wrench_observer_overrides["mob.adaptive.sigma_force_perp"] = adaptive_sigma_force_perp
-
-    adaptive_sigma_force_thrust = coerce_optional_float(
-        adaptive_gain_config.get("sigma_force_thrust"),
-        "control_pipeline.wrench_observation_gains.adaptive.sigma_force_thrust",
-    )
-    if adaptive_sigma_force_thrust is not None:
-        wrench_observer_overrides["mob.adaptive.sigma_force_thrust"] = adaptive_sigma_force_thrust
-
-    adaptive_sigma_torque = coerce_optional_float(
-        adaptive_gain_config.get("sigma_torque"),
-        "control_pipeline.wrench_observation_gains.adaptive.sigma_torque",
-    )
-    if adaptive_sigma_torque is not None:
-        wrench_observer_overrides["mob.adaptive.sigma_torque"] = adaptive_sigma_torque
+    if eta_t_rho_eta is not None:
+        wrench_observer_overrides["mob.eta_t.rho_eta"] = eta_t_rho_eta
 
     return {
         "normal_vector_estimation": {
@@ -307,16 +239,6 @@ def generate_launch_description():
         name="robot_state_publisher",
         output="screen",
         parameters=[{"robot_description": robot_description}],
-    )
-
-    # ---------- wall TF (world -> wall) ----------
-    # args: x y z roll pitch yaw parent child
-    world_to_wall_tf_node = Node(
-        package="tf2_ros",
-        executable="static_transform_publisher",
-        name="world_to_wall",
-        output="screen",
-        arguments=["1.5", "0", "0", "1.57", "0", "0", "world", "wall"],
     )
 
     # ---------- mujoco_bridge ----------
@@ -461,7 +383,11 @@ def generate_launch_description():
         executable="fk_ik_transform",
         name="fk_ik_transform",
         output="screen",
-        parameters=[params, control_physical_overrides["fk_ik_transform"]],
+        parameters=[
+            params,
+            control_physical_overrides["fk_ik_transform"],
+            {"debug_print_hz": 0.0},
+        ],
     )
 
     rviz_config_arg = DeclareLaunchArgument(
@@ -474,7 +400,6 @@ def generate_launch_description():
         rviz_config_arg,
         rviz2_node,
         robot_state_publisher_node,
-        world_to_wall_tf_node,
         controller_node,
         fk_ik_transform_node,
         normal_vector_estimation_node,

@@ -57,17 +57,31 @@ void ViewerControls::onCursorPos(
   }
 
   const bool shift = isShiftPressed(window);
+  const double norm_dx = dx / static_cast<double>(height);
+  const double norm_dy = dy / static_cast<double>(height);
 
-  // SolidWorks-like feel:
-  // - wheel: zoom
-  // - middle drag: orbit
-  // - shift + middle drag: pan
+  // CAD/SolidWorks-inspired navigation:
+  // - left drag: orbit
   // - right drag: pan
-  if ((button_right_ && !shift) || (button_middle_ && shift) || (button_left_ && shift)) {
+  // - middle drag: pan
+  // - shift + left drag: pan
+  // - shift + right drag: dolly zoom
+  if (button_right_ && shift) {
+    mjv_moveCamera(
+      model,
+      mjMOUSE_ZOOM,
+      0.0,
+      -config_.zoom_sensitivity * norm_dy,
+      scene,
+      camera);
+    return;
+  }
+
+  if (button_middle_ || (button_right_ && !shift) || (button_left_ && shift)) {
     mjv_moveCamera(
       model,
       mjMOUSE_MOVE_H,
-      config_.pan_sensitivity * dx / static_cast<double>(height),
+      config_.pan_sensitivity * norm_dx,
       0.0,
       scene,
       camera);
@@ -76,17 +90,17 @@ void ViewerControls::onCursorPos(
       model,
       mjMOUSE_MOVE_V,
       0.0,
-      config_.pan_sensitivity * dy / static_cast<double>(height),
+      config_.pan_sensitivity * norm_dy,
       scene,
       camera);
     return;
   }
 
-  if ((button_middle_ && !shift) || (button_left_ && !shift)) {
+  if (button_left_ && !shift) {
     mjv_moveCamera(
       model,
       mjMOUSE_ROTATE_H,
-      config_.orbit_sensitivity * dx / static_cast<double>(height),
+      config_.orbit_sensitivity * norm_dx,
       0.0,
       scene,
       camera);
@@ -95,7 +109,7 @@ void ViewerControls::onCursorPos(
       model,
       mjMOUSE_ROTATE_V,
       0.0,
-      config_.orbit_sensitivity * dy / static_cast<double>(height),
+      config_.orbit_sensitivity * norm_dy,
       scene,
       camera);
   }
@@ -108,12 +122,28 @@ void ViewerControls::onScroll(
   (void)model;
   (void)data;
 
-  const double zoom_gain = 0.90;
-  const double scale = std::pow(zoom_gain, config_.zoom_sensitivity * yoffset);
-  camera->distance = clampDouble(
-    camera->distance * scale,
-    config_.min_distance,
-    config_.max_distance);
+  const double azimuth_rad = camera->azimuth * M_PI / 180.0;
+  const double elevation_rad = camera->elevation * M_PI / 180.0;
+
+  // Move the whole camera rig forward/backward along the current view ray.
+  double forward_x = std::sin(azimuth_rad) * std::cos(elevation_rad);
+  double forward_y = std::cos(azimuth_rad) * std::cos(elevation_rad);
+  double forward_z = std::sin(elevation_rad);
+  const double forward_norm = std::sqrt(
+    forward_x * forward_x + forward_y * forward_y + forward_z * forward_z);
+
+  if (forward_norm < 1.0e-9) {
+    return;
+  }
+  forward_x /= forward_norm;
+  forward_y /= forward_norm;
+  forward_z /= forward_norm;
+
+  const double dolly_step = config_.zoom_sensitivity *
+    clampDouble(0.15 * camera->distance, 0.03, 0.75);
+  camera->lookat[0] += dolly_step * yoffset * forward_x;
+  camera->lookat[1] += dolly_step * yoffset * forward_y;
+  camera->lookat[2] += dolly_step * yoffset * forward_z;
 }
 
 bool ViewerControls::isShiftPressed(GLFWwindow * window)
