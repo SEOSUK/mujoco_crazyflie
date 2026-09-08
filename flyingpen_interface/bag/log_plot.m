@@ -27,7 +27,8 @@ panel_labels = { ...
     'Overall Panel', ...
     'Debug Panel', ...
     'Normal Estimation', ...
-    'Debug Extra'};
+    'Debug Extra', ...
+    'Velocity Modulation'};
 [selected_panels, ok] = listdlg( ...
     'PromptString', 'Select panels to open', ...
     'SelectionMode', 'multiple', ...
@@ -44,6 +45,7 @@ show_overall_panel = any(selected_panels == 2);
 show_debug_panel = any(selected_panels == 3);
 show_normal_estimation_panel = any(selected_panels == 4);
 show_debug_extra_panel = any(selected_panels == 5);
+show_velocity_modulation_panel = any(selected_panels == 6);
 
 %% ---- read ----
 opts = detectImportOptions(csvPath);
@@ -175,6 +177,16 @@ slip_ratio = nan(size(time));
 valid_fn = isfinite(fn_abs) & (fn_abs > 1.0e-4) & isfinite(ft_filt);
 slip_ratio(valid_fn) = ft_filt(valid_fn) ./ fn_abs(valid_fn);
 
+kappa_n_hat = get_column_by_name(T, "kappa_n_hat", nan(size(time)));
+kappa_n_true = get_column_by_name(T, "kappa_n_true", nan(size(time)));
+a_gn_hat_nom = get_column_by_name(T, "a_gn_hat_nom", nan(size(time)));
+a_gn_hat_ref = get_column_by_name(T, "a_gn_hat_ref", nan(size(time)));
+a_gn_true = get_column_by_name(T, "a_gn_true", nan(size(time)));
+a_bar_n = get_column_by_name(T, "a_bar_n", nan(size(time)));
+velocity_scale_alpha = get_column_by_name(T, "velocity_scale_alpha", nan(size(time)));
+vt_d_norm = get_column_by_name(T, "vt_d_norm", nan(size(time)));
+vt_ref_norm = get_column_by_name(T, "vt_ref_norm", nan(size(time)));
+
 true_normal = [
     get_column_by_name(T, "true_normal_x", nan(size(time))), ...
     get_column_by_name(T, "true_normal_y", nan(size(time))), ...
@@ -187,6 +199,8 @@ online_contact_normal = [
     get_column_by_name(T, "offline_normal_online_contact_nx", nan(size(time))), ...
     get_column_by_name(T, "offline_normal_online_contact_ny", nan(size(time))), ...
     get_column_by_name(T, "offline_normal_online_contact_nz", nan(size(time)))];
+% n_geo is the online Eq. (10b) state; prefer it over legacy offline columns.
+online_contact_normal = force_pe_normal;
 
 true_normal = enforce_sign_continuity(true_normal);
 force_pe_normal = align_normals_to_reference(enforce_sign_continuity(force_pe_normal), true_normal);
@@ -323,6 +337,42 @@ else
         min(time(end), force_panel_angle_nan_start_time + 4.0)];
 end
 
+
+%% Velocity modulation panel
+if show_velocity_modulation_panel
+f_vm = figure('Name', 'Velocity Modulation', 'NumberTitle', 'off', ...
+    'Color', 'w', 'Units', 'pixels', 'Position', [620 80 760 820]);
+tlvm = tiledlayout(f_vm, 3, 1, 'TileSpacing', 'compact', 'Padding', 'compact');
+
+ax_vm_kappa = nexttile(tlvm, 1);
+plot(ax_vm_kappa, time, kappa_n_hat, '-', 'LineWidth', 1.8); hold(ax_vm_kappa, 'on');
+plot(ax_vm_kappa, time, kappa_n_true, '--', 'LineWidth', 1.8);
+grid(ax_vm_kappa, 'on'); ylabel(ax_vm_kappa, '\kappa_n [1/m]');
+title(ax_vm_kappa, 'Directional Curvature'); legend(ax_vm_kappa, {'estimated', 'true'});
+
+ax_vm_acc = nexttile(tlvm, 2);
+plot(ax_vm_acc, time, a_gn_hat_nom, ':', 'LineWidth', 1.2); hold(ax_vm_acc, 'on');
+plot(ax_vm_acc, time, a_gn_hat_ref, '-', 'LineWidth', 1.8);
+plot(ax_vm_acc, time, a_gn_true, '-.', 'LineWidth', 1.6);
+plot(ax_vm_acc, time, a_bar_n, '--', 'LineWidth', 1.8, 'Color', [0.20 0.20 0.20]);
+grid(ax_vm_acc, 'on'); ylabel(ax_vm_acc, 'a_{g,n} [m/s^2]');
+title(ax_vm_acc, 'Geometry-Induced Normal Acceleration');
+legend(ax_vm_acc, {'predicted nominal', 'predicted modulated', 'actual', '\bar{a}_n'});
+
+ax_vm_vel = nexttile(tlvm, 3);
+yyaxis(ax_vm_vel, 'left');
+plot(ax_vm_vel, time, vt_d_norm, '-', 'LineWidth', 1.6); hold(ax_vm_vel, 'on');
+plot(ax_vm_vel, time, vt_ref_norm, '--', 'LineWidth', 1.8);
+ylabel(ax_vm_vel, 'tangential speed [m/s]');
+yyaxis(ax_vm_vel, 'right');
+plot(ax_vm_vel, time, velocity_scale_alpha, ':', 'LineWidth', 1.6);
+ylabel(ax_vm_vel, '\alpha^*'); ylim(ax_vm_vel, [0 1.05]);
+grid(ax_vm_vel, 'on'); xlabel(ax_vm_vel, 'time [s]');
+title(ax_vm_vel, 'Tangential Velocity Modulation');
+legend(ax_vm_vel, {'nominal v_{t,d}', 'modulated v_{t,ref}', '\alpha^*'});
+linkaxes([ax_vm_kappa ax_vm_acc ax_vm_vel], 'x');
+set(findall(f_vm, '-property', 'FontName'), 'FontName', 'Times New Roman');
+end
 
 %% Normal estimation panel
 if show_normal_estimation_panel

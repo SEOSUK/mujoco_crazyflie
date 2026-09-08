@@ -236,6 +236,15 @@ public:
     sub_control_metrics_ = create_subscription<std_msgs::msg::Float64MultiArray>(
       "/su/debug/control_metrics", 10,
       std::bind(&DataLogger::cb_control_metrics, this, std::placeholders::_1));
+    sub_velocity_modulation_ = create_subscription<std_msgs::msg::Float64MultiArray>(
+      "/su/debug/velocity_modulation", 10,
+      std::bind(&DataLogger::cb_velocity_modulation, this, std::placeholders::_1));
+    sub_n_hat_dot_ = create_subscription<geometry_msgs::msg::Vector3Stamped>(
+      "/normal_vector/n_hat_dot", 10,
+      std::bind(&DataLogger::cb_n_hat_dot, this, std::placeholders::_1));
+    sub_geometry_metrics_ = create_subscription<std_msgs::msg::Float64MultiArray>(
+      "/mujoco/ground_truth/geometry_metrics", 10,
+      std::bind(&DataLogger::cb_geometry_metrics, this, std::placeholders::_1));
 
     sub_mob_wrench_2nd_order_ = create_subscription<geometry_msgs::msg::WrenchStamped>(
       "/crazyflie/out/mob_2nd", 10,
@@ -360,7 +369,11 @@ private:
       "offline_normal_vel_eps0_gamma_nx,offline_normal_vel_eps0_gamma_ny,offline_normal_vel_eps0_gamma_nz,"
       "offline_contact_force_x,"
       "mob_eta_t_Fx,mob_eta_t_Fy,mob_eta_t_Fz,mob_eta_t_Tx,mob_eta_t_Ty,mob_eta_t_Tz,"
-      "eta_t_hat,thrust_effectiveness_true\n";
+      "eta_t_hat,thrust_effectiveness_true,"
+      "kappa_n_hat,kappa_n_true,a_gn_hat_nom,a_gn_hat_ref,a_gn_true,a_bar_n,"
+      "velocity_scale_alpha,vt_d_t1,vt_d_t2,vt_d_norm,vt_ref_t1,vt_ref_t2,vt_ref_norm,"
+      "n_hat_dot_x,n_hat_dot_y,n_hat_dot_z,vc_norm,"
+      "true_normal_x,true_normal_y,true_normal_z,true_surface_id,kappa_valid\n";
     csv_.flush();
   }
 
@@ -589,6 +602,26 @@ private:
     have_control_metrics_ = true;
   }
 
+  void cb_velocity_modulation(const std_msgs::msg::Float64MultiArray::SharedPtr m)
+  {
+    if (m->data.size() < velocity_modulation_.size()) return;
+    std::lock_guard<std::mutex> lk(mtx_);
+    std::copy_n(m->data.begin(), velocity_modulation_.size(), velocity_modulation_.begin());
+  }
+
+  void cb_n_hat_dot(const geometry_msgs::msg::Vector3Stamped::SharedPtr m)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    n_hat_dot_ << m->vector.x, m->vector.y, m->vector.z;
+  }
+
+  void cb_geometry_metrics(const std_msgs::msg::Float64MultiArray::SharedPtr m)
+  {
+    if (m->data.size() < geometry_metrics_.size()) return;
+    std::lock_guard<std::mutex> lk(mtx_);
+    std::copy_n(m->data.begin(), geometry_metrics_.size(), geometry_metrics_.begin());
+  }
+
   void cb_mob_wrench_2nd_order(const geometry_msgs::msg::WrenchStamped::SharedPtr m)
   {
     std::lock_guard<std::mutex> lk(mtx_);
@@ -720,6 +753,9 @@ private:
     double Fz, cmd_force, F_error_dot_raw, F_error_dot_filt, c_hat_fx_act;
     double eta_t_hat, thrust_effectiveness_true;
     double alpha_frame, omega_n, normal_leakage, alpha_u1, alpha_u2, preload_feedback, c_tau, pattern_progress, pattern_speed_cmd;
+    std::array<double, 13> velocity_modulation;
+    std::array<double, 8> geometry_metrics;
+    Eigen::Vector3d n_hat_dot;
 
 
     uint32_t mask;
@@ -790,6 +826,9 @@ private:
       c_tau = c_tau_;
       pattern_progress = pattern_progress_;
       pattern_speed_cmd = pattern_speed_cmd_;
+      velocity_modulation = velocity_modulation_;
+      geometry_metrics = geometry_metrics_;
+      n_hat_dot = n_hat_dot_;
 
 
       mask = 0u;
@@ -887,7 +926,7 @@ private:
     }
 
     std_msgs::msg::Float64MultiArray msg;
-    msg.data.resize(128);
+    msg.data.resize(150);
 
     msg.data[0]  = t;
 
@@ -1034,6 +1073,28 @@ private:
     msg.data[125] = mob_torque_eta_t.z();
     msg.data[126] = eta_t_hat;
     msg.data[127] = thrust_effectiveness_true;
+    msg.data[128] = velocity_modulation[0];  // kappa_n_hat
+    msg.data[129] = geometry_metrics[0];     // kappa_n_true
+    msg.data[130] = velocity_modulation[1];  // a_gn_hat_nom
+    msg.data[131] = velocity_modulation[2];  // a_gn_hat_ref
+    msg.data[132] = geometry_metrics[1];     // a_gn_true
+    msg.data[133] = velocity_modulation[3];  // a_bar_n
+    msg.data[134] = velocity_modulation[4];  // alpha_star
+    msg.data[135] = velocity_modulation[5];
+    msg.data[136] = velocity_modulation[6];
+    msg.data[137] = velocity_modulation[7];
+    msg.data[138] = velocity_modulation[8];
+    msg.data[139] = velocity_modulation[9];
+    msg.data[140] = velocity_modulation[10];
+    msg.data[141] = n_hat_dot.x();
+    msg.data[142] = n_hat_dot.y();
+    msg.data[143] = n_hat_dot.z();
+    msg.data[144] = velocity_modulation[11];
+    msg.data[145] = geometry_metrics[2];
+    msg.data[146] = geometry_metrics[3];
+    msg.data[147] = geometry_metrics[4];
+    msg.data[148] = geometry_metrics[5];
+    msg.data[149] = velocity_modulation[12];
 
 
 
@@ -1113,7 +1174,15 @@ private:
            << c_hat_fx_act << ","
            << mob_force_eta_t.x() << "," << mob_force_eta_t.y() << "," << mob_force_eta_t.z() << ","
            << mob_torque_eta_t.x() << "," << mob_torque_eta_t.y() << "," << mob_torque_eta_t.z() << ","
-           << eta_t_hat << "," << thrust_effectiveness_true
+           << eta_t_hat << "," << thrust_effectiveness_true << ","
+           << msg.data[128] << "," << msg.data[129] << "," << msg.data[130] << ","
+           << msg.data[131] << "," << msg.data[132] << "," << msg.data[133] << ","
+           << msg.data[134] << "," << msg.data[135] << "," << msg.data[136] << ","
+           << msg.data[137] << "," << msg.data[138] << "," << msg.data[139] << ","
+           << msg.data[140] << "," << msg.data[141] << "," << msg.data[142] << ","
+           << msg.data[143] << "," << msg.data[144] << "," << msg.data[145] << ","
+           << msg.data[146] << "," << msg.data[147] << "," << msg.data[148] << ","
+           << msg.data[149]
            << "\n";
 
       if (++csv_line_count_ % 200 == 0) {
@@ -1166,6 +1235,9 @@ private:
   double c_tau_{quiet_nan()};
   double pattern_progress_{quiet_nan()};
   double pattern_speed_cmd_{quiet_nan()};
+  std::array<double, 13> velocity_modulation_{};
+  std::array<double, 8> geometry_metrics_{};
+  Eigen::Vector3d n_hat_dot_{0,0,0};
   Eigen::Vector3d n_ke_gamma_proj_{quiet_nan(), quiet_nan(), quiet_nan()};
   Eigen::Vector3d normal_pure_{quiet_nan(), quiet_nan(), quiet_nan()};
   Eigen::Vector3d normal_ke_{quiet_nan(), quiet_nan(), quiet_nan()};
@@ -1264,6 +1336,9 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::QuaternionStamped>::SharedPtr sub_normal_quat_ke_;
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_force_lpf_;
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_control_metrics_;
+  rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_velocity_modulation_;
+  rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_n_hat_dot_;
+  rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_geometry_metrics_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_wrench_2nd_order_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_wrench_2nd_tau_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_wrench_eta_t_;

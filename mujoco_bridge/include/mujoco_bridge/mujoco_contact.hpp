@@ -2,6 +2,7 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <geometry_msgs/msg/wrench_stamped.hpp>
+#include <std_msgs/msg/float64_multi_array.hpp>
 #include <mujoco/mujoco.h>
 
 #include <array>
@@ -38,6 +39,7 @@ private:
 
   rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_contact_force_;
   rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_contact_force_filt_;
+  rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr pub_geometry_metrics_;
   rclcpp::TimerBase::SharedPtr timer_contact_;
 
   bool viz_contact_enable_{true};
@@ -52,6 +54,10 @@ private:
 
   int gid_tip_{-1};
   int tip_root_body_id_{-1};
+  int gid_small_cylinder_{-1};
+  int gid_large_cylinder_{-1};
+  int gid_belt_right_{-1};
+  int gid_belt_left_{-1};
 
   mutable std::mutex mtx_;
 
@@ -64,6 +70,8 @@ private:
   std::array<double,3> rf_{{0.0, 0.0, 0.0}};
   std::array<double,3> fw_{{0.0, 0.0, 0.0}};
   double fcn_{0.0};
+  std::array<double,8> geometry_metrics_{{
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}};
 
   rclcpp::Time last_contact_timer_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time last_contact_log_time_{0, 0, RCL_ROS_TIME};

@@ -53,6 +53,8 @@ public:
       "normal_force_based.normDeadzoneV", 0.01);
     force_based_beta_n_ = this->declare_parameter<double>(
       "normal_force_based.normBeta", 1.0);
+    force_based_gamma_n_ = this->declare_parameter<double>(
+      "normal_force_based.normGamma", 1.0);
 
     publish_hz_ = this->declare_parameter<double>(
       "publish_hz", 100.0);
@@ -79,6 +81,8 @@ public:
       "contact_force_x_topic", "/su/contact_force_x");
     normal_debug_metrics_topic_ = this->declare_parameter<std::string>(
       "normal_debug_metrics_topic", "/normal_vector/debug_metrics");
+    n_hat_dot_topic_ = this->declare_parameter<std::string>(
+      "n_hat_dot_topic", "/normal_vector/n_hat_dot");
 
     sub_contact_force_ = this->create_subscription<geometry_msgs::msg::WrenchStamped>(
       contact_force_topic_, 10,
@@ -122,6 +126,8 @@ public:
       contact_force_x_topic_, 10);
     pub_normal_debug_metrics_ = this->create_publisher<std_msgs::msg::Float64MultiArray>(
       normal_debug_metrics_topic_, 10);
+    pub_n_hat_dot_ = this->create_publisher<geometry_msgs::msg::Vector3Stamped>(
+      n_hat_dot_topic_, 10);
 
     const double safe_hz = std::max(1.0, publish_hz_);
     timer_ = this->create_wall_timer(
@@ -170,10 +176,13 @@ private:
     Eigen::Vector3d n_geo_ke_raw = Eigen::Vector3d::Zero();
     Eigen::Vector3d n_geo_no_ke_raw = Eigen::Vector3d::Zero();
     Eigen::Vector3d n_est = Eigen::Vector3d::Zero();
+    Eigen::Vector3d n_hat = Eigen::Vector3d::Zero();
+    Eigen::Vector3d n_hat_dot = Eigen::Vector3d::Zero();
     double vel_norm = 0.0;
     double force_norm = 0.0;
     double corrected_force_norm = 0.0;
     bool initialized = false;
+    bool n_hat_initialized = false;
   };
 
   struct EigenSpectrum
@@ -248,6 +257,50 @@ private:
     }
 
     return n_geo;
+  }
+
+  Eigen::Vector3d updatePaperNormal(
+    Eigen::Matrix3d & l_n, const Eigen::Vector3d & candidate,
+    const Eigen::Vector3d & corrected_force, double dt)
+  {
+    // Eq. (10a): candidate is unit length whenever it is valid.
+    Eigen::Matrix3d l_n_dot = -force_based_beta_n_ * l_n;
+    if (candidate.squaredNorm() > 1e-12) {
+      l_n_dot += force_based_beta_n_ * (candidate * candidate.transpose());
+    }
+    l_n += dt * l_n_dot;
+    l_n = 0.5 * (l_n + l_n.transpose());
+
+    if (!force_based_state_.n_hat_initialized && candidate.squaredNorm() > 1e-12) {
+      force_based_state_.n_hat = candidate.normalized();
+      force_based_state_.n_hat_initialized = true;
+    }
+    if (!force_based_state_.n_hat_initialized) {
+      force_based_state_.n_hat_dot.setZero();
+      return Eigen::Vector3d::Zero();
+    }
+
+    Eigen::Vector3d & n_hat = force_based_state_.n_hat;
+    const Eigen::Matrix3d p_tan =
+      Eigen::Matrix3d::Identity() - n_hat * n_hat.transpose();
+    // Eq. (10b) RHS is retained directly for Eq. (12); no finite difference.
+    force_based_state_.n_hat_dot = force_based_gamma_n_ * p_tan * l_n * n_hat;
+    n_hat += dt * force_based_state_.n_hat_dot;
+    const double n_norm = n_hat.norm();
+    if (!(std::isfinite(n_norm) && n_norm > 1e-12)) {
+      n_hat = candidate.squaredNorm() > 1e-12 ? candidate.normalized() : fixedNormalWorld();
+      force_based_state_.n_hat_dot.setZero();
+    } else {
+      n_hat /= n_norm;
+    }
+
+    if (corrected_force.norm() > force_based_force_epsilon_ &&
+      n_hat.dot(corrected_force) < 0.0)
+    {
+      n_hat = -n_hat;
+      force_based_state_.n_hat_dot = -force_based_state_.n_hat_dot;
+    }
+    return n_hat;
   }
 
   static EigenSpectrum eigenDecomposeDescending(const Eigen::Matrix3d & mat)
@@ -396,7 +449,11 @@ private:
 
     const double force_norm = force_world.norm();
     if (!(std::isfinite(force_norm) && force_norm > 1e-12)) {
-      cf_out = makeFixedContactFrame();
+      const Eigen::Vector3d retained = updatePaperNormal(
+        force_based_state_.l_n, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(), dt);
+      force_based_state_.n_geo = retained;
+      force_based_state_.n_est = retained;
+      cf_out.n_w = retained.squaredNorm() > 1e-12 ? retained : fixedNormalWorld();
       return true;
     }
 
@@ -432,7 +489,11 @@ private:
     }
     const double corrected_force_norm = f_g_soft.norm();
     if (n_f.squaredNorm() <= 1e-12) {
-      cf_out = makeFixedContactFrame();
+      const Eigen::Vector3d retained = updatePaperNormal(
+        force_based_state_.l_n, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(), dt);
+      force_based_state_.n_geo = retained;
+      force_based_state_.n_est = retained;
+      cf_out.n_w = retained.squaredNorm() > 1e-12 ? retained : fixedNormalWorld();
       return true;
     }
 
@@ -468,8 +529,10 @@ private:
       1.0);
 
     const Eigen::Vector3d n_alg_memory = n_alg;
-    const Eigen::Vector3d n_geo = updateDirectionalMemory(
-      force_based_state_.l_n, n_alg_memory, n_f, cf_out, force_world, dt);
+    // The control normal is the integrated Eq. (10b) state, not an
+    // instantaneous dominant eigenvector. Keep n_geo as a compatibility alias.
+    const Eigen::Vector3d n_geo = updatePaperNormal(
+      force_based_state_.l_n, n_alg_memory, force_world, dt);
     const Eigen::Vector3d n_geo_ke_raw = updateDirectionalMemory(
       ke_raw_memory_l_n_, n_f, n_f, cf_out, force_world, dt);
 
@@ -606,6 +669,14 @@ private:
 
   void publishNormalDebugMetrics()
   {
+    geometry_msgs::msg::Vector3Stamped n_dot_msg;
+    n_dot_msg.header.stamp = this->now();
+    n_dot_msg.header.frame_id = "world";
+    n_dot_msg.vector.x = force_based_state_.n_hat_dot.x();
+    n_dot_msg.vector.y = force_based_state_.n_hat_dot.y();
+    n_dot_msg.vector.z = force_based_state_.n_hat_dot.z();
+    pub_n_hat_dot_->publish(n_dot_msg);
+
     std_msgs::msg::Float64MultiArray msg;
     const auto nan = std::numeric_limits<double>::quiet_NaN();
 
@@ -667,10 +738,13 @@ private:
     force_based_state_.n_geo_ke_raw = Eigen::Vector3d::Zero();
     force_based_state_.n_geo_no_ke_raw = Eigen::Vector3d::Zero();
     force_based_state_.n_est = Eigen::Vector3d::Zero();
+    force_based_state_.n_hat = Eigen::Vector3d::Zero();
+    force_based_state_.n_hat_dot = Eigen::Vector3d::Zero();
     force_based_state_.vel_norm = 0.0;
     force_based_state_.force_norm = 0.0;
     force_based_state_.corrected_force_norm = 0.0;
     force_based_state_.initialized = false;
+    force_based_state_.n_hat_initialized = false;
   }
 
   void contactForceCb(const geometry_msgs::msg::WrenchStamped::SharedPtr msg)
@@ -860,6 +934,7 @@ private:
   rclcpp::Publisher<geometry_msgs::msg::QuaternionStamped>::SharedPtr pub_contact_quat_;
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr pub_contact_force_x_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr pub_normal_debug_metrics_;
+  rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr pub_n_hat_dot_;
 
   rclcpp::TimerBase::SharedPtr timer_;
 
@@ -873,6 +948,7 @@ private:
   double force_based_gamma_epsilon_{1.0e-2};
   double force_based_velocity_deadzone_{0.01};
   double force_based_beta_n_{1.0};
+  double force_based_gamma_n_{1.0};
 
   std::string pose_topic_;
   std::string vel_topic_;
@@ -885,6 +961,7 @@ private:
   std::string contact_frame_quat_topic_;
   std::string contact_force_x_topic_;
   std::string normal_debug_metrics_topic_;
+  std::string n_hat_dot_topic_;
   std::string use_vel_mode_topic_;
 
   std::mutex force_mtx_;

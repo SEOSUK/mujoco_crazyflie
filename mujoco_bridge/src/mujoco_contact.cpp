@@ -3,11 +3,13 @@
 #include <mujoco/mujoco.h>
 #include <rclcpp/rclcpp.hpp>
 #include <geometry_msgs/msg/wrench_stamped.hpp>
+#include <std_msgs/msg/float64_multi_array.hpp>
 
 #include <array>
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <stdexcept>
 
 namespace mujoco_bridge
@@ -109,6 +111,13 @@ MujocoContact::MujocoContact(
   }
   tip_root_body_id_ = model_->body_rootid[tip_body_id];
 
+  gid_small_cylinder_ = mj_name2id(model_, mjOBJ_GEOM, "small_cylinder_collision");
+  gid_large_cylinder_ = mj_name2id(model_, mjOBJ_GEOM, "large_cylinder_collision");
+  gid_belt_right_ = mj_name2id(model_, mjOBJ_GEOM, "cylinder_belt_right_collision");
+  gid_belt_left_ = mj_name2id(model_, mjOBJ_GEOM, "cylinder_belt_left_collision");
+  pub_geometry_metrics_ = node_->create_publisher<std_msgs::msg::Float64MultiArray>(
+    "/mujoco/ground_truth/geometry_metrics", 10);
+
   if (contact_filter_enable_) {
     const auto period = std::chrono::duration<double>(1.0 / std::max(1e-6, contact_timer_hz_));
     timer_contact_ = node_->create_wall_timer(
@@ -152,6 +161,10 @@ void MujocoContact::update_raw_and_publish(const rclcpp::Time& stamp)
   msg.wrench.torque.y = 0.0;
   msg.wrench.torque.z = 0.0;
   pub_contact_force_->publish(msg);
+
+  std_msgs::msg::Float64MultiArray geometry_msg;
+  geometry_msg.data.assign(geometry_metrics_.begin(), geometry_metrics_.end());
+  pub_geometry_metrics_->publish(geometry_msg);
 }
 
 void MujocoContact::contact_filter_timer_cb()
@@ -212,6 +225,12 @@ void MujocoContact::compute_contact_resultant_locked()
   fcn_ = 0.0;
   rf_ = {0.0, 0.0, 0.0};
   fw_ = {0.0, 0.0, 0.0};
+  const double nan = std::numeric_limits<double>::quiet_NaN();
+  geometry_metrics_ = {nan, nan, nan, nan, nan, 0.0, nan, nan};
+
+  int active_geom = -1;
+  double active_weight = -1.0;
+  std::array<double, 3> active_contact_pos{{0.0, 0.0, 0.0}};
 
   const auto now = node_->get_clock()->now();
   bool do_log = false;
@@ -274,7 +293,81 @@ void MujocoContact::compute_contact_resultant_locked()
     fw_[0] += fw_local[0];
     fw_[1] += fw_local[1];
     fw_[2] += fw_local[2];
+
+    const double normal_contribution = std::abs(fc[0]);
+    if (normal_contribution > active_weight &&
+      (other_geom == gid_small_cylinder_ || other_geom == gid_large_cylinder_ ||
+      other_geom == gid_belt_right_ || other_geom == gid_belt_left_))
+    {
+      active_weight = normal_contribution;
+      active_geom = other_geom;
+      active_contact_pos = {
+        static_cast<double>(con.pos[0]), static_cast<double>(con.pos[1]),
+        static_cast<double>(con.pos[2])};
+    }
   }
+
+  if (active_geom < 0) {
+    return;
+  }
+
+  const bool is_small = active_geom == gid_small_cylinder_;
+  const bool is_large = active_geom == gid_large_cylinder_;
+  const bool is_cylinder = is_small || is_large;
+  const int surface_id = is_small ? 1 : (is_large ? 2 : (active_geom == gid_belt_right_ ? 3 : 4));
+  double n_true[3] = {0.0, 0.0, 0.0};
+  if (is_cylinder) {
+    const mjtNum * center = data_->geom_xpos + 3 * active_geom;
+    n_true[0] = active_contact_pos[0] - static_cast<double>(center[0]);
+    n_true[1] = active_contact_pos[1] - static_cast<double>(center[1]);
+    normalize3(n_true);
+    n_true[2] = 0.0;
+  } else {
+    const mjtNum * center = data_->geom_xpos + 3 * active_geom;
+    const mjtNum * rot = data_->geom_xmat + 9 * active_geom;
+    // The thin box's local y axis is its face normal; select the contacted side.
+    double face_normal[3] = {
+      static_cast<double>(rot[1]), static_cast<double>(rot[4]), static_cast<double>(rot[7])};
+    const double side =
+      (active_contact_pos[0] - center[0]) * face_normal[0] +
+      (active_contact_pos[1] - center[1]) * face_normal[1] +
+      (active_contact_pos[2] - center[2]) * face_normal[2];
+    const double sign = side >= 0.0 ? 1.0 : -1.0;
+    for (int j = 0; j < 3; ++j) n_true[j] = sign * face_normal[j];
+    normalize3(n_true);
+  }
+
+  mjtNum spatial_vel[6] = {0, 0, 0, 0, 0, 0};
+  mj_objectVelocity(model_, data_, mjOBJ_GEOM, gid_tip_, spatial_vel, 0);
+  const mjtNum * tip_center = data_->geom_xpos + 3 * gid_tip_;
+  const double offset[3] = {
+    active_contact_pos[0] - tip_center[0], active_contact_pos[1] - tip_center[1],
+    active_contact_pos[2] - tip_center[2]};
+  const double omega[3] = {spatial_vel[0], spatial_vel[1], spatial_vel[2]};
+  double omega_cross_r[3];
+  cross3(omega, offset, omega_cross_r);
+  const double vc[3] = {
+    static_cast<double>(spatial_vel[3]) + omega_cross_r[0],
+    static_cast<double>(spatial_vel[4]) + omega_cross_r[1],
+    static_cast<double>(spatial_vel[5]) + omega_cross_r[2]};
+  const double normal_speed = n_true[0]*vc[0] + n_true[1]*vc[1] + n_true[2]*vc[2];
+  const double vt[3] = {
+    vc[0] - n_true[0]*normal_speed, vc[1] - n_true[1]*normal_speed,
+    vc[2] - n_true[2]*normal_speed};
+  const double vt_norm = norm3(vt);
+  double kappa_true = 0.0;
+  double a_true = 0.0;
+  double v_theta = 0.0;
+  if (is_cylinder && vt_norm > 1e-6) {
+    const double e_theta[3] = {-n_true[1], n_true[0], 0.0};
+    v_theta = e_theta[0]*vt[0] + e_theta[1]*vt[1];
+    const double radius = static_cast<double>(model_->geom_size[3 * active_geom]);
+    kappa_true = (v_theta * v_theta) / (radius * vt_norm * vt_norm);
+    a_true = (v_theta * v_theta) / radius;
+  }
+  geometry_metrics_ = {
+    kappa_true, a_true, n_true[0], n_true[1], n_true[2],
+    static_cast<double>(surface_id), v_theta, vt_norm};
 }
 
 void MujocoContact::update_contact_resultant_arrow_in_viewer(mjvScene* scn)

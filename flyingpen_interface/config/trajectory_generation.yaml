@@ -18,6 +18,12 @@ trajectory_generation:
     # manual keyboard velocity frame during velocity mode
     manual_velocity_frame: "contact" # "contact" or "world"
 
+    velocity_modulation:
+      enable: true
+      a_bar_n: 0.10  # [m/s^2], prescribed geometry-induced normal-acceleration limit
+      v_min: 0.01  # [m/s], hold the last valid curvature estimate below this speed
+      n_hat_dot_topic: "/normal_vector/n_hat_dot"
+
     # Trajectory shape/size/speed are sourced only from su_params.yaml -> su_position.*
     # Keep only non-overlapping trajectory behavior tuning here.
     pattern:

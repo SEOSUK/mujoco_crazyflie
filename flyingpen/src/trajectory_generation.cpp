@@ -111,6 +111,19 @@ public:
       "contact_force_x_topic", "/su/contact_force_x");
     contact_signal_timeout_sec_ = declare_parameter<double>(
       "contact_signal_timeout_sec", 0.15);
+    velocity_modulation_enable_ = declare_parameter<bool>(
+      "velocity_modulation.enable", true);
+    velocity_modulation_a_bar_n_ = declare_parameter<double>(
+      "velocity_modulation.a_bar_n", 0.10);
+    velocity_modulation_v_min_ = declare_parameter<double>(
+      "velocity_modulation.v_min", 0.01);
+    if (!(std::isfinite(velocity_modulation_a_bar_n_) && velocity_modulation_a_bar_n_ > 0.0)) {
+      RCLCPP_WARN(get_logger(), "velocity_modulation.a_bar_n must be positive; using 0.10 m/s^2");
+      velocity_modulation_a_bar_n_ = 0.10;
+    }
+    velocity_modulation_v_min_ = std::max(1e-6, velocity_modulation_v_min_);
+    n_hat_dot_topic_ = declare_parameter<std::string>(
+      "velocity_modulation.n_hat_dot_topic", "/normal_vector/n_hat_dot");
 
     sub_keyboard_ = create_subscription<std_msgs::msg::Float64MultiArray>(
       "/su/keyboard_input", 10,
@@ -127,6 +140,9 @@ public:
     sub_contact_force_x_ = create_subscription<std_msgs::msg::Float32>(
       contact_force_x_topic_, 10,
       std::bind(&TrajectoryGeneration::contactForceXCb, this, std::placeholders::_1));
+    sub_n_hat_dot_ = create_subscription<geometry_msgs::msg::Vector3Stamped>(
+      n_hat_dot_topic_, 10,
+      std::bind(&TrajectoryGeneration::nHatDotCb, this, std::placeholders::_1));
 
     sub_pose_ = create_subscription<geometry_msgs::msg::PoseStamped>(
       pose_topic_, 10, std::bind(&TrajectoryGeneration::poseCb, this, std::placeholders::_1));
@@ -153,6 +169,8 @@ public:
       "/su/force_lpf", 10);
     pub_control_metrics_ = create_publisher<std_msgs::msg::Float64MultiArray>(
       "/su/debug/control_metrics", 10);
+    pub_velocity_modulation_ = create_publisher<std_msgs::msg::Float64MultiArray>(
+      "/su/debug/velocity_modulation", 10);
     pub_contact_vel_cmd_ = create_publisher<geometry_msgs::msg::Vector3Stamped>(
       "/su/debug/contact_vel_cmd", 10);
     pub_contact_vel_actual_ = create_publisher<geometry_msgs::msg::Vector3Stamped>(
@@ -575,6 +593,14 @@ private:
     last_contact_frame_stamp_ = this->now();
   }
 
+  void nHatDotCb(const geometry_msgs::msg::Vector3Stamped::SharedPtr msg)
+  {
+    std::lock_guard<std::mutex> lk(contact_mtx_);
+    n_hat_dot_w_ = Eigen::Vector3d(msg->vector.x, msg->vector.y, msg->vector.z);
+    n_hat_dot_received_ = n_hat_dot_w_.allFinite();
+    last_n_hat_dot_stamp_ = this->now();
+  }
+
   void contactForceXCb(const std_msgs::msg::Float32::SharedPtr msg)
   {
     std::lock_guard<std::mutex> lk(contact_mtx_);
@@ -700,6 +726,22 @@ private:
     pub_control_metrics_->publish(msg);
   }
 
+  void publishVelocityModulation(
+    double kappa, double a_nom, double a_ref, double alpha,
+    const Eigen::Vector2d & vt_d, const Eigen::Vector2d & vt_ref,
+    double vc_norm, bool valid)
+  {
+    // Fixed indices: 0 kappa, 1 a_nom, 2 a_ref, 3 a_bar, 4 alpha,
+    // 5:7 nominal tangent command, 8:10 modulated command,
+    // 11 measured contact-speed norm, 12 curvature-valid flag.
+    std_msgs::msg::Float64MultiArray msg;
+    msg.data = {
+      kappa, a_nom, a_ref, velocity_modulation_a_bar_n_, alpha,
+      vt_d.x(), vt_d.y(), vt_d.norm(),
+      vt_ref.x(), vt_ref.y(), vt_ref.norm(), vc_norm, valid ? 1.0 : 0.0};
+    pub_velocity_modulation_->publish(msg);
+  }
+
   void update()
   {
     {
@@ -747,6 +789,8 @@ private:
     double cmd_force_desired_local = 0.0;
     bool contact_frame_ok = false;
     bool contact_force_ok = false;
+    Eigen::Vector3d n_hat_dot_w = Eigen::Vector3d::Zero();
+    bool n_hat_dot_ok = false;
     {
       std::lock_guard<std::mutex> lk(contact_mtx_);
       use_vel_mode_local = use_vel_mode_;
@@ -758,12 +802,15 @@ private:
       cmd_force_desired_local = cmd_force_desired_;
       contact_frame_ok = contact_frame_received_;
       contact_force_ok = contact_force_x_received_;
+      n_hat_dot_w = n_hat_dot_w_;
+      n_hat_dot_ok = n_hat_dot_received_;
     }
 
     contact_frame_ok =
       contact_frame_ok && isSignalFresh(last_contact_frame_stamp_, now);
     contact_force_ok =
       contact_force_ok && isSignalFresh(last_contact_force_x_stamp_, now);
+    n_hat_dot_ok = n_hat_dot_ok && isSignalFresh(last_n_hat_dot_stamp_, now);
 
     if (!integrated_ref_initialized_) {
       syncIntegratedReferenceToMeasured(ref);
@@ -778,6 +825,8 @@ private:
       nu_n_state_ = 0.0;
       legacy_force_error_initialized_ = false;
       legacy_force_error_dot_filt_ = 0.0;
+      kappa_valid_ = false;
+      last_valid_kappa_hat_n_ = 0.0;
     }
     if (!use_vel_mode_local && prev_use_vel_mode_) {
       syncIntegratedReferenceToMeasured(ref);
@@ -786,6 +835,8 @@ private:
       nu_n_state_ = 0.0;
       legacy_force_error_initialized_ = false;
       legacy_force_error_dot_filt_ = 0.0;
+      kappa_valid_ = false;
+      last_valid_kappa_hat_n_ = 0.0;
     }
     prev_use_vel_mode_ = use_vel_mode_local;
 
@@ -794,6 +845,9 @@ private:
 
     if (!use_vel_mode_local) {
       publishNaNContactVelocityDebug(now);
+      publishVelocityModulation(
+        0.0, 0.0, 0.0, 1.0, Eigen::Vector2d::Zero(), Eigen::Vector2d::Zero(),
+        ref.valid ? ref.vel_w.norm() : 0.0, false);
       publishControlMetrics(
         1.0,
         std::numeric_limits<double>::quiet_NaN(),
@@ -886,6 +940,38 @@ private:
       v_tan_world = contact_t1_w * u_tan_scaled.x() + contact_t2_w * u_tan_scaled.y();
     }
 
+    // Eq. (12): use actual measured contact-point/EE velocity and the direct
+    // Eq. (10b) RHS. At low speed, retain the most recent valid value.
+    const double vc_norm = ref.valid ? ref.vel_w.norm() : 0.0;
+    if (ref.valid && n_hat_dot_ok && vc_norm > velocity_modulation_v_min_) {
+      const double kappa = std::abs(n_hat_dot_w.dot(ref.vel_w)) / ref.vel_w.squaredNorm();
+      if (std::isfinite(kappa)) {
+        last_valid_kappa_hat_n_ = kappa;
+        kappa_valid_ = true;
+      }
+    }
+    const double kappa_hat_n = kappa_valid_ ? last_valid_kappa_hat_n_ : 0.0;
+
+    // The paper's nominal v_t,d is exactly the keyboard y/z command expressed
+    // in the estimated contact tangent basis. Pattern velocity is unchanged.
+    const Eigen::Vector2d v_t_d_tangent(manual_cmd_local.y(), manual_cmd_local.z());
+    Eigen::Vector3d v_t_d_world = Eigen::Vector3d::Zero();
+    if (contact_basis_ok) {
+      v_t_d_world =
+        contact_t1_w * v_t_d_tangent.x() + contact_t2_w * v_t_d_tangent.y();
+    }
+    const double a_hat_gn_nom = kappa_hat_n * v_t_d_world.squaredNorm();
+    double alpha_star = 1.0;
+    if (velocity_modulation_enable_ && a_hat_gn_nom > 1e-12) {
+      alpha_star = std::min(1.0, std::sqrt(velocity_modulation_a_bar_n_ / a_hat_gn_nom));
+    }
+    if (!std::isfinite(alpha_star)) {
+      alpha_star = 1.0;
+    }
+    const Eigen::Vector2d v_t_ref_tangent = alpha_star * v_t_d_tangent;
+    const Eigen::Vector3d v_t_ref_world = alpha_star * v_t_d_world;
+    const double a_hat_gn_ref = kappa_hat_n * v_t_ref_world.squaredNorm();
+
     double v_n_feedback = 0.0;
     double r_v_contact = 0.0;
     if (contact_basis_ok && ref.valid) {
@@ -958,10 +1044,8 @@ private:
     Eigen::Vector3d v_contact_des_world = manual_cmd_world;
     if (contact_basis_ok) {
       if (manual_velocity_frame_ == "contact") {
-        const Eigen::Vector3d manual_tangential_world =
-          contact_t1_w * manual_cmd_local.y() + contact_t2_w * manual_cmd_local.z();
         v_contact_des_world =
-          manual_tangential_world - commanded_v_n * contact_n_w + v_tan_world;
+          v_t_ref_world - commanded_v_n * contact_n_w + v_tan_world;
       } else {
         v_contact_des_world += v_tan_world - commanded_v_n * contact_n_w;
       }
@@ -985,6 +1069,9 @@ private:
       std::numeric_limits<double>::quiet_NaN(),
       path_parameter_s_,
       s_dot);
+    publishVelocityModulation(
+      kappa_hat_n, a_hat_gn_nom, a_hat_gn_ref, alpha_star,
+      v_t_d_tangent, v_t_ref_tangent, vc_norm, kappa_valid_);
 
     Eigen::Vector3d v_active_des_world = v_contact_des_world;
     Eigen::Vector3d v_drone_des_world = v_contact_des_world;
@@ -1038,6 +1125,7 @@ private:
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_cmd_force_;
   rclcpp::Subscription<geometry_msgs::msg::QuaternionStamped>::SharedPtr sub_contact_frame_quat_;
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_contact_force_x_;
+  rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_n_hat_dot_;
 
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_pose_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_vel_;
@@ -1051,6 +1139,7 @@ private:
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr pub_vel_cmd_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr pub_force_lpf_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr pub_control_metrics_;
+  rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr pub_velocity_modulation_;
   rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr pub_contact_vel_cmd_;
   rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr pub_contact_vel_actual_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pub_cmd_drone_pose_;
@@ -1106,6 +1195,10 @@ private:
   std::string contact_frame_quat_topic_;
   std::string contact_force_x_topic_;
   double contact_signal_timeout_sec_{0.15};
+  bool velocity_modulation_enable_{true};
+  double velocity_modulation_a_bar_n_{0.10};
+  double velocity_modulation_v_min_{0.01};
+  std::string n_hat_dot_topic_;
 
   std::mutex cmd_mtx_;
   std::array<double, 3> sp_in_{0.0, 0.0, 0.0};
@@ -1128,6 +1221,9 @@ private:
   bool contact_force_x_received_{false};
   rclcpp::Time last_contact_frame_stamp_{0, 0, RCL_ROS_TIME};
   rclcpp::Time last_contact_force_x_stamp_{0, 0, RCL_ROS_TIME};
+  Eigen::Vector3d n_hat_dot_w_{Eigen::Vector3d::Zero()};
+  bool n_hat_dot_received_{false};
+  rclcpp::Time last_n_hat_dot_stamp_{0, 0, RCL_ROS_TIME};
 
   std::mutex state_mtx_;
   std::array<double, 3> pose_w_{0.0, 0.0, 0.0};
@@ -1158,6 +1254,8 @@ private:
   bool legacy_force_error_initialized_{false};
   double legacy_force_error_prev_{0.0};
   double legacy_force_error_dot_filt_{0.0};
+  double last_valid_kappa_hat_n_{0.0};
+  bool kappa_valid_{false};
   bool position_reset_requested_{false};
   std::array<double, 3> prev_position_sp_in_{0.0, 0.0, 0.0};
   double prev_position_sp_in_yaw_{0.0};
