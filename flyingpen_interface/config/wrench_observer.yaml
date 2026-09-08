@@ -8,5 +8,3 @@ wrench_observer:
     mob.mob_alpha_2nd_order: 1.0
     mob.Kp: 10.9544511501
     mob.KpTau: 10.9544511501
-    mob.Ke: 50.0
-    mob.epsilon_tau: 1.0e-6

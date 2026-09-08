@@ -1,0 +1,71 @@
+<mujoco>
+  <!--
+    Vertical pulley/belt contact environment:
+      small cylinder: center=(1,+1), radius=0.42, height=1.0
+      large cylinder: center=(1,-1), radius=0.84, height=1.0
+
+    The two belt panels follow the exact common external tangents of circles
+    r1=0.42 and r2=0.84 separated by d=2.0.  Their tangent length is
+    sqrt(d^2-(r2-r1)^2)=1.955403 and their yaw angles are -77.878/-102.122 deg.
+  -->
+  <asset>
+    <material name="small_cylinder_mat" rgba="0.95 0.78 0.12 1"/>
+    <material name="large_cylinder_mat" rgba="0.76 0.24 0.18 1"/>
+    <material name="cylinder_belt_mat" rgba="0.18 0.70 0.42 1"/>
+  </asset>
+
+  <worldbody>
+    <body name="small_cylinder" pos="1.0 1.0 0">
+      <geom name="small_cylinder_visual" type="cylinder" pos="0 0 0.5"
+            size="0.42 0.5" material="small_cylinder_mat" group="2"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="small_cylinder_collision" type="cylinder" pos="0 0 0.5"
+            size="0.42 0.5" group="3" condim="3"
+            contype="2" conaffinity="8" friction="0.1 0.003 0.001"
+            margin="0.0015" gap="0.0005" solref="0.012 1.0"
+            solimp="0.90 0.95 0.001" rgba="0 0 0 0" mass="0"/>
+    </body>
+
+    <body name="large_cylinder" pos="1.0 -1.0 0">
+      <geom name="large_cylinder_visual" type="cylinder" pos="0 0 0.5"
+            size="0.84 0.5" material="large_cylinder_mat" group="2"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="large_cylinder_collision" type="cylinder" pos="0 0 0.5"
+            size="0.84 0.5" group="3" condim="3"
+            contype="2" conaffinity="8" friction="0.1 0.003 0.001"
+            margin="0.0015" gap="0.0005" solref="0.012 1.0"
+            solimp="0.90 0.95 0.001" rgba="0 0 0 0" mass="0"/>
+    </body>
+
+    <!--
+      Right external tangent: endpoints (1.410635,1.0882), (1.821269,-0.8236).
+      Offset the box center inward by its 4 mm half-thickness so its outer
+      contact face, rather than its center plane, is flush with both cylinders.
+    -->
+    <body name="cylinder_belt_right" pos="1.612041 0.13146 0.5" euler="0 0 -77.877577">
+      <geom name="cylinder_belt_right_visual" type="box"
+            size="0.977701 0.004 0.5" material="cylinder_belt_mat"
+            group="2" contype="0" conaffinity="0" mass="0"/>
+      <geom name="cylinder_belt_right_collision" type="box"
+            size="0.977701 0.004 0.5" rgba="0 0 0 0"
+            group="3" condim="3" contype="2" conaffinity="8"
+            friction="0.1 0.003 0.001" margin="0.0015" gap="0.0005"
+            solref="0.012 1.0" solimp="0.90 0.95 0.001" mass="0"/>
+    </body>
+
+    <!--
+      Left external tangent: endpoints (0.589365,1.0882), (0.178731,-0.8236).
+      Apply the mirrored inward offset so the outer contact face is flush.
+    -->
+    <body name="cylinder_belt_left" pos="0.387959 0.13146 0.5" euler="0 0 -102.122423">
+      <geom name="cylinder_belt_left_visual" type="box"
+            size="0.977701 0.004 0.5" material="cylinder_belt_mat"
+            group="2" contype="0" conaffinity="0" mass="0"/>
+      <geom name="cylinder_belt_left_collision" type="box"
+            size="0.977701 0.004 0.5" rgba="0 0 0 0"
+            group="3" condim="3" contype="2" conaffinity="8"
+            friction="0.1 0.003 0.001" margin="0.0015" gap="0.0005"
+            solref="0.012 1.0" solimp="0.90 0.95 0.001" mass="0"/>
+    </body>
+  </worldbody>
+</mujoco>

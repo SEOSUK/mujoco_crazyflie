@@ -122,28 +122,14 @@ void ViewerControls::onScroll(
   (void)model;
   (void)data;
 
-  const double azimuth_rad = camera->azimuth * M_PI / 180.0;
-  const double elevation_rad = camera->elevation * M_PI / 180.0;
-
-  // Move the whole camera rig forward/backward along the current view ray.
-  double forward_x = std::sin(azimuth_rad) * std::cos(elevation_rad);
-  double forward_y = std::cos(azimuth_rad) * std::cos(elevation_rad);
-  double forward_z = std::sin(elevation_rad);
-  const double forward_norm = std::sqrt(
-    forward_x * forward_x + forward_y * forward_y + forward_z * forward_z);
-
-  if (forward_norm < 1.0e-9) {
-    return;
-  }
-  forward_x /= forward_norm;
-  forward_y /= forward_norm;
-  forward_z /= forward_norm;
-
-  const double dolly_step = config_.zoom_sensitivity *
-    clampDouble(0.15 * camera->distance, 0.03, 0.75);
-  camera->lookat[0] += dolly_step * yoffset * forward_x;
-  camera->lookat[1] += dolly_step * yoffset * forward_y;
-  camera->lookat[2] += dolly_step * yoffset * forward_z;
+  // Keep the orbit target fixed and change only camera distance.  Translating
+  // lookat along a reconstructed view ray made the wheel direction dependent
+  // on the preceding pan/orbit operation.  Positive wheel input now zooms in.
+  const double zoom_factor = std::exp(-0.12 * config_.zoom_sensitivity * yoffset);
+  camera->distance = clampDouble(
+    camera->distance * zoom_factor,
+    config_.min_distance,
+    config_.max_distance);
 }
 
 bool ViewerControls::isShiftPressed(GLFWwindow * window)

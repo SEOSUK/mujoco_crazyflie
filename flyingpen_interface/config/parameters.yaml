@@ -1,7 +1,7 @@
 command_publisher:
   ros__parameters:
     position_tick: [0.1, 0.1, 0.1]
-    velocity_tick: [0.055, 0.055, 0.055]
+    velocity_tick: [0.04, 0.04, 0.04]
     yaw_tick_deg: 2.0
     force_tick: 0.01
     gravity: 9.81

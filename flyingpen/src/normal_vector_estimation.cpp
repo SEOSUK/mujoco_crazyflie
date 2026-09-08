@@ -34,9 +34,6 @@ public:
     flip_measured_force_ = this->declare_parameter<bool>(
       "flip_measured_force", false);
 
-    force_observation_source_ = this->declare_parameter<std::string>(
-      "force_observation_source", "contact_force_filt");
-
     use_vel_mode_topic_ = this->declare_parameter<std::string>(
       "use_vel_mode_topic", "su/use_vel_mode");
 
@@ -74,7 +71,7 @@ public:
     ee_acc_topic_ = this->declare_parameter<std::string>(
       "ee_acc_topic", "/crazyflie/out/EE_acceleration");
 
-    contact_force_topic_ = resolveForceObservationTopic(force_observation_source_);
+    contact_force_topic_ = "/crazyflie/out/mob_eta_t";
 
     contact_frame_quat_topic_ = this->declare_parameter<std::string>(
       "contact_frame_quat_topic", "/estimated_contact_frame_quat");
@@ -86,7 +83,7 @@ public:
     sub_contact_force_ = this->create_subscription<geometry_msgs::msg::WrenchStamped>(
       contact_force_topic_, 10,
       std::bind(&NormalVectorEstimation::contactForceCb, this, std::placeholders::_1));
-    pure_contact_force_topic_ = resolveForceObservationTopic("mob_2nd");
+    pure_contact_force_topic_ = "/crazyflie/out/mob_2nd";
     sub_contact_force_pure_ = this->create_subscription<geometry_msgs::msg::WrenchStamped>(
       pure_contact_force_topic_, 10,
       std::bind(&NormalVectorEstimation::contactForcePureCb, this, std::placeholders::_1));
@@ -135,7 +132,7 @@ public:
     RCLCPP_INFO(this->get_logger(), "normal_vector_estimation started");
     RCLCPP_INFO(this->get_logger(), "reference_object = %s", reference_object_.c_str());
     RCLCPP_INFO(this->get_logger(), "normal_estimator_method = %s", normal_estimator_method_.c_str());
-    RCLCPP_INFO(this->get_logger(), "force_observation_source = %s", force_observation_source_.c_str());
+    RCLCPP_INFO(this->get_logger(), "force_observation_source = eta_T (fixed)");
     RCLCPP_INFO(this->get_logger(), "force_observation_topic = %s", contact_force_topic_.c_str());
     RCLCPP_INFO(this->get_logger(), "pure_force_observation_topic = %s", pure_contact_force_topic_.c_str());
   }
@@ -310,39 +307,6 @@ private:
       return fallback / (fallback_norm + 1e-12);
     }
     return Eigen::Vector3d::Zero();
-  }
-
-  std::string resolveForceObservationTopic(const std::string & source) const
-  {
-    if (
-      source == "force_sensor" || source == "contact_force" ||
-      source == "contact_force_filt" || source == "filtered" ||
-      source == "filt" || source == "raw")
-    {
-      return "/crazyflie/out/EE_contact_force_filt";
-    }
-    if (
-      source == "momentum_observer_2nd_order" ||
-      source == "mob_2nd" || source == "mob2" || source == "pure")
-    {
-      return "/crazyflie/out/mob_2nd";
-    }
-    if (
-      source == "momentum_observer_2nd_order_consistency" ||
-      source == "mob_2nd_tau" || source == "mob_tau" ||
-      source == "consistency" || source == "k_ep")
-    {
-      return "/crazyflie/out/mob_2nd_tau";
-    }
-    if (source == "eta_t" || source == "eta_T" || source == "mob_eta_t") {
-      return "/crazyflie/out/mob_eta_t";
-    }
-
-    RCLCPP_WARN(
-      this->get_logger(),
-      "Unknown force_observation_source '%s'. Falling back to '/crazyflie/out/EE_contact_force_filt'.",
-      source.c_str());
-    return "/crazyflie/out/EE_contact_force_filt";
   }
 
   bool sourceRequiresImplicitForceFlip() const
@@ -901,7 +865,6 @@ private:
 
   std::string reference_object_;
   std::string normal_estimator_method_;
-  std::string force_observation_source_;
   bool flip_measured_force_{false};
   double publish_hz_{100.0};
 

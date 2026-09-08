@@ -1,9 +1,6 @@
 control_pipeline:
   ros__parameters:
-    wrench_observation_mode: "eta_T"  # "k_ep", "eta_T"
     wrench_observation_gains:
-      k_ep:
-        ke: 500.0  # point-contact consistency gain
       eta_T:
         gamma: 50.0  # normalized eta_T adaptation gain
         rho_eta: 0.1  # denominator floor in the normalized eta_T update law
@@ -29,20 +26,6 @@ trajectory_generation:
       traj1SizeY: 0.0  # pattern axis-2 radius/side length [m]
       traj1Speed: 0.1  # [m/s], nominal path-progress speed v_s
 
-      alpha_frame_mode: 2  # 0: None, 1: Normal Alignment Score, 2: Normal-rate-aware modulation
-      epsilon_tau_n: 1.0e-6  # torque-alignment score regularization epsilon
-      c_bar_tau: 2.0  # alpha_frame = exp(-(1-c_tau)/c_bar_tau)
-
-
-      omega_bar_n: 0.0  # mode 2: alpha_omega = 1 / (1 + (omega_n / omega_bar_n)^r), set 0.0 to disable this term
-      normal_vel_bar_n: 0.04 # mode 2: alpha_v = 1 / (1 + (e_v / normal_vel_bar_n)^r), set 0.0 to disable this term
-      omega_n_lpf_cutoff_hz: 0.0  # mode 2: 1st-order LPF cutoff for omega_n, set 0.0 to disable filtering
-      normal_leakage_lpf_cutoff_hz: 1.0  # mode 2: 1st-order LPF cutoff for normal leakage, set 0.0 to disable filtering
-
-      alpha_gate_power_r: 2 # mode 2: common exponent r for alpha_omega and alpha_v, use 1 or 2
-      alpha_min: 1.0  # mode 2: alpha_frame lower bound
-
-
       preloadEn: 1  # 0: fixed normal [-1,0,0], 1: force-dominant normal estimator
       preloadGf: 20.0  # effective gain from normal force error to normal velocity command
       preloadGv: 20.0  # effective gain from normal velocity leakage to command
@@ -53,9 +36,9 @@ normal_vector_estimation:
     reference_object: "end_effector"  # shared command reference: "drone" or "end_effector"
 
     normal_force_based:
-      normBeta: 2.0  # [1/s] beta ≈ 2*pi*f_c, decay rate of the normal-axis memory matrix
+      normBeta: 1.0  # [1/s] beta ≈ 2*pi*f_c, decay rate of the normal-axis memory matrix
       normDeadzoneV: 0.00  # [m/s], velocity deadzone applied before velocity-admissible projection is trusted
       normEpsG: 0.0001  # [m^2/s^2], post-deadzone velocity-projection regularization epsilon_g
-      normEpsF: 0.03  # [N], minimum force evidence norm epsilon_f
+      normEpsF: 0.01  # [N], minimum force evidence norm epsilon_f
 
       algebraic_force_epsilon: 0.005  # [N], minimum corrected-force norm required before normalizing the algebraic candidate

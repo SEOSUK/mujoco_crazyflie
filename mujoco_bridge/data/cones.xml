@@ -1,0 +1,58 @@
+<mujoco>
+  <!--
+    Contact-track parameters (see generate_contact_track.py):
+      cone_angle_deg=15; short_radius=0.30 at (3,+1); tall_radius=0.50 at (3,-1)
+      height=radius/tan(cone_angle_deg); bridge_width_x=0.50
+    A builtin cone spans z=[-1,+1], so scale=(radius,radius,height/2)
+    and pos_z=height/2 place its base at z=0.
+  -->
+  <asset>
+    <!-- height=1.1196152423, height/2=0.5598076211 -->
+    <mesh name="short_cone_mesh" builtin="cone" params="64 0"
+          scale="0.30 0.30 0.5598076211"/>
+    <!-- height=1.8660254038, height/2=0.9330127019 -->
+    <mesh name="tall_cone_mesh" builtin="cone" params="64 0"
+          scale="0.50 0.50 0.9330127019"/>
+    <material name="short_cone_mat" rgba="0.95 0.45 0.08 1"/>
+    <material name="tall_cone_mat" rgba="0.15 0.55 0.95 1"/>
+    <material name="cone_bridge_mat" rgba="0.30 0.72 0.42 1"/>
+  </asset>
+
+  <worldbody>
+    <!-- Base z=0, apex z=1.1196152423. -->
+    <body name="short_cone" pos="3.0 1.0 0">
+      <geom name="short_cone_visual" type="mesh" mesh="short_cone_mesh"
+            pos="0 0 0.5598076211" material="short_cone_mat" group="2"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="short_cone_collision" type="mesh" mesh="short_cone_mesh"
+            pos="0 0 0.5598076211" group="3" condim="3"
+            contype="2" conaffinity="8" friction="0.1 0.003 0.001"
+            margin="0.0015" gap="0.0005" solref="0.012 1.0"
+            solimp="0.90 0.95 0.001" rgba="0 0 0 0" mass="0"/>
+    </body>
+
+    <!-- Base z=0, apex z=1.8660254038. -->
+    <body name="tall_cone" pos="3.0 -1.0 0">
+      <geom name="tall_cone_visual" type="mesh" mesh="tall_cone_mesh"
+            pos="0 0 0.9330127019" material="tall_cone_mat" group="2"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="tall_cone_collision" type="mesh" mesh="tall_cone_mesh"
+            pos="0 0 0.9330127019" group="3" condim="3"
+            contype="2" conaffinity="8" friction="0.1 0.003 0.001"
+            margin="0.0015" gap="0.0005" solref="0.012 1.0"
+            solimp="0.90 0.95 0.001" rgba="0 0 0 0" mass="0"/>
+    </body>
+
+    <!--
+      Bounds: x=[2.75,3.25], y=[-0.60,0.90]. Boundary height and gradient
+      match each cone; C1 quadratic transitions flatten onto the z=0.02 deck.
+    -->
+    <body name="cone_bridge" pos="3.0 0.15 0.02">
+      <geom name="cone_bridge_collision" type="hfield"
+            hfield="cone_bridge_hfield" material="cone_bridge_mat"
+            group="3" condim="3" contype="2" conaffinity="8"
+            friction="0.1 0.003 0.001" margin="0.0015" gap="0.0005"
+            solref="0.012 1.0" solimp="0.90 0.95 0.001" mass="0"/>
+    </body>
+  </worldbody>
+</mujoco>

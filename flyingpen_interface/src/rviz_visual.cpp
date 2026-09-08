@@ -163,6 +163,11 @@ public:
         "cylinder.rgba must have size 4. Falling back to [0.75, 0.93, 0.75, 0.25].");
       cylinder_rgba_ = {0.75, 0.93, 0.75, 0.25};
     }
+    cylinder_belt_rgba_ = this->declare_parameter<std::vector<double>>(
+      "cylinder_belt.rgba", std::vector<double>{0.30, 0.78, 0.48, 0.35});
+    if (cylinder_belt_rgba_.size() != 4) {
+      cylinder_belt_rgba_ = {0.30, 0.78, 0.48, 0.35};
+    }
     wall_pos_x_ = this->declare_parameter<double>("wall.pos.x", 0.5);
     wall_pos_y_ = this->declare_parameter<double>("wall.pos.y", 0.0);
     wall_pos_z_ = this->declare_parameter<double>("wall.pos.z", 1.0);
@@ -1086,6 +1091,52 @@ private:
     return mk;
   }
 
+  visualization_msgs::msg::Marker make_cylinder_belt_marker(
+    const std::string & ns, int id, const std::string & frame_id,
+    const rclcpp::Time & stamp) const
+  {
+    visualization_msgs::msg::Marker mk;
+    mk.header.stamp = stamp;
+    mk.header.frame_id = frame_id;
+    mk.ns = ns;
+    mk.id = id;
+    mk.type = visualization_msgs::msg::Marker::TRIANGLE_LIST;
+    mk.action = visualization_msgs::msg::Marker::ADD;
+    mk.pose.orientation.w = 1.0;
+    mk.scale.x = mk.scale.y = mk.scale.z = 1.0;
+    mk.color.r = static_cast<float>(cylinder_belt_rgba_[0]);
+    mk.color.g = static_cast<float>(cylinder_belt_rgba_[1]);
+    mk.color.b = static_cast<float>(cylinder_belt_rgba_[2]);
+    mk.color.a = static_cast<float>(cylinder_belt_rgba_[3]);
+    mk.lifetime = rclcpp::Duration::from_seconds(0.0);
+
+    constexpr double z0 = 0.0;
+    constexpr double z1 = 1.0;
+    constexpr int segments = 96;
+    auto append_cylinder = [&mk, this, z0, z1](double cx, double cy, double radius) {
+      for (int i = 0; i < segments; ++i) {
+        const double a0 = 2.0 * M_PI * static_cast<double>(i) / segments;
+        const double a1 = 2.0 * M_PI * static_cast<double>(i + 1) / segments;
+        appendDoubleSidedQuad(
+          mk,
+          Eigen::Vector3d(cx + radius * std::cos(a0), cy + radius * std::sin(a0), z0),
+          Eigen::Vector3d(cx + radius * std::cos(a1), cy + radius * std::sin(a1), z0),
+          Eigen::Vector3d(cx + radius * std::cos(a1), cy + radius * std::sin(a1), z1),
+          Eigen::Vector3d(cx + radius * std::cos(a0), cy + radius * std::sin(a0), z1));
+      }
+    };
+    append_cylinder(1.0, 1.0, 0.42);
+    append_cylinder(1.0, -1.0, 0.84);
+
+    appendDoubleSidedQuad(
+      mk, Eigen::Vector3d(1.410635, 1.0882, z0), Eigen::Vector3d(1.821269, -0.8236, z0),
+      Eigen::Vector3d(1.821269, -0.8236, z1), Eigen::Vector3d(1.410635, 1.0882, z1));
+    appendDoubleSidedQuad(
+      mk, Eigen::Vector3d(0.589365, 1.0882, z0), Eigen::Vector3d(0.178731, -0.8236, z0),
+      Eigen::Vector3d(0.178731, -0.8236, z1), Eigen::Vector3d(0.589365, 1.0882, z1));
+    return mk;
+  }
+
   geometry_msgs::msg::Pose makeDefaultWallBasePose() const
   {
     geometry_msgs::msg::Pose pose;
@@ -1272,6 +1323,9 @@ private:
     if (environment_type_ == "surface_chain") {
       return make_surface_chain_marker(ns, id, frame_id, stamp);
     }
+    if (environment_type_ == "cylinder_belt") {
+      return make_cylinder_belt_marker(ns, id, frame_id, stamp);
+    }
     return make_cylinder_marker(ns, id, frame_id, stamp);
   }
 
@@ -1404,7 +1458,9 @@ private:
     std::transform(type.begin(), type.end(), type.begin(), [](unsigned char c) {
       return static_cast<char>(std::tolower(c));
     });
-    if (type != "wall" && type != "cylinder" && type != "surface_chain") {
+    if (type != "wall" && type != "cylinder" && type != "surface_chain" &&
+      type != "cylinder_belt")
+    {
       RCLCPP_WARN(
         this->get_logger(),
         "Unknown environment.type '%s'. Falling back to 'surface_chain'.",
@@ -2529,6 +2585,7 @@ private:
   double cylinder_radius_{1.0};
   double cylinder_half_height_{10.0};
   std::vector<double> cylinder_rgba_{0.75, 0.93, 0.75, 0.85};
+  std::vector<double> cylinder_belt_rgba_{0.30, 0.78, 0.48, 0.35};
   double wall_pos_x_{0.5};
   double wall_pos_y_{0.0};
   double wall_pos_z_{1.0};

@@ -110,71 +110,18 @@ def build_control_pipeline_observer_overrides(su_params_config):
         su_params_config.get("control_pipeline", {})
         .get("ros__parameters", {})
     )
-    raw_mode = str(control_params.get("wrench_observation_mode", "eta_t")).strip().lower()
-
-    mode_aliases = {
-        "k_ep": "k_ep",
-        "consistency": "k_ep",
-        "momentum_observer_2nd_order_consistency": "k_ep",
-        "mob_2nd_tau": "k_ep",
-        "eta_t": "eta_t",
-        "mob_eta_t": "eta_t",
-    }
-    canonical_mode = mode_aliases.get(raw_mode, raw_mode)
-
-    observer_modes = {
-        "k_ep": {
-            "implemented": True,
-            "force_observation_source": "k_ep",
-            "ee_applied_wrench_topic": "/crazyflie/out/ee_applied_mob_2nd_tau",
-        },
-        "eta_t": {
-            "implemented": True,
-            "force_observation_source": "eta_t",
-            "ee_applied_wrench_topic": "/crazyflie/out/ee_applied_mob_eta_t",
-        },
-    }
-
-    if canonical_mode not in observer_modes:
-        supported_modes = ", ".join(observer_modes.keys())
-        raise ValueError(
-            "Unsupported control_pipeline.wrench_observation_mode "
-            f"'{raw_mode}'. Supported modes: {supported_modes}."
-        )
-
-    selected_mode = observer_modes[canonical_mode]
-    if not selected_mode.get("implemented", False):
-        raise NotImplementedError(
-            "control_pipeline.wrench_observation_mode "
-            f"'{canonical_mode}' is reserved but not implemented yet."
-        )
-
     gain_config = control_params.get("wrench_observation_gains", {}) or {}
     if not isinstance(gain_config, dict):
         raise ValueError(
             "control_pipeline.wrench_observation_gains must be a mapping keyed by mode name."
         )
-    k_ep_gain_config = gain_config.get("k_ep", {}) or {}
     eta_t_gain_config = gain_config.get("eta_T", gain_config.get("eta_t", {})) or {}
-    for mode_name, mode_gain_config in (
-        ("k_ep", k_ep_gain_config),
-        ("eta_T", eta_t_gain_config),
-    ):
-        if not isinstance(mode_gain_config, dict):
-            raise ValueError(
-                "control_pipeline.wrench_observation_gains."
-                f"{mode_name} must be a mapping of gain names to numeric values."
-            )
+    if not isinstance(eta_t_gain_config, dict):
+        raise ValueError(
+            "control_pipeline.wrench_observation_gains.eta_T must be a mapping."
+        )
 
     wrench_observer_overrides = {}
-    k_ep_ke_gain = coerce_optional_float(
-        k_ep_gain_config.get("ke"),
-        "control_pipeline.wrench_observation_gains.k_ep.ke",
-    )
-    if k_ep_ke_gain is not None:
-        wrench_observer_overrides["mob.Ke"] = k_ep_ke_gain
-        wrench_observer_overrides["mob.Ke_ep"] = k_ep_ke_gain
-
     eta_t_gamma = coerce_optional_float(
         eta_t_gain_config.get("gamma"),
         "control_pipeline.wrench_observation_gains.eta_T.gamma",
@@ -190,12 +137,8 @@ def build_control_pipeline_observer_overrides(su_params_config):
         wrench_observer_overrides["mob.eta_t.rho_eta"] = eta_t_rho_eta
 
     return {
-        "normal_vector_estimation": {
-            "force_observation_source": selected_mode["force_observation_source"],
-        },
-        "trajectory_generation": {
-            "ee_applied_wrench_consistency_topic": selected_mode["ee_applied_wrench_topic"],
-        },
+        "normal_vector_estimation": {},
+        "trajectory_generation": {},
         "wrench_observer": wrench_observer_overrides,
     }
 
@@ -408,7 +351,8 @@ def generate_launch_description():
         rviz_visual_node,
         data_logger_node,
         firmware_bridge_node,
-        *panel_actions,
-        TimerAction(period=4.0, actions=[wind_joystick_node]),
+        # Temporarily disabled: PyQt diagnostics panel and wind joystick window.
+        # *panel_actions,
+        # TimerAction(period=4.0, actions=[wind_joystick_node]),
         TimerAction(period=3.0, actions=[mujoco_bridge_node]),
     ])
