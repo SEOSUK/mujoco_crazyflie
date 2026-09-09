@@ -6,6 +6,7 @@
 #include <geometry_msgs/msg/wrench_stamped.hpp>
 #include <std_msgs/msg/float32.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
+#include <std_msgs/msg/bool.hpp>
 
 #include <Eigen/Dense>
 
@@ -128,6 +129,8 @@ public:
       normal_debug_metrics_topic_, 10);
     pub_n_hat_dot_ = this->create_publisher<geometry_msgs::msg::Vector3Stamped>(
       n_hat_dot_topic_, 10);
+    pub_n_hat_valid_ = this->create_publisher<std_msgs::msg::Bool>(
+      "/normal_vector/n_hat_valid", 10);
 
     const double safe_hz = std::max(1.0, publish_hz_);
     timer_ = this->create_wall_timer(
@@ -442,6 +445,7 @@ private:
     Eigen::Vector3d pure_force_world,
     double dt)
   {
+    normal_estimator_valid_ = false;
     force_world = toNormalEvidenceForce(force_world);
     pure_force_world = toNormalEvidenceForce(pure_force_world);
 
@@ -533,6 +537,12 @@ private:
     // instantaneous dominant eigenvector. Keep n_geo as a compatibility alias.
     const Eigen::Vector3d n_geo = updatePaperNormal(
       force_based_state_.l_n, n_alg_memory, force_world, dt);
+    normal_estimator_valid_ =
+      ref.valid &&
+      std::isfinite(force_norm) && force_norm > force_based_force_epsilon_ &&
+      n_alg_memory.allFinite() && n_alg_memory.squaredNorm() > 1e-12 &&
+      force_based_state_.n_hat_initialized && n_geo.allFinite() &&
+      n_geo.squaredNorm() > 1e-12 && force_based_state_.n_hat_dot.allFinite();
     const Eigen::Vector3d n_geo_ke_raw = updateDirectionalMemory(
       ke_raw_memory_l_n_, n_f, n_f, cf_out, force_world, dt);
 
@@ -669,6 +679,10 @@ private:
 
   void publishNormalDebugMetrics()
   {
+    std_msgs::msg::Bool valid_msg;
+    valid_msg.data = normal_estimator_valid_;
+    pub_n_hat_valid_->publish(valid_msg);
+
     geometry_msgs::msg::Vector3Stamped n_dot_msg;
     n_dot_msg.header.stamp = this->now();
     n_dot_msg.header.frame_id = "world";
@@ -725,6 +739,7 @@ private:
 
   void clearNormalDebugMetrics()
   {
+    normal_estimator_valid_ = false;
     force_based_state_.l_n = Eigen::Matrix3d::Zero();
     ke_raw_memory_l_n_ = Eigen::Matrix3d::Zero();
     no_ke_raw_memory_l_n_ = Eigen::Matrix3d::Zero();
@@ -833,6 +848,7 @@ private:
 
   void update()
   {
+    normal_estimator_valid_ = false;
     {
       std::lock_guard<std::mutex> lk(mode_mtx_);
       if (!use_vel_mode_) {
@@ -866,6 +882,7 @@ private:
     {
       std::lock_guard<std::mutex> lk(force_mtx_);
       if (!(force_received_ && force_pure_received_)) {
+        publishNormalDebugMetrics();
         return;
       }
       force_arr = contact_force_;
@@ -935,6 +952,7 @@ private:
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr pub_contact_force_x_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr pub_normal_debug_metrics_;
   rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr pub_n_hat_dot_;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pub_n_hat_valid_;
 
   rclcpp::TimerBase::SharedPtr timer_;
 
@@ -949,6 +967,7 @@ private:
   double force_based_velocity_deadzone_{0.01};
   double force_based_beta_n_{1.0};
   double force_based_gamma_n_{1.0};
+  bool normal_estimator_valid_{false};
 
   std::string pose_topic_;
   std::string vel_topic_;

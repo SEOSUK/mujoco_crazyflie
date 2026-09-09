@@ -58,7 +58,8 @@ rviz_visual:
     ke_normal_force_epsilon: 0.005
     contact_force_lpf_omega: 12.0
     cylinder.rgba: [0.75, 0.93, 0.75, 0.25]
-    cylinder_belt.rgba: [0.30, 0.78, 0.48, 0.35]
+    cylinder_belt.rgba: [0.30, 0.78, 0.48, 0.45]
+    cylinder_belt.thickness: 0.02
     wall.rgba: [0.75, 0.93, 0.75, 0.25]
     surface_chain.rgba: [0.75, 0.93, 0.75, 0.35]
     publish_hz: 20.0

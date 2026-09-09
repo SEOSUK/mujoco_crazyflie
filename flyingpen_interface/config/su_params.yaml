@@ -36,8 +36,8 @@ normal_vector_estimation:
     reference_object: "end_effector"  # shared command reference: "drone" or "end_effector"
 
     normal_force_based:
-      normBeta: 1.0  # [1/s] beta ≈ 2*pi*f_c, decay rate of the normal-axis memory matrix
-      normGamma: 1.0  # [1/s] Eq. (10b) unit-sphere normal tracking gain
+      normBeta: 3.0  # [1/s] beta ≈ 2*pi*f_c, decay rate of the normal-axis memory matrix
+      normGamma: 6.0  # [1/s] Eq. (10b) unit-sphere normal tracking gain
       normDeadzoneV: 0.00  # [m/s], velocity deadzone applied before velocity-admissible projection is trusted
       normEpsG: 0.0001  # [m^2/s^2], post-deadzone velocity-projection regularization epsilon_g
       normEpsF: 0.01  # [N], minimum force evidence norm epsilon_f

@@ -17,6 +17,7 @@
 #include <geometry_msgs/msg/vector3_stamped.hpp>
 #include <geometry_msgs/msg/quaternion_stamped.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
+#include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
 #include <geometry_msgs/msg/wrench_stamped.hpp>
 #include <std_msgs/msg/float32.hpp>
@@ -245,6 +246,9 @@ public:
     sub_geometry_metrics_ = create_subscription<std_msgs::msg::Float64MultiArray>(
       "/mujoco/ground_truth/geometry_metrics", 10,
       std::bind(&DataLogger::cb_geometry_metrics, this, std::placeholders::_1));
+    sub_n_hat_valid_ = create_subscription<std_msgs::msg::Bool>(
+      "/normal_vector/n_hat_valid", 10,
+      std::bind(&DataLogger::cb_n_hat_valid, this, std::placeholders::_1));
 
     sub_mob_wrench_2nd_order_ = create_subscription<geometry_msgs::msg::WrenchStamped>(
       "/crazyflie/out/mob_2nd", 10,
@@ -373,7 +377,11 @@ private:
       "kappa_n_hat,kappa_n_true,a_gn_hat_nom,a_gn_hat_ref,a_gn_true,a_bar_n,"
       "velocity_scale_alpha,vt_d_t1,vt_d_t2,vt_d_norm,vt_ref_t1,vt_ref_t2,vt_ref_norm,"
       "n_hat_dot_x,n_hat_dot_y,n_hat_dot_z,vc_norm,"
-      "true_normal_x,true_normal_y,true_normal_z,true_surface_id,kappa_valid\n";
+      "true_normal_x,true_normal_y,true_normal_z,true_surface_id,kappa_valid,"
+      "normal_estimator_valid,"
+      "vt_actual_t1,vt_actual_t2,vt_actual_norm,a_gn_hat_realized,"
+      "vt_tracking_error_t1,vt_tracking_error_t2,vt_tracking_error_norm,vt_tracking_ratio,"
+      "true_v_theta,true_vt_norm\n";
     csv_.flush();
   }
 
@@ -622,6 +630,12 @@ private:
     std::copy_n(m->data.begin(), geometry_metrics_.size(), geometry_metrics_.begin());
   }
 
+  void cb_n_hat_valid(const std_msgs::msg::Bool::SharedPtr m)
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    normal_estimator_valid_ = m->data;
+  }
+
   void cb_mob_wrench_2nd_order(const geometry_msgs::msg::WrenchStamped::SharedPtr m)
   {
     std::lock_guard<std::mutex> lk(mtx_);
@@ -753,9 +767,10 @@ private:
     double Fz, cmd_force, F_error_dot_raw, F_error_dot_filt, c_hat_fx_act;
     double eta_t_hat, thrust_effectiveness_true;
     double alpha_frame, omega_n, normal_leakage, alpha_u1, alpha_u2, preload_feedback, c_tau, pattern_progress, pattern_speed_cmd;
-    std::array<double, 13> velocity_modulation;
+    std::array<double, 21> velocity_modulation;
     std::array<double, 8> geometry_metrics;
     Eigen::Vector3d n_hat_dot;
+    bool normal_estimator_valid;
 
 
     uint32_t mask;
@@ -829,6 +844,7 @@ private:
       velocity_modulation = velocity_modulation_;
       geometry_metrics = geometry_metrics_;
       n_hat_dot = n_hat_dot_;
+      normal_estimator_valid = normal_estimator_valid_;
 
 
       mask = 0u;
@@ -926,7 +942,7 @@ private:
     }
 
     std_msgs::msg::Float64MultiArray msg;
-    msg.data.resize(150);
+    msg.data.resize(161);
 
     msg.data[0]  = t;
 
@@ -1095,6 +1111,17 @@ private:
     msg.data[147] = geometry_metrics[4];
     msg.data[148] = geometry_metrics[5];
     msg.data[149] = velocity_modulation[12];
+    msg.data[150] = normal_estimator_valid ? 1.0 : 0.0;
+    msg.data[151] = velocity_modulation[13];
+    msg.data[152] = velocity_modulation[14];
+    msg.data[153] = velocity_modulation[15];
+    msg.data[154] = velocity_modulation[16];
+    msg.data[155] = velocity_modulation[17];
+    msg.data[156] = velocity_modulation[18];
+    msg.data[157] = velocity_modulation[19];
+    msg.data[158] = velocity_modulation[20];
+    msg.data[159] = geometry_metrics[6];
+    msg.data[160] = geometry_metrics[7];
 
 
 
@@ -1182,7 +1209,11 @@ private:
            << msg.data[140] << "," << msg.data[141] << "," << msg.data[142] << ","
            << msg.data[143] << "," << msg.data[144] << "," << msg.data[145] << ","
            << msg.data[146] << "," << msg.data[147] << "," << msg.data[148] << ","
-           << msg.data[149]
+           << msg.data[149] << "," << msg.data[150] << ","
+           << msg.data[151] << "," << msg.data[152] << "," << msg.data[153] << ","
+           << msg.data[154] << "," << msg.data[155] << "," << msg.data[156] << ","
+           << msg.data[157] << "," << msg.data[158] << "," << msg.data[159] << ","
+           << msg.data[160]
            << "\n";
 
       if (++csv_line_count_ % 200 == 0) {
@@ -1235,9 +1266,10 @@ private:
   double c_tau_{quiet_nan()};
   double pattern_progress_{quiet_nan()};
   double pattern_speed_cmd_{quiet_nan()};
-  std::array<double, 13> velocity_modulation_{};
+  std::array<double, 21> velocity_modulation_{};
   std::array<double, 8> geometry_metrics_{};
   Eigen::Vector3d n_hat_dot_{0,0,0};
+  bool normal_estimator_valid_{false};
   Eigen::Vector3d n_ke_gamma_proj_{quiet_nan(), quiet_nan(), quiet_nan()};
   Eigen::Vector3d normal_pure_{quiet_nan(), quiet_nan(), quiet_nan()};
   Eigen::Vector3d normal_ke_{quiet_nan(), quiet_nan(), quiet_nan()};
@@ -1339,6 +1371,7 @@ private:
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_velocity_modulation_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_n_hat_dot_;
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_geometry_metrics_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_n_hat_valid_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_wrench_2nd_order_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_wrench_2nd_tau_;
   rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_mob_wrench_eta_t_;

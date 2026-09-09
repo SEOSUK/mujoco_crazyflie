@@ -6,6 +6,7 @@
 #include <geometry_msgs/msg/wrench_stamped.hpp>
 #include <std_msgs/msg/float32.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
+#include <std_msgs/msg/bool.hpp>
 
 #include <Eigen/Dense>
 
@@ -143,6 +144,9 @@ public:
     sub_n_hat_dot_ = create_subscription<geometry_msgs::msg::Vector3Stamped>(
       n_hat_dot_topic_, 10,
       std::bind(&TrajectoryGeneration::nHatDotCb, this, std::placeholders::_1));
+    sub_n_hat_valid_ = create_subscription<std_msgs::msg::Bool>(
+      "/normal_vector/n_hat_valid", 10,
+      std::bind(&TrajectoryGeneration::nHatValidCb, this, std::placeholders::_1));
 
     sub_pose_ = create_subscription<geometry_msgs::msg::PoseStamped>(
       pose_topic_, 10, std::bind(&TrajectoryGeneration::poseCb, this, std::placeholders::_1));
@@ -601,6 +605,14 @@ private:
     last_n_hat_dot_stamp_ = this->now();
   }
 
+  void nHatValidCb(const std_msgs::msg::Bool::SharedPtr msg)
+  {
+    std::lock_guard<std::mutex> lk(contact_mtx_);
+    n_hat_valid_ = msg->data;
+    n_hat_valid_received_ = true;
+    last_n_hat_valid_stamp_ = this->now();
+  }
+
   void contactForceXCb(const std_msgs::msg::Float32::SharedPtr msg)
   {
     std::lock_guard<std::mutex> lk(contact_mtx_);
@@ -729,16 +741,25 @@ private:
   void publishVelocityModulation(
     double kappa, double a_nom, double a_ref, double alpha,
     const Eigen::Vector2d & vt_d, const Eigen::Vector2d & vt_ref,
-    double vc_norm, bool valid)
+    const Eigen::Vector2d & vt_actual, double vc_norm, bool valid)
   {
     // Fixed indices: 0 kappa, 1 a_nom, 2 a_ref, 3 a_bar, 4 alpha,
     // 5:7 nominal tangent command, 8:10 modulated command,
-    // 11 measured contact-speed norm, 12 curvature-valid flag.
+    // 11 measured contact-speed norm, 12 curvature-valid flag,
+    // 13:15 actual tangent velocity, 16 realized-velocity acceleration,
+    // 17:19 tangent tracking error, 20 actual/reference speed ratio.
+    const Eigen::Vector2d vt_error = vt_ref - vt_actual;
+    const double a_realized = kappa * vt_actual.squaredNorm();
+    const double tracking_ratio =
+      vt_ref.norm() > 1e-12 ? vt_actual.norm() / vt_ref.norm() :
+      std::numeric_limits<double>::quiet_NaN();
     std_msgs::msg::Float64MultiArray msg;
     msg.data = {
       kappa, a_nom, a_ref, velocity_modulation_a_bar_n_, alpha,
       vt_d.x(), vt_d.y(), vt_d.norm(),
-      vt_ref.x(), vt_ref.y(), vt_ref.norm(), vc_norm, valid ? 1.0 : 0.0};
+      vt_ref.x(), vt_ref.y(), vt_ref.norm(), vc_norm, valid ? 1.0 : 0.0,
+      vt_actual.x(), vt_actual.y(), vt_actual.norm(), a_realized,
+      vt_error.x(), vt_error.y(), vt_error.norm(), tracking_ratio};
     pub_velocity_modulation_->publish(msg);
   }
 
@@ -791,6 +812,8 @@ private:
     bool contact_force_ok = false;
     Eigen::Vector3d n_hat_dot_w = Eigen::Vector3d::Zero();
     bool n_hat_dot_ok = false;
+    bool n_hat_valid = false;
+    bool n_hat_valid_ok = false;
     {
       std::lock_guard<std::mutex> lk(contact_mtx_);
       use_vel_mode_local = use_vel_mode_;
@@ -804,6 +827,8 @@ private:
       contact_force_ok = contact_force_x_received_;
       n_hat_dot_w = n_hat_dot_w_;
       n_hat_dot_ok = n_hat_dot_received_;
+      n_hat_valid = n_hat_valid_;
+      n_hat_valid_ok = n_hat_valid_received_;
     }
 
     contact_frame_ok =
@@ -811,6 +836,8 @@ private:
     contact_force_ok =
       contact_force_ok && isSignalFresh(last_contact_force_x_stamp_, now);
     n_hat_dot_ok = n_hat_dot_ok && isSignalFresh(last_n_hat_dot_stamp_, now);
+    n_hat_valid_ok =
+      n_hat_valid_ok && isSignalFresh(last_n_hat_valid_stamp_, now);
 
     if (!integrated_ref_initialized_) {
       syncIntegratedReferenceToMeasured(ref);
@@ -847,6 +874,7 @@ private:
       publishNaNContactVelocityDebug(now);
       publishVelocityModulation(
         0.0, 0.0, 0.0, 1.0, Eigen::Vector2d::Zero(), Eigen::Vector2d::Zero(),
+        Eigen::Vector2d::Zero(),
         ref.valid ? ref.vel_w.norm() : 0.0, false);
       publishControlMetrics(
         1.0,
@@ -943,7 +971,9 @@ private:
     // Eq. (12): use actual measured contact-point/EE velocity and the direct
     // Eq. (10b) RHS. At low speed, retain the most recent valid value.
     const double vc_norm = ref.valid ? ref.vel_w.norm() : 0.0;
-    if (ref.valid && n_hat_dot_ok && vc_norm > velocity_modulation_v_min_) {
+    if (ref.valid && n_hat_dot_ok && n_hat_valid_ok && n_hat_valid &&
+      vc_norm > velocity_modulation_v_min_)
+    {
       const double kappa = std::abs(n_hat_dot_w.dot(ref.vel_w)) / ref.vel_w.squaredNorm();
       if (std::isfinite(kappa)) {
         last_valid_kappa_hat_n_ = kappa;
@@ -971,6 +1001,12 @@ private:
     const Eigen::Vector2d v_t_ref_tangent = alpha_star * v_t_d_tangent;
     const Eigen::Vector3d v_t_ref_world = alpha_star * v_t_d_world;
     const double a_hat_gn_ref = kappa_hat_n * v_t_ref_world.squaredNorm();
+    Eigen::Vector2d v_t_actual_tangent = Eigen::Vector2d::Constant(
+      std::numeric_limits<double>::quiet_NaN());
+    if (contact_basis_ok && contact_frame_ok && ref.valid) {
+      const Eigen::Vector3d v_actual_contact = contact_R_C.transpose() * ref.vel_w;
+      v_t_actual_tangent = v_actual_contact.tail<2>();
+    }
 
     double v_n_feedback = 0.0;
     double r_v_contact = 0.0;
@@ -1071,7 +1107,7 @@ private:
       s_dot);
     publishVelocityModulation(
       kappa_hat_n, a_hat_gn_nom, a_hat_gn_ref, alpha_star,
-      v_t_d_tangent, v_t_ref_tangent, vc_norm, kappa_valid_);
+      v_t_d_tangent, v_t_ref_tangent, v_t_actual_tangent, vc_norm, kappa_valid_);
 
     Eigen::Vector3d v_active_des_world = v_contact_des_world;
     Eigen::Vector3d v_drone_des_world = v_contact_des_world;
@@ -1126,6 +1162,7 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::QuaternionStamped>::SharedPtr sub_contact_frame_quat_;
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_contact_force_x_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_n_hat_dot_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_n_hat_valid_;
 
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_pose_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr sub_vel_;
@@ -1224,6 +1261,9 @@ private:
   Eigen::Vector3d n_hat_dot_w_{Eigen::Vector3d::Zero()};
   bool n_hat_dot_received_{false};
   rclcpp::Time last_n_hat_dot_stamp_{0, 0, RCL_ROS_TIME};
+  bool n_hat_valid_{false};
+  bool n_hat_valid_received_{false};
+  rclcpp::Time last_n_hat_valid_stamp_{0, 0, RCL_ROS_TIME};
 
   std::mutex state_mtx_;
   std::array<double, 3> pose_w_{0.0, 0.0, 0.0};

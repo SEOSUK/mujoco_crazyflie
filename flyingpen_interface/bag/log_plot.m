@@ -183,9 +183,13 @@ a_gn_hat_nom = get_column_by_name(T, "a_gn_hat_nom", nan(size(time)));
 a_gn_hat_ref = get_column_by_name(T, "a_gn_hat_ref", nan(size(time)));
 a_gn_true = get_column_by_name(T, "a_gn_true", nan(size(time)));
 a_bar_n = get_column_by_name(T, "a_bar_n", nan(size(time)));
+kappa_n_true_plot = fill_short_nan_gaps(time, kappa_n_true, 0.1);
+a_gn_true_plot = fill_short_nan_gaps(time, a_gn_true, 0.1);
 velocity_scale_alpha = get_column_by_name(T, "velocity_scale_alpha", nan(size(time)));
 vt_d_norm = get_column_by_name(T, "vt_d_norm", nan(size(time)));
 vt_ref_norm = get_column_by_name(T, "vt_ref_norm", nan(size(time)));
+vt_actual_norm = get_column_by_name(T, "vt_actual_norm", nan(size(time)));
+a_gn_hat_realized = get_column_by_name(T, "a_gn_hat_realized", nan(size(time)));
 
 true_normal = [
     get_column_by_name(T, "true_normal_x", nan(size(time))), ...
@@ -340,37 +344,77 @@ end
 
 %% Velocity modulation panel
 if show_velocity_modulation_panel
+% Set to [start_time end_time] to use the same x limits on every subplot.
+% Leave as [nan nan] to show the full logged time range.
+velocity_modulation_xlim = [90 150];
+velocity_modulation_ylim_kappa = [0 2.5];
+velocity_modulation_ylim_alpha = [0.0 1.05];
+velocity_modulation_ylim_acceleration = [0 0.05];
+velocity_modulation_ylim_actual_acceleration = [0 0.05];
+velocity_modulation_ylim_velocity = [0 0.14];
+velocity_modulation_ylim_actual_velocity = [0 0.14];
+
 f_vm = figure('Name', 'Velocity Modulation', 'NumberTitle', 'off', ...
-    'Color', 'w', 'Units', 'pixels', 'Position', [620 80 760 820]);
-tlvm = tiledlayout(f_vm, 3, 1, 'TileSpacing', 'compact', 'Padding', 'compact');
+    'Color', 'w', 'Units', 'pixels', 'Position', [260 80 1200 780]);
+tlvm = tiledlayout(f_vm, 3, 2, 'TileSpacing', 'compact', 'Padding', 'compact');
 
 ax_vm_kappa = nexttile(tlvm, 1);
-plot(ax_vm_kappa, time, kappa_n_hat, '-', 'LineWidth', 1.8); hold(ax_vm_kappa, 'on');
-plot(ax_vm_kappa, time, kappa_n_true, '--', 'LineWidth', 1.8);
+plot(ax_vm_kappa, time, kappa_n_true_plot, '-', 'LineWidth', 1.8); hold(ax_vm_kappa, 'on');
+plot(ax_vm_kappa, time, kappa_n_hat, '-', 'LineWidth', 1.8);
 grid(ax_vm_kappa, 'on'); ylabel(ax_vm_kappa, '\kappa_n [1/m]');
 title(ax_vm_kappa, 'Directional Curvature'); legend(ax_vm_kappa, {'estimated', 'true'});
+apply_panel_ylim(ax_vm_kappa, velocity_modulation_ylim_kappa);
 
-ax_vm_acc = nexttile(tlvm, 2);
+ax_vm_alpha = nexttile(tlvm, 2);
+plot(ax_vm_alpha, time, velocity_scale_alpha, '-', 'LineWidth', 1.8, ...
+    'Color', [0.49 0.18 0.56]);
+grid(ax_vm_alpha, 'on'); ylabel(ax_vm_alpha, '\alpha^*');
+apply_panel_ylim(ax_vm_alpha, velocity_modulation_ylim_alpha);
+title(ax_vm_alpha, 'Velocity Scale');
+
+ax_vm_acc = nexttile(tlvm, 3);
 plot(ax_vm_acc, time, a_gn_hat_nom, ':', 'LineWidth', 1.2); hold(ax_vm_acc, 'on');
 plot(ax_vm_acc, time, a_gn_hat_ref, '-', 'LineWidth', 1.8);
-plot(ax_vm_acc, time, a_gn_true, '-.', 'LineWidth', 1.6);
 plot(ax_vm_acc, time, a_bar_n, '--', 'LineWidth', 1.8, 'Color', [0.20 0.20 0.20]);
 grid(ax_vm_acc, 'on'); ylabel(ax_vm_acc, 'a_{g,n} [m/s^2]');
 title(ax_vm_acc, 'Geometry-Induced Normal Acceleration');
-legend(ax_vm_acc, {'predicted nominal', 'predicted modulated', 'actual', '\bar{a}_n'});
+legend(ax_vm_acc, {'predicted nominal', 'predicted modulated', ...
+    '$\bar{a}_n$'}, 'Interpreter', 'latex');
+apply_panel_ylim(ax_vm_acc, velocity_modulation_ylim_acceleration);
 
-ax_vm_vel = nexttile(tlvm, 3);
-yyaxis(ax_vm_vel, 'left');
-plot(ax_vm_vel, time, vt_d_norm, '-', 'LineWidth', 1.6); hold(ax_vm_vel, 'on');
-plot(ax_vm_vel, time, vt_ref_norm, '--', 'LineWidth', 1.8);
+ax_vm_acc_actual = nexttile(tlvm, 4);
+plot(ax_vm_acc_actual, time, a_gn_true_plot, '-', 'LineWidth', 1.8, ...
+    'Color', [0.47 0.67 0.19]);
+grid(ax_vm_acc_actual, 'on'); ylabel(ax_vm_acc_actual, 'a_{g,n} [m/s^2]');
+title(ax_vm_acc_actual, 'Actual Normal Acceleration');
+legend(ax_vm_acc_actual, {'actual'}, 'Location', 'best');
+apply_panel_ylim(ax_vm_acc_actual, velocity_modulation_ylim_actual_acceleration);
+
+ax_vm_vel = nexttile(tlvm, 5);
+plot(ax_vm_vel, time, vt_d_norm, '-', 'LineWidth', 1.8, ...
+    'Color', [0.00 0.45 0.74]); hold(ax_vm_vel, 'on');
+plot(ax_vm_vel, time, vt_ref_norm, '--', 'LineWidth', 1.8, ...
+    'Color', [0.85 0.33 0.10]);
 ylabel(ax_vm_vel, 'tangential speed [m/s]');
-yyaxis(ax_vm_vel, 'right');
-plot(ax_vm_vel, time, velocity_scale_alpha, ':', 'LineWidth', 1.6);
-ylabel(ax_vm_vel, '\alpha^*'); ylim(ax_vm_vel, [0 1.05]);
 grid(ax_vm_vel, 'on'); xlabel(ax_vm_vel, 'time [s]');
 title(ax_vm_vel, 'Tangential Velocity Modulation');
-legend(ax_vm_vel, {'nominal v_{t,d}', 'modulated v_{t,ref}', '\alpha^*'});
-linkaxes([ax_vm_kappa ax_vm_acc ax_vm_vel], 'x');
+legend(ax_vm_vel, {'nominal v_{t,d}', 'modulated v_{t,ref}'}, 'Location', 'best');
+apply_panel_ylim(ax_vm_vel, velocity_modulation_ylim_velocity);
+
+ax_vm_vel_actual = nexttile(tlvm, 6);
+plot(ax_vm_vel_actual, time, vt_actual_norm, '-', 'LineWidth', 1.8, ...
+    'Color', [0.20 0.60 0.20]); hold(ax_vm_vel_actual, 'on');
+plot(ax_vm_vel_actual, time, vt_ref_norm, '--', 'LineWidth', 1.8, ...
+    'Color', [0.85 0.33 0.10]);
+ylabel(ax_vm_vel_actual, 'tangential speed [m/s]');
+grid(ax_vm_vel_actual, 'on'); xlabel(ax_vm_vel_actual, 'time [s]');
+title(ax_vm_vel_actual, 'Actual vs. Modulated Tangential Velocity');
+legend(ax_vm_vel_actual, {'actual v_t', 'modulated v_{t,ref}'}, 'Location', 'best');
+apply_panel_ylim(ax_vm_vel_actual, velocity_modulation_ylim_actual_velocity);
+
+apply_panel_xlim([ax_vm_kappa ax_vm_alpha ax_vm_acc ax_vm_acc_actual ...
+    ax_vm_vel ax_vm_vel_actual], ...
+    velocity_modulation_xlim, 'velocity_modulation');
 set(findall(f_vm, '-property', 'FontName'), 'FontName', 'Times New Roman');
 end
 
@@ -918,12 +962,46 @@ function apply_panel_xlim(axs, xlim_cfg, link_tag)
     end
 end
 
+function apply_panel_ylim(ax, ylim_cfg)
+    if numel(ylim_cfg) == 2 && all(isfinite(ylim_cfg))
+        ylim(ax, ylim_cfg);
+    end
+end
+
 function out = get_column_by_name(T, name, fallback)
     out = fallback;
     if ismember(name, T.Properties.VariableNames)
         candidate = T.(name);
         if iscolumn(candidate) && numel(candidate) == numel(fallback)
             out = candidate;
+        end
+    end
+end
+
+function y_out = fill_short_nan_gaps(t, y, max_gap_sec)
+    t = t(:);
+    y = y(:);
+    y_out = y;
+    k = 1;
+    while k <= numel(y)
+        if isfinite(y(k))
+            k = k + 1;
+            continue;
+        end
+        gap_start = k;
+        while k <= numel(y) && ~isfinite(y(k))
+            k = k + 1;
+        end
+        gap_end = k - 1;
+        left_idx = gap_start - 1;
+        right_idx = gap_end + 1;
+        if left_idx >= 1 && right_idx <= numel(y) && ...
+                isfinite(y(left_idx)) && isfinite(y(right_idx)) && ...
+                isfinite(t(left_idx)) && isfinite(t(right_idx)) && ...
+                (t(right_idx) - t(left_idx) <= max_gap_sec)
+            y_out(gap_start:gap_end) = interp1( ...
+                [t(left_idx), t(right_idx)], [y(left_idx), y(right_idx)], ...
+                t(gap_start:gap_end), 'linear');
         end
     end
 end

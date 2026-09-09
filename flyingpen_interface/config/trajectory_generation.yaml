@@ -20,7 +20,7 @@ trajectory_generation:
 
     velocity_modulation:
       enable: true
-      a_bar_n: 0.10  # [m/s^2], prescribed geometry-induced normal-acceleration limit
+      a_bar_n: 100.013  # [m/s^2], prescribed geometry-induced normal-acceleration limit
       v_min: 0.01  # [m/s], hold the last valid curvature estimate below this speed
       n_hat_dot_topic: "/normal_vector/n_hat_dot"
 

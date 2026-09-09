@@ -339,17 +339,13 @@ void MujocoContact::compute_contact_resultant_locked()
 
   mjtNum spatial_vel[6] = {0, 0, 0, 0, 0, 0};
   mj_objectVelocity(model_, data_, mjOBJ_GEOM, gid_tip_, spatial_vel, 0);
-  const mjtNum * tip_center = data_->geom_xpos + 3 * gid_tip_;
-  const double offset[3] = {
-    active_contact_pos[0] - tip_center[0], active_contact_pos[1] - tip_center[1],
-    active_contact_pos[2] - tip_center[2]};
-  const double omega[3] = {spatial_vel[0], spatial_vel[1], spatial_vel[2]};
-  double omega_cross_r[3];
-  cross3(omega, offset, omega_cross_r);
+  // cf21B_500.xml places ee_tip_site and ee_tip_sphere at the ee_tip body
+  // origin (no geom-local pos), so the geom-center linear velocity is the
+  // same fixed EE reference-point velocity used by /EE_velocity and Eq. (12).
   const double vc[3] = {
-    static_cast<double>(spatial_vel[3]) + omega_cross_r[0],
-    static_cast<double>(spatial_vel[4]) + omega_cross_r[1],
-    static_cast<double>(spatial_vel[5]) + omega_cross_r[2]};
+    static_cast<double>(spatial_vel[3]),
+    static_cast<double>(spatial_vel[4]),
+    static_cast<double>(spatial_vel[5])};
   const double normal_speed = n_true[0]*vc[0] + n_true[1]*vc[1] + n_true[2]*vc[2];
   const double vt[3] = {
     vc[0] - n_true[0]*normal_speed, vc[1] - n_true[1]*normal_speed,

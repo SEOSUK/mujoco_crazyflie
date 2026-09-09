@@ -164,10 +164,11 @@ public:
       cylinder_rgba_ = {0.75, 0.93, 0.75, 0.25};
     }
     cylinder_belt_rgba_ = this->declare_parameter<std::vector<double>>(
-      "cylinder_belt.rgba", std::vector<double>{0.30, 0.78, 0.48, 0.35});
+      "cylinder_belt.rgba", std::vector<double>{0.30, 0.78, 0.48, 0.45});
     if (cylinder_belt_rgba_.size() != 4) {
-      cylinder_belt_rgba_ = {0.30, 0.78, 0.48, 0.35};
+      cylinder_belt_rgba_ = {0.30, 0.78, 0.48, 0.45};
     }
+    cylinder_belt_thickness_ = this->declare_parameter<double>("cylinder_belt.thickness", 0.02);
     wall_pos_x_ = this->declare_parameter<double>("wall.pos.x", 0.5);
     wall_pos_y_ = this->declare_parameter<double>("wall.pos.y", 0.0);
     wall_pos_z_ = this->declare_parameter<double>("wall.pos.z", 1.0);
@@ -1125,15 +1126,78 @@ private:
           Eigen::Vector3d(cx + radius * std::cos(a0), cy + radius * std::sin(a0), z1));
       }
     };
-    append_cylinder(1.0, 1.0, 0.42);
-    append_cylinder(1.0, -1.0, 0.84);
+    auto append_cylinder_rims = [&mk, this, z0, z1](
+      double cx, double cy, double outer_radius, double inner_radius)
+      {
+        for (int i = 0; i < segments; ++i) {
+          const double a0 = 2.0 * M_PI * static_cast<double>(i) / segments;
+          const double a1 = 2.0 * M_PI * static_cast<double>(i + 1) / segments;
+          const Eigen::Vector3d outer0_top(
+            cx + outer_radius * std::cos(a0), cy + outer_radius * std::sin(a0), z1);
+          const Eigen::Vector3d outer1_top(
+            cx + outer_radius * std::cos(a1), cy + outer_radius * std::sin(a1), z1);
+          const Eigen::Vector3d inner1_top(
+            cx + inner_radius * std::cos(a1), cy + inner_radius * std::sin(a1), z1);
+          const Eigen::Vector3d inner0_top(
+            cx + inner_radius * std::cos(a0), cy + inner_radius * std::sin(a0), z1);
+          appendDoubleSidedQuad(mk, outer0_top, outer1_top, inner1_top, inner0_top);
+          appendDoubleSidedQuad(
+            mk,
+            Eigen::Vector3d(outer0_top.x(), outer0_top.y(), z0),
+            Eigen::Vector3d(inner0_top.x(), inner0_top.y(), z0),
+            Eigen::Vector3d(inner1_top.x(), inner1_top.y(), z0),
+            Eigen::Vector3d(outer1_top.x(), outer1_top.y(), z0));
+        }
+      };
+    constexpr double upper_radius = 0.42;
+    constexpr double lower_radius = 0.84;
+    const double thickness = std::clamp(
+      cylinder_belt_thickness_, 0.0, upper_radius - 1.0e-4);
+    append_cylinder(1.0, 1.0, upper_radius);
+    append_cylinder(1.0, -1.0, lower_radius);
+    if (thickness > 0.0) {
+      append_cylinder(1.0, 1.0, upper_radius - thickness);
+      append_cylinder(1.0, -1.0, lower_radius - thickness);
+      append_cylinder_rims(1.0, 1.0, upper_radius, upper_radius - thickness);
+      append_cylinder_rims(1.0, -1.0, lower_radius, lower_radius - thickness);
+    }
 
-    appendDoubleSidedQuad(
-      mk, Eigen::Vector3d(1.410635, 1.0882, z0), Eigen::Vector3d(1.821269, -0.8236, z0),
-      Eigen::Vector3d(1.821269, -0.8236, z1), Eigen::Vector3d(1.410635, 1.0882, z1));
-    appendDoubleSidedQuad(
-      mk, Eigen::Vector3d(0.589365, 1.0882, z0), Eigen::Vector3d(0.178731, -0.8236, z0),
-      Eigen::Vector3d(0.178731, -0.8236, z1), Eigen::Vector3d(0.589365, 1.0882, z1));
+    auto append_plane = [&mk, this, z0, z1](
+      const Eigen::Vector2d & p0, const Eigen::Vector2d & p1)
+      {
+      appendDoubleSidedQuad(
+        mk, Eigen::Vector3d(p0.x(), p0.y(), z0), Eigen::Vector3d(p1.x(), p1.y(), z0),
+        Eigen::Vector3d(p1.x(), p1.y(), z1), Eigen::Vector3d(p0.x(), p0.y(), z1));
+    };
+    auto append_plane_with_inner_face = [&append_plane, &mk, this, thickness, z0, z1](
+      const Eigen::Vector2d & p0, const Eigen::Vector2d & p1)
+      {
+        append_plane(p0, p1);
+        if (thickness <= 0.0) {
+          return;
+        }
+        const Eigen::Vector2d midpoint = 0.5 * (p0 + p1);
+        Eigen::Vector2d inward(-(p1 - p0).y(), (p1 - p0).x());
+        inward.normalize();
+        if (inward.dot(Eigen::Vector2d(1.0, 0.0) - midpoint) < 0.0) {
+          inward = -inward;
+        }
+        const Eigen::Vector2d inner0 = p0 + thickness * inward;
+        const Eigen::Vector2d inner1 = p1 + thickness * inward;
+        append_plane(inner0, inner1);
+        appendDoubleSidedQuad(
+          mk, Eigen::Vector3d(p0.x(), p0.y(), z1), Eigen::Vector3d(p1.x(), p1.y(), z1),
+          Eigen::Vector3d(inner1.x(), inner1.y(), z1),
+          Eigen::Vector3d(inner0.x(), inner0.y(), z1));
+        appendDoubleSidedQuad(
+          mk, Eigen::Vector3d(p0.x(), p0.y(), z0), Eigen::Vector3d(inner0.x(), inner0.y(), z0),
+          Eigen::Vector3d(inner1.x(), inner1.y(), z0),
+          Eigen::Vector3d(p1.x(), p1.y(), z0));
+      };
+    append_plane_with_inner_face(
+      Eigen::Vector2d(1.410635, 1.0882), Eigen::Vector2d(1.821269, -0.8236));
+    append_plane_with_inner_face(
+      Eigen::Vector2d(0.589365, 1.0882), Eigen::Vector2d(0.178731, -0.8236));
     return mk;
   }
 
@@ -2585,7 +2649,8 @@ private:
   double cylinder_radius_{1.0};
   double cylinder_half_height_{10.0};
   std::vector<double> cylinder_rgba_{0.75, 0.93, 0.75, 0.85};
-  std::vector<double> cylinder_belt_rgba_{0.30, 0.78, 0.48, 0.35};
+  std::vector<double> cylinder_belt_rgba_{0.30, 0.78, 0.48, 0.45};
+  double cylinder_belt_thickness_{0.02};
   double wall_pos_x_{0.5};
   double wall_pos_y_{0.0};
   double wall_pos_z_{1.0};
